@@ -48,6 +48,11 @@ try {
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1150, deviceScaleFactor: 1, mobile: false });
   await cdp('Page.navigate', { url: 'http://127.0.0.1:8898/task/?id=10' });
   await until(() => evaluate(`Array.from(document.querySelectorAll('a')).some(a => a.textContent === 'Visualize result')`));
+  const latticeDisplay = await until(() => evaluate(`(() => {
+    const text = document.body.innerText;
+    if (!text.includes('a = b = c') || !text.includes('a = b') || !text.includes('±')) return null;
+    return { cubicEquality: true, hexagonalEquality: true, esd: true };
+  })()`));
   await evaluate(`Array.from(document.querySelectorAll('a')).find(a => a.textContent === 'Visualize result').click()`);
   await until(() => evaluate(`document.querySelector('.ant-modal-title')?.textContent.includes('Candidate 1')`));
   await until(() => evaluate(`!!document.querySelector('.js-plotly-plot')?._fullLayout`));
@@ -85,7 +90,7 @@ try {
   await clickPhase('Calcite'); await until(async () => (await readPlot()).rows === 0);
   const collapsed = await readPlot(); assert.deepEqual(collapsed.range, initial.range);
   await writeFile(path.join(output, 'closed-phases.png'), Buffer.from((await cdp('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
-  console.log(JSON.stringify({ initial, expanded, hidden, collapsed, errors, output }, null, 2));
+  console.log(JSON.stringify({ latticeDisplay, initial, expanded, hidden, collapsed, errors, output }, null, 2));
 } finally {
   socket?.close();
   chrome.kill();

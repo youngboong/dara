@@ -7,6 +7,7 @@ import Loadable from 'react-loadable'
 import parse from 'html-react-parser';
 import {STATE_COLOR} from './results';
 import { buildRefinementView, isTraceSelected, legendKey } from '../components/refinementPlotState.mjs';
+import { formatParameterWithEsd, latticeParameterRows } from '../components/latticeParameters.mjs';
 
 const { Text } = Typography;
 
@@ -410,9 +411,8 @@ function SearchSummary({ summary = {} }) {
 }
 
 function parameterText(name, parameter) {
-  if (!parameter) return null;
-  const uncertainty = parameter.esd == null ? '' : ` ± ${Number(parameter.esd).toPrecision(2)}`;
-  return `${name}=${Number(parameter.value).toFixed(5)}${uncertainty} ${parameter.unit}`;
+  const value = formatParameterWithEsd(parameter);
+  return value ? `${name} = ${value}` : null;
 }
 
 function PhaseRefinementTable({ phases = [], metadata = {}, details = {} }) {
@@ -423,10 +423,20 @@ function PhaseRefinementTable({ phases = [], metadata = {}, details = {} }) {
         render: phase => <PhaseIdentity reference={phase} metadata={metadata?.[phase]} /> },
       { title: <Tooltip title="Normalized over modeled crystalline phases; amorphous and unidentified material are excluded."><span>Quantity</span></Tooltip>,
         render: (_, row) => row.weight_percent == null ? 'Unavailable' : <span>{Number(row.weight_percent).toFixed(2)} wt%{row.weight_esd_percent == null ? '' : ` ± ${Number(row.weight_esd_percent).toFixed(2)}`}</span> },
-      { title: 'Lattice parameters', width: 350,
+      { title: <Tooltip title="± values are BGMN estimated standard deviations. Equalities and fixed angles are imposed by the reported space group, not independently refined."><span>Lattice parameters</span></Tooltip>, width: 420,
         render: (_, row) => {
-          const values = Object.entries(row.lattice_parameters || {}).map(([name, value]) => parameterText(name, value)).filter(Boolean);
-          return values.length ? values.join('; ') : 'Unavailable';
+          const spaceGroup = metadata?.[row.phase]?.spacegroup_number;
+          const values = latticeParameterRows(row.lattice_parameters || {}, spaceGroup);
+          return values.length ? <Space direction="vertical" size={1}>
+            {values.map((value, index) => <span key={`${value.label}-${index}`}>
+              {parameterText(value.label, value.parameter)}
+              {value.constrained ? <Tooltip title={value.fixed
+                ? 'Fixed by space-group symmetry; this was not an independently refined parameter.'
+                : 'The additional axis value is constrained equal by space-group symmetry.'}>
+                <Tag style={{ marginLeft: 6 }} color="default">constrained</Tag>
+              </Tooltip> : null}
+            </span>)}
+          </Space> : 'Unavailable';
         } },
       { title: 'Density', render: (_, row) => row.xray_density == null ? 'Unavailable' : `${Number(row.xray_density).toFixed(3)} g/cm³` },
       { title: 'Rphase', render: (_, row) => row.rphase == null ? 'Unavailable' : `${Number(row.rphase).toFixed(2)}%` },
