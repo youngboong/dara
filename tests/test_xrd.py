@@ -5,7 +5,15 @@ from pathlib import Path
 
 import numpy as np
 
-from dara.xrd import RASXFile, get_xrdml_data, load_raw, rasx2xy
+from dara.xrd import (
+    RASXFile,
+    get_xrdml_data,
+    get_xrdml_metadata,
+    load_raw,
+    load_xrdml,
+    rasx2xy,
+    recommend_xrdml_instrument_profile,
+)
 
 
 def test_xrdml_accepts_legacy_intensities_tag():
@@ -28,6 +36,61 @@ def test_xrdml_accepts_legacy_intensities_tag():
 
     np.testing.assert_allclose(angles, [20.0, 20.5, 21.0])
     np.testing.assert_allclose(intensities, [10.0, 20.0, 30.0])
+
+
+def test_xrdml_metadata_recommends_aeris_profile():
+    path = (
+        Path(__file__).parents[1]
+        / "dataset"
+        / "binary_reactions"
+        / "NH4H2PO4-Na2CO3_200C_60min.xrdml"
+    )
+
+    metadata = get_xrdml_metadata(load_xrdml(path))
+    suggestion = recommend_xrdml_instrument_profile(metadata)
+
+    assert metadata["instrument_control_software"] == "AERIS"
+    assert metadata["detector"] == "PIXcel1D-Medipix3 detector"
+    assert metadata["radiation"] == "Cu"
+    assert metadata["data_points"] > 100
+    assert suggestion == {
+        "profile": "Aeris-fds-Pixcel1d-Medipix3",
+        "confidence": "high",
+        "reason": "Aeris and PIXcel1D/Medipix3 metadata match the bundled profile.",
+    }
+
+
+def test_legacy_xpert_xrdml_recommends_xcelerator_profile():
+    document = {
+        "xrdMeasurements": {
+            "comment": {"entry": "Diffractometer system=XPERT-PRO"},
+            "xrdMeasurement": {
+                "usedWavelength": {"kAlpha1": "1.54056"},
+                "incidentBeamPath": {
+                    "xRayTube": {"anodeMaterial": "Cu", "@name": "PW3373/10 Cu LFF"},
+                },
+                "diffractedBeamPath": {
+                    "detector": {"@name": "X'Celerator"},
+                },
+                "scan": {
+                    "header": {"source": {"instrumentControlSoftware": "XPERT-PRO"}},
+                    "dataPoints": {
+                        "positions": [{"startPosition": "20", "endPosition": "80"}],
+                        "intensities": "1 2 3",
+                    },
+                },
+            },
+        },
+    }
+
+    metadata = get_xrdml_metadata(document)
+    suggestion = recommend_xrdml_instrument_profile(metadata)
+
+    assert metadata["instrument_system"] == "XPERT-PRO"
+    assert metadata["detector"] == "X'Celerator"
+    assert metadata["radiation"] == "Cu"
+    assert suggestion["profile"] == "PW3040-FDS-ADS-Xcelerator"
+    assert suggestion["confidence"] == "medium"
 
 
 def test_bruker_raw_v2_load(tmp_path):

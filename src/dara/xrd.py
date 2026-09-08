@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 import struct
 import zipfile
 from pathlib import Path
@@ -252,6 +253,181 @@ def get_xrdml_data(xrd_dict: dict) -> tuple[np.ndarray, np.ndarray]:
     intensities = np.array([float(val) for val in intensity_text.split()])
     angles = np.linspace(min_angle, max_angle, len(intensities))
     return angles, intensities
+
+
+def _first_xml_mapping(value) -> dict:
+    """Return the first mapping from an xmltodict mapping-or-list value."""
+    if isinstance(value, list):
+        value = value[0] if value else {}
+    return value if isinstance(value, dict) else {}
+
+
+def _xml_text(value) -> str | None:
+    """Return normalized text from an xmltodict scalar or ``#text`` node."""
+    if isinstance(value, dict):
+        value = value.get("#text")
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _xml_float(value) -> float | None:
+    text = _xml_text(value)
+    if text is None:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def get_xrdml_metadata(xrd_dict: dict) -> dict:
+    """Extract practical instrument metadata from an XRDML document.
+
+    XRDML normally records the instrument family, detector, tube anode,
+    wavelength, and scan range.  These values are useful for suggesting a
+    bundled BGMN profile, but they do not fully describe every slit and optic,
+    so the suggestion must remain user-overridable.
+    """
+    root = _first_xml_mapping(xrd_dict.get("xrdMeasurements"))
+    measurement = _first_xml_mapping(root.get("xrdMeasurement"))
+    scan = _first_xml_mapping(measurement.get("scan"))
+    header = _first_xml_mapping(scan.get("header"))
+    source = _first_xml_mapping(header.get("source"))
+    wavelength = _first_xml_mapping(measurement.get("usedWavelength"))
+    incident = _first_xml_mapping(measurement.get("incidentBeamPath"))
+    diffracted = _first_xml_mapping(measurement.get("diffractedBeamPath"))
+    tube = _first_xml_mapping(incident.get("xRayTube"))
+    detector = _first_xml_mapping(diffracted.get("detector"))
+
+    comments = []
+    for owner in (root, measurement):
+        comment = _first_xml_mapping(owner.get("comment"))
+        entries = comment.get("entry", [])
+        if not isinstance(entries, list):
+            entries = [entries]
+        comments.extend(text for entry in entries if (text := _xml_text(entry)))
+
+    instrument_system = None
+    for comment in comments:
+        match = re.search(r"Diffractometer\s+system\s*=\s*([^,;]+)", comment, re.I)
+        if match:
+            instrument_system = match.group(1).strip()
+            break
+
+    try:
+        angles, intensities = get_xrdml_data(xrd_dict)
+        two_theta_min = float(np.nanmin(angles))
+        two_theta_max = float(np.nanmax(angles))
+        data_points = int(len(intensities))
+    except (KeyError, TypeError, ValueError):
+        two_theta_min = two_theta_max = None
+        data_points = None
+
+    anode = _xml_text(tube.get("anodeMaterial"))
+    k_alpha1 = _xml_float(wavelength.get("kAlpha1"))
+    known_wavelengths = {"Cu": 1.540598, "Co": 1.789010, "Cr": 2.289760, "Fe": 1.936042}
+    radiation = None
+    if anode:
+        radiation = next(
+            (name for name in known_wavelengths if name.lower() == anode.lower()),
+            None,
+        )
+    if radiation is None and k_alpha1 is not None:
+        nearest, distance = min(
+            ((name, abs(value - k_alpha1)) for name, value in known_wavelengths.items()),
+            key=lambda item: item[1],
+        )
+        if distance <= 0.03:
+            radiation = nearest
+
+    return {
+        "instrument_system": instrument_system,
+        "instrument_control_software": _xml_text(source.get("instrumentControlSoftware")),
+        "application_software": _xml_text(source.get("applicationSoftware")),
+        "instrument_id": _xml_text(source.get("instrumentID")),
+        "detector": _xml_text(detector.get("@name")),
+        "detector_type": _xml_text(detector.get("@xsi:type")),
+        "xray_tube": _xml_text(tube.get("@name")),
+        "anode_material": anode,
+        "k_alpha1_angstrom": k_alpha1,
+        "radiation": radiation,
+        "incident_radius_mm": _xml_float(incident.get("radius")),
+        "diffracted_radius_mm": _xml_float(diffracted.get("radius")),
+        "two_theta_min": two_theta_min,
+        "two_theta_max": two_theta_max,
+        "data_points": data_points,
+        "comments": comments,
+    }
+
+
+def recommend_xrdml_instrument_profile(metadata: dict) -> dict | None:
+    """Suggest the closest bundled BGMN profile from XRDML metadata."""
+    searchable = " ".join(
+        str(value)
+        for key, value in metadata.items()
+        if key != "comments" and value is not None
+    )
+    searchable += " " + " ".join(metadata.get("comments") or [])
+    text = searchable.lower().replace("'", "")
+
+    rules = [
+        (
+            lambda: "aeris" in text and ("pixcel1d" in text or "medipix3" in text),
+            "Aeris-fds-Pixcel1d-Medipix3", "high",
+            "Aeris and PIXcel1D/Medipix3 metadata match the bundled profile.",
+        ),
+        (
+            lambda: "smartlab" in text,
+            "Rigaku-SmartLab-CBO-BB-FDS05deg", "high",
+            "Rigaku SmartLab metadata matches the bundled profile family.",
+        ),
+        (
+            lambda: "miniflex 600" in text and ("dtex" in text or "d/tex" in text),
+            "Rigaku-Miniflex-600-DTEXultra2-fds", "high",
+            "MiniFlex 600 and D/teX detector metadata match the bundled profile.",
+        ),
+        (
+            lambda: "miniflex" in text,
+            "Rigaku-Miniflex", "medium",
+            "A Rigaku MiniFlex family instrument was detected; verify the optics.",
+        ),
+        (
+            lambda: "ultima" in text,
+            "rigaku-ultima", "medium",
+            "A Rigaku Ultima family instrument was detected; verify the optics.",
+        ),
+        (
+            lambda: "xpert" in text and "pixcel" in text,
+            "xpert-pixcel-0500", "medium",
+            "X'Pert and PIXcel metadata match the closest bundled profile family.",
+        ),
+        (
+            lambda: "xpert" in text and "xcelerator" in text,
+            "PW3040-FDS-ADS-Xcelerator", "medium",
+            "X'Pert/PW30xx and X'Celerator metadata match the closest bundled profile.",
+        ),
+        (
+            lambda: "d8" in text and ("lynxeyexe" in text or "lynxeye xe" in text),
+            "d8-fds-02-LynxEyeXE", "medium",
+            "Bruker D8 and LYNXEYE XE metadata match the closest bundled profile.",
+        ),
+        (
+            lambda: "d8" in text and "lynxeye" in text,
+            "d8-lynxeye-fds-02", "medium",
+            "Bruker D8 and LYNXEYE metadata match the closest bundled profile.",
+        ),
+        (
+            lambda: "d5000" in text,
+            "siemens-d5000-fds1mm", "medium",
+            "Siemens D5000 metadata match the closest bundled profile family.",
+        ),
+    ]
+    for matches, profile, confidence, reason in rules:
+        if matches():
+            return {"profile": profile, "confidence": confidence, "reason": reason}
+    return None
 
 
 def xrdml2xy(fn: str | Path, target_folder: Path = None) -> Path:

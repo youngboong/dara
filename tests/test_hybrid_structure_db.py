@@ -26,6 +26,23 @@ def make_structure(scale=1.0):
     ])
 
 
+def test_pattern_inspection_returns_xrdml_profile_suggestion():
+    path = (
+        Path(__file__).parents[1]
+        / "dataset"
+        / "binary_reactions"
+        / "NH4H2PO4-Na2CO3_200C_60min.xrdml"
+    )
+    upload = UploadFile(filename=path.name, file=BytesIO(path.read_bytes()))
+
+    result = asyncio.run(api_router.inspect_pattern(upload))
+
+    assert result["format"] == "xrdml"
+    assert result["recommended_wavelength"] == "Cu"
+    assert result["profile_suggestion"]["profile"] == "Aeris-fds-Pixcel1d-Medipix3"
+    assert result["two_theta_min"] < result["two_theta_max"]
+
+
 def test_mp_document_dedup_prefers_experimental_low_energy():
     database = MaterialsProjectDatabase()
     structure = make_structure()

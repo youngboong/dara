@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import Layout from '../components/Layout';
 import { Alert, Button, Form, Input, InputNumber, message, Modal, Radio, Select, Switch, Upload } from 'antd';
@@ -43,9 +43,64 @@ function Submission() {
   const [analysisMode, setAnalysisMode] = useState('elemental');
   const [synchrotron, setSynchrotron] = useState(false);
   const [previousInstrument, setPreviousInstrument] = useState('Aeris-fds-Pixcel1d-Medipix3');
+  const [instrumentNames, setInstrumentNames] = useState(INSTRUMENT_NAMES);
+  const [patternInspection, setPatternInspection] = useState(null);
+  const [inspectingPattern, setInspectingPattern] = useState(false);
+  const inspectionSequence = useRef(0);
   const [msg, setMsg] = useState(null);
   const [messageApi, contextHolder] = message.useMessage();
   const [spinning, setSpinning] = useState(false);
+
+  useEffect(() => {
+    fetch(`${URL}/instrument-profiles`)
+      .then(response => response.ok ? response.json() : Promise.reject(new Error('Profile list unavailable')))
+      .then(data => {
+        if (Array.isArray(data.profiles) && data.profiles.length) setInstrumentNames(data.profiles);
+      })
+      .catch(() => {});
+  }, []);
+
+  const inspectPattern = async info => {
+    const fileValue = info?.fileList?.length ? info.file : null;
+    const file = uploadFile(fileValue);
+    form.setFieldValue('pattern_file', fileValue);
+    const sequence = ++inspectionSequence.current;
+    setPatternInspection(null);
+    if (!file) {
+      setInspectingPattern(false);
+      return;
+    }
+
+    setInspectingPattern(true);
+    const body = new FormData();
+    body.append('pattern_file', file);
+    try {
+      const response = await fetch(`${URL}/pattern/inspect`, { method: 'POST', body });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Could not inspect the pattern.');
+      if (sequence !== inspectionSequence.current) return;
+
+      const suggestion = data.profile_suggestion;
+      const updates = {};
+      if (suggestion?.profile) {
+        updates.instrument_profile = suggestion.profile;
+        setPreviousInstrument(suggestion.profile);
+        setSynchrotron(false);
+        updates.synchrotron = false;
+      }
+      if (data.recommended_wavelength && WAVELENGTHS.some(item => item[0] === data.recommended_wavelength)) {
+        updates.wavelength_lab = data.recommended_wavelength;
+      }
+      form.setFieldsValue(updates);
+      setPatternInspection(data);
+    } catch (error) {
+      if (sequence === inspectionSequence.current) {
+        setPatternInspection({ error: String(error.message || error) });
+      }
+    } finally {
+      if (sequence === inspectionSequence.current) setInspectingPattern(false);
+    }
+  };
 
   const onSubmit = async () => {
     let values;
@@ -118,6 +173,40 @@ function Submission() {
           <Form.Item label="User" name="user" rules={[{ required: true, message: 'Please input your username.' }]}>
             <Input placeholder="Username" />
           </Form.Item>
+          <Form.Item label="XRD pattern" name="pattern_file" rules={[{ required: true, message: 'Please upload an XRD pattern.' }]}
+            extra="XRDML is recommended: its acquisition metadata can select the closest instrument profile and wavelength automatically.">
+            <Dragger maxCount={1} beforeUpload={() => false} onChange={inspectPattern}
+              accept=".xy,.xye,.xrdml,.raw,.rasx,.txt,.scn">
+              <p className="ant-upload-drag-icon"><UploadOutlined /></p>
+              <p className="ant-upload-text">Start by selecting the measured XRD file</p>
+              <p className="ant-upload-hint">xrdml (metadata-aware) / xy(e) / raw / rasx / txt</p>
+            </Dragger>
+          </Form.Item>
+          {inspectingPattern ? (
+            <Alert type="info" showIcon message="Reading pattern and acquisition metadata..." style={{ marginBottom: 20 }} />
+          ) : patternInspection?.error ? (
+            <Alert type="error" showIcon message="Pattern could not be read" description={patternInspection.error} style={{ marginBottom: 20 }} />
+          ) : patternInspection ? (
+            <Alert
+              type={patternInspection.profile_suggestion ? 'success' : 'warning'}
+              showIcon
+              message={patternInspection.profile_suggestion
+                ? `Instrument settings applied: ${patternInspection.profile_suggestion.profile}`
+                : 'Pattern loaded; select the instrument profile manually'}
+              description={[
+                patternInspection.metadata?.instrument_system || patternInspection.metadata?.instrument_control_software,
+                patternInspection.metadata?.detector,
+                patternInspection.recommended_wavelength ? `${patternInspection.recommended_wavelength} radiation` : null,
+                Number.isFinite(patternInspection.two_theta_min) && Number.isFinite(patternInspection.two_theta_max)
+                  ? `2θ ${patternInspection.two_theta_min.toFixed(2)}–${patternInspection.two_theta_max.toFixed(2)}°`
+                  : null,
+                patternInspection.data_points ? `${patternInspection.data_points.toLocaleString()} points` : null,
+                patternInspection.profile_suggestion?.reason,
+                patternInspection.profile_suggestion ? 'Confirm the selection if the actual slit or optical setup was different.' : null,
+              ].filter(Boolean).join(' · ')}
+              style={{ marginBottom: 20 }}
+            />
+          ) : null}
           <Form.Item label="Analysis mode" name="analysis_mode">
             <Radio.Group buttonStyle="solid">
               <Radio.Button value="elemental">Phase identification</Radio.Button>
@@ -165,8 +254,9 @@ function Submission() {
           <Form.Item label="Maximum MP structures" name="max_mp_structures">
             <InputNumber min={1} max={1000} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item label="Instrument profile" name="instrument_profile">
-            <Select showSearch optionFilterProp="label" options={INSTRUMENT_NAMES.map(name => ({ label: name, value: name }))} />
+          <Form.Item label="Instrument profile" name="instrument_profile"
+            tooltip="For XRDML, DARA applies the closest bundled profile from the recorded instrument and detector. Always confirm unusual slit or optic setups.">
+            <Select showSearch optionFilterProp="label" options={instrumentNames.map(name => ({ label: name, value: name }))} />
           </Form.Item>
           <Form.Item label="Synchrotron" name="synchrotron" valuePropName="checked">
             <Switch onChange={checked => {
@@ -188,13 +278,6 @@ function Submission() {
               <Input />
             </Form.Item>
           )}
-          <Form.Item label="XRD pattern" name="pattern_file" rules={[{ required: true, message: 'Please upload an XRD pattern.' }]}>
-            <Dragger maxCount={1} beforeUpload={() => false} onChange={info => form.setFieldValue('pattern_file', info.file)}>
-              <p className="ant-upload-drag-icon"><UploadOutlined /></p>
-              <p className="ant-upload-text">Click or drag an XRD file here</p>
-              <p className="ant-upload-hint">xy(e) / xrdml / raw / rasx / txt</p>
-            </Dragger>
-          </Form.Item>
           <Form.Item label="Additional reference CIFs" name="additional_phases" valuePropName="fileList" getValueFromEvent={event => event?.fileList}>
             <Upload beforeUpload={() => false} multiple accept=".cif">
               <Button icon={<UploadOutlined />}>Select CIF files</Button>

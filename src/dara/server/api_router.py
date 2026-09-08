@@ -32,9 +32,18 @@ from dara.utils import (
     get_compositional_clusters,
     get_head_of_compositional_cluster,
 )
-from dara.xrd import load_pattern
+from dara.xrd import (
+    get_xrdml_metadata,
+    load_pattern,
+    recommend_xrdml_instrument_profile,
+)
 
 router = APIRouter(prefix="/api")
+
+
+def _available_instrument_profiles() -> list[str]:
+    device_dir = Path(__file__).parents[1] / "data" / "BGMN-Templates" / "Devices"
+    return sorted(path.stem for path in device_dir.glob("*.geq"))
 
 
 def _refined_phase_metadata(refinement) -> dict[str, dict]:
@@ -196,6 +205,48 @@ def _parse_string_list(value: str | None) -> list[str]:
     if not isinstance(parsed, (list, tuple, set)):
         raise HTTPException(status_code=400, detail="Expected a comma-separated list")
     return [str(item).strip() for item in parsed if str(item).strip()]
+
+
+@router.get("/instrument-profiles")
+async def instrument_profiles():
+    """Return the instrument profiles actually bundled with this server."""
+    return {"profiles": _available_instrument_profiles()}
+
+
+@router.post("/pattern/inspect")
+async def inspect_pattern(pattern_file: Annotated[UploadFile, File()]):
+    """Validate an uploaded pattern and suggest XRDML acquisition settings."""
+    filename = Path(pattern_file.filename or "pattern").name
+    try:
+        with tempfile.TemporaryDirectory() as pattern_temp_dir:
+            temp_path = Path(pattern_temp_dir) / filename
+            with open(temp_path, "wb") as temp_file:
+                shutil.copyfileobj(pattern_file.file, temp_file)
+            pattern = load_pattern(temp_path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read pattern: {exc}")
+
+    angles = np.asarray(pattern.angles, dtype=float)
+    finite_angles = angles[np.isfinite(angles)]
+    metadata = {}
+    suggestion = None
+    if temp_path.suffix.lower() == ".xrdml" and getattr(pattern, "xrdml_dict", None):
+        metadata = get_xrdml_metadata(pattern.xrdml_dict)
+        suggestion = recommend_xrdml_instrument_profile(metadata)
+        available = set(_available_instrument_profiles())
+        if suggestion and suggestion["profile"] not in available:
+            suggestion = None
+
+    return {
+        "filename": filename,
+        "format": temp_path.suffix.lower().lstrip("."),
+        "two_theta_min": float(finite_angles.min()) if finite_angles.size else None,
+        "two_theta_max": float(finite_angles.max()) if finite_angles.size else None,
+        "data_points": int(angles.size),
+        "metadata": metadata,
+        "profile_suggestion": suggestion,
+        "recommended_wavelength": metadata.get("radiation"),
+    }
 
 
 @router.post("/submit")
