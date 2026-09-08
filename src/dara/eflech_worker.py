@@ -23,6 +23,11 @@ from dara.xrd import convert_pattern_to_xy
 
 logger = get_logger(__name__)
 
+# EFLECH's search cost grows very quickly when TEIL leaves one broad interval.
+# A range below half of a wide scan can still be pathological (for example,
+# 28.8--68.4 degrees in a 9.9--100.1 degree scan took longer than 30 minutes).
+MAX_EFLECH_PARTIAL_RANGE_DEGREES = 20.0
+
 
 class EflechWorker:
     """Functionality for running peak detection using BGMN's eflech and teil executables."""
@@ -108,13 +113,8 @@ class EflechWorker:
             two_theta_range = xy_content[-1, 0] - xy_content[0, 0]
 
             # if teil cannot find a good split of the pattern, we will try to split it manually
-            if (
-                not all_wmin2
-                or not all_wmax2
-                or any(
-                    wmax - wmin > 0.5 * two_theta_range
-                    for wmin, wmax in zip(all_wmin2, all_wmax2)
-                )
+            if self._teil_ranges_need_patch(
+                all_wmin2, all_wmax2, two_theta_range
             ):
                 warnings.warn(
                     "teil cannot find a good split of the pattern. Trying to split it with dara-teil."
@@ -130,6 +130,27 @@ class EflechWorker:
             )
 
             return self.parse_peak_list(temp_dir, wavelength=wavelength)
+
+    @staticmethod
+    def _teil_ranges_need_patch(
+        all_wmin2: list[float],
+        all_wmax2: list[float],
+        two_theta_range: float,
+    ) -> bool:
+        """Return whether TEIL produced missing, invalid, or overly broad ranges."""
+        if not all_wmin2 or len(all_wmin2) != len(all_wmax2):
+            return True
+
+        max_allowed_width = min(
+            MAX_EFLECH_PARTIAL_RANGE_DEGREES, 0.5 * two_theta_range
+        )
+        return any(
+            not np.isfinite(wmin)
+            or not np.isfinite(wmax)
+            or wmax <= wmin
+            or wmax - wmin > max_allowed_width
+            for wmin, wmax in zip(all_wmin2, all_wmax2)
+        )
 
     @staticmethod
     def generate_control_file(

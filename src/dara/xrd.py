@@ -104,7 +104,7 @@ class XRDData(MSONable):
 
 
 class RawFile(XRDData):
-    """Load Rigaku RAW file data format."""
+    """Load supported binary RAW powder-diffraction data formats."""
 
     def __init__(self, angles, intensities, binary_data: bytes | None = None):
         super().__init__(angles, intensities)
@@ -226,21 +226,30 @@ def load_xrdml(file: Path) -> dict:
 
 def get_xrdml_data(xrd_dict: dict) -> tuple[np.ndarray, np.ndarray]:
     """Get angles and intensities from an XRDML dictionary."""
+    data_points = xrd_dict["xrdMeasurements"]["xrdMeasurement"]["scan"][
+        "dataPoints"
+    ]
     min_angle = float(
-        xrd_dict["xrdMeasurements"]["xrdMeasurement"]["scan"]["dataPoints"][
-            "positions"
-        ][0]["startPosition"]
+        data_points["positions"][0]["startPosition"]
     )
     max_angle = float(
-        xrd_dict["xrdMeasurements"]["xrdMeasurement"]["scan"]["dataPoints"][
-            "positions"
-        ][0]["endPosition"]
+        data_points["positions"][0]["endPosition"]
     )
 
-    intensities = xrd_dict["xrdMeasurements"]["xrdMeasurement"]["scan"]["dataPoints"][
-        "counts"
-    ]["#text"]
-    intensities = np.array([float(val) for val in intensities.split()])
+    # XRDML producers use either <counts> (newer Data Collector exports) or
+    # <intensities> (including older X'Pert Data Collector files). Both contain
+    # the same whitespace-separated observed intensity series.
+    intensity_data = data_points.get("counts", data_points.get("intensities"))
+    if intensity_data is None:
+        raise ValueError("XRDML dataPoints contains neither counts nor intensities")
+    intensity_text = (
+        intensity_data.get("#text")
+        if isinstance(intensity_data, dict)
+        else intensity_data
+    )
+    if not intensity_text:
+        raise ValueError("XRDML intensity data is empty")
+    intensities = np.array([float(val) for val in intensity_text.split()])
     angles = np.linspace(min_angle, max_angle, len(intensities))
     return angles, intensities
 
@@ -258,18 +267,77 @@ def xrdml2xy(fn: str | Path, target_folder: Path = None) -> Path:
 
 def hex2float(hex_string: bytes) -> float:
     # Assuming hex_string is a bytes object representing a float in hex
-    return struct.unpack("f", hex_string)[0]
+    return struct.unpack("<f", hex_string)[0]
 
 
 def hex2int(hex_string: bytes) -> int:
     # Assuming hex_string is a bytes object representing an int in hex
-    return struct.unpack("i", hex_string)[0]
+    return struct.unpack("<i", hex_string)[0]
+
+
+def _load_bruker_raw_v2(content: bytes) -> tuple[np.ndarray, np.ndarray]:
+    """Read Siemens/Bruker DIFFRAC-AT RAW version 2 scan ranges."""
+    if len(content) < 256:
+        raise ValueError("Bruker RAW2 file is shorter than its 256-byte header")
+
+    range_count = struct.unpack_from("<H", content, 4)[0]
+    if range_count < 1:
+        raise ValueError("Bruker RAW2 file contains no scan ranges")
+
+    offset = 256
+    angle_ranges = []
+    intensity_ranges = []
+    for range_index in range(range_count):
+        if offset + 48 > len(content):
+            raise ValueError(f"Bruker RAW2 range {range_index + 1} header is truncated")
+
+        header_length, point_count = struct.unpack_from("<HH", content, offset)
+        if header_length < 48:
+            raise ValueError(
+                f"Bruker RAW2 range {range_index + 1} has invalid header length "
+                f"{header_length}"
+            )
+        if point_count < 1:
+            raise ValueError(f"Bruker RAW2 range {range_index + 1} has no data points")
+
+        step_size = struct.unpack_from("<f", content, offset + 12)[0]
+        start_angle = struct.unpack_from("<f", content, offset + 16)[0]
+        data_offset = offset + header_length
+        data_end = data_offset + point_count * 4
+        if data_end > len(content):
+            available = max((len(content) - data_offset) // 4, 0)
+            raise ValueError(
+                f"Bruker RAW2 range {range_index + 1} declares {point_count} points "
+                f"but only {available} are available"
+            )
+
+        angles = start_angle + np.arange(point_count, dtype=float) * step_size
+        intensities = np.frombuffer(
+            content, dtype="<f4", count=point_count, offset=data_offset
+        ).astype(float)
+        angle_ranges.append(angles)
+        intensity_ranges.append(intensities)
+        offset = data_end
+
+    return np.concatenate(angle_ranges), np.concatenate(intensity_ranges)
 
 
 def load_raw(file: Path | str) -> tuple[tuple[np.ndarray, np.ndarray], bytes]:
     """Convert raw file to xy data."""
     with open(file, "rb") as f:
         content = f.read()
+
+    if content.startswith(b"RAW2"):
+        return _load_bruker_raw_v2(content), content
+    if content.startswith((b"RAW1", b"RAW4", b"RAW ")):
+        signature = content[:7].decode("ascii", errors="replace").rstrip("\x00")
+        raise ValueError(
+            f"Bruker {signature} is recognized but not yet supported; "
+            "export the scan as XY or XYE"
+        )
+
+    if len(content) < 3158:
+        raise ValueError("Unsupported or truncated RAW diffraction file")
     size_float = 4  # Assuming 4 bytes for a float
     size_int = 4  # Assuming 4 bytes for an int
 

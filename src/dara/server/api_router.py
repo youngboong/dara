@@ -1,24 +1,33 @@
 from __future__ import annotations
 
+import csv
+import json
 import os
+import re
+import shutil
 import tempfile
+import zipfile
 from ast import literal_eval
+from io import BytesIO, StringIO
 from pathlib import Path
 from traceback import print_exc
 from typing import Annotated, Optional
 
+import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from monty.serialization import MontyDecoder
-from pymatgen.core import Composition
+from pymatgen.core import Composition, Element
+from pymatgen.symmetry.groups import SpaceGroup
 
 from dara.cif import Cif
 from dara.jobs import PhaseSearchMaker
-from dara.plot import visualize
+from dara.plot import peaks_in_fit_range, visualize
 from dara.server.utils import convert_to_local_tz, get_result_store, get_worker_store
 from dara.server.worker import (
     add_job_to_queue,
 )
-from dara.structure_db import CODDatabase
+from dara.structure_db import CODDatabase, MaterialsProjectDatabase
 from dara.utils import (
     get_compositional_clusters,
     get_head_of_compositional_cluster,
@@ -28,33 +37,206 @@ from dara.xrd import load_pattern
 router = APIRouter(prefix="/api")
 
 
+def _refined_phase_metadata(refinement) -> dict[str, dict]:
+    """Return user-facing crystallographic labels for refined phases."""
+    metadata = {}
+    for phase_name, phase_result in refinement.lst_data.phases_results.items():
+        spacegroup_number = phase_result.spacegroup_no
+        try:
+            spacegroup_symbol = SpaceGroup.from_int_number(spacegroup_number).symbol
+        except (TypeError, ValueError):
+            spacegroup_symbol = phase_result.hermann_mauguin
+        metadata[phase_name] = {
+            "spacegroup_number": spacegroup_number,
+            "spacegroup_symbol": spacegroup_symbol,
+        }
+    return metadata
+
+
+def _value_and_esd(value) -> tuple[float | None, float | None]:
+    """Return a BGMN value and its estimated standard deviation, when present."""
+    if isinstance(value, (tuple, list)) and len(value) == 2:
+        return float(value[0]), float(value[1])
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return float(value), None
+    return None, None
+
+
+def _fit_quality(refinement) -> dict:
+    """Expose refinement statistics without inventing unavailable metrics."""
+    fit = refinement.lst_data
+    rexp = fit.rexp
+    gof = fit.rwp / rexp if rexp else None
+    angles = np.asarray(refinement.plot_data.x, dtype=float)
+    angles = angles[np.isfinite(angles)]
+    return {
+        "rp": fit.rp,
+        "rpb": fit.rpb,
+        "r": fit.r,
+        "rwp": fit.rwp,
+        "rexp": rexp,
+        "gof": gof,
+        "chi_squared": gof**2 if gof is not None else None,
+        "durbin_watson": fit.d,
+        "one_minus_rho": fit.rho,
+        "iterations": fit.num_steps,
+        "two_theta_min": float(angles.min()) if angles.size else None,
+        "two_theta_max": float(angles.max()) if angles.size else None,
+        "data_points": int(angles.size),
+    }
+
+
+def _quantitative_phase_details(refinement) -> dict[str, dict]:
+    """Return normalized phase fractions and propagated BGMN e.s.d. values."""
+    raw = {
+        name: _value_and_esd(phase.gewicht)
+        for name, phase in refinement.lst_data.phases_results.items()
+    }
+    total = sum(value for value, _ in raw.values() if value is not None)
+    if not total:
+        return {}
+
+    all_have_esd = all(error is not None for _, error in raw.values())
+    details = {}
+    for name, (value, error) in raw.items():
+        if value is None:
+            continue
+        normalized_error = None
+        if all_have_esd:
+            variance = (((total - value) / total**2) * error) ** 2
+            variance += sum(
+                ((value / total**2) * other_error) ** 2
+                for other_name, (_, other_error) in raw.items()
+                if other_name != name
+            )
+            normalized_error = variance**0.5 * 100
+        details[name] = {
+            "weight_percent": value / total * 100,
+            "weight_esd_percent": normalized_error,
+        }
+    return details
+
+
+def _phase_refinement_details(refinement) -> dict[str, dict]:
+    """Return crystallographic and profile values available in the BGMN output."""
+    quantitative = _quantitative_phase_details(refinement)
+    output = {}
+    for name, phase in refinement.lst_data.phases_results.items():
+        bgmn_unit = str(getattr(phase, "unit", "NM"))
+        lattice = {}
+        for key in ("a", "b", "c", "alpha", "beta", "gamma"):
+            value, esd = _value_and_esd(getattr(phase, key, None))
+            if value is None:
+                continue
+            unit = "deg" if key in {"alpha", "beta", "gamma"} else "Å"
+            factor = 1 if unit == "deg" or bgmn_unit.upper() != "NM" else 10
+            lattice[key] = {
+                "value": value * factor,
+                "esd": esd * factor if esd is not None else None,
+                "unit": unit,
+            }
+
+        grain_sizes = []
+        for key, raw_value in (phase.model_extra or {}).items():
+            if not key.lower().startswith("grainsize"):
+                continue
+            value, esd = _value_and_esd(raw_value)
+            if value is not None:
+                grain_sizes.append({
+                    "direction": key,
+                    "value": value,
+                    "esd": esd,
+                    "unit": "nm" if bgmn_unit.upper() == "NM" else bgmn_unit,
+                })
+
+        output[name] = {
+            **quantitative.get(name, {}),
+            "lattice_parameters": lattice,
+            "xray_density": phase.xray_density,
+            "rphase": phase.rphase,
+            "grain_sizes": grain_sizes,
+        }
+    return output
+
+
+def _peak_diagnostics(refinement, missing=None, extra=None, mismatch=None) -> dict:
+    """Return candidate diagnostic arrays and their display counts."""
+    metrics = getattr(refinement, "refinement_metrics", None)
+    if metrics is not None:
+        missing = metrics.missing_peaks
+        extra = metrics.extra_peaks
+        mismatch = metrics.intensity_mismatch_peaks
+
+    def as_list(value):
+        if value is None:
+            return None
+        return peaks_in_fit_range(value, refinement.plot_data.x).tolist()
+
+    values = {
+        "missing": as_list(missing),
+        "extra": as_list(extra),
+        "intensity_mismatch": as_list(mismatch),
+    }
+    return {
+        **values,
+        "counts": {key: len(value or []) for key, value in values.items()},
+    }
+
+
+def _parse_string_list(value: str | None) -> list[str]:
+    """Accept JSON/Python lists or a comma-separated string from old clients."""
+    if not value:
+        return []
+    try:
+        parsed = literal_eval(value)
+    except (ValueError, SyntaxError):
+        parsed = value.split(",")
+    if isinstance(parsed, str):
+        parsed = parsed.split(",")
+    if not isinstance(parsed, (list, tuple, set)):
+        raise HTTPException(status_code=400, detail="Expected a comma-separated list")
+    return [str(item).strip() for item in parsed if str(item).strip()]
+
+
 @router.post("/submit")
 async def submit(
     pattern_file: Annotated[UploadFile, File()],
-    precursor_formulas: Annotated[str, Form()],
     user: Annotated[str, Form()],
+    precursor_formulas: Annotated[str, Form()] = "[]",
+    elements: Annotated[str, Form()] = "[]",
+    analysis_mode: Annotated[str, Form()] = "",
     instrument_profile: Annotated[str, Form()] = "Aeris-fds-Pixcel1d-Medipix3",
     wavelength: Annotated[str, Form()] = "Cu",
     temperature: Annotated[int, Form()] = -1,
-    use_rxn_predictor: Annotated[bool, Form()] = True,
+    atmosphere: Annotated[str, Form()] = "air",
+    use_cod: Annotated[bool, Form()] = True,
+    use_mp: Annotated[bool, Form()] = True,
+    mp_e_hull_cutoff: Annotated[float, Form()] = 0.05,
+    max_mp_structures: Annotated[int, Form()] = 100,
+    use_rxn_predictor: Annotated[Optional[bool], Form()] = None,
     additional_phases: Annotated[list[UploadFile], File()] = None,
 ):
     try:
         name = pattern_file.filename
-        with tempfile.NamedTemporaryFile() as temp:
-            temp.write(pattern_file.file.read())
-            temp.seek(0)
+        with tempfile.TemporaryDirectory() as pattern_temp_dir:
+            temp_path = Path(pattern_temp_dir) / Path(name).name
+            with open(temp_path, "wb") as temp_file:
+                shutil.copyfileobj(pattern_file.file, temp_file)
             try:
-                # Use the original filename's extension to detect format,
-                # since the temp file has no meaningful extension.
-                temp_path = Path(temp.name).parent / name
-                import shutil
-                shutil.copy2(temp.name, temp_path)
                 pattern = load_pattern(temp_path)
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid file format")
 
-        precursor_formulas = literal_eval(precursor_formulas)
+        precursor_formulas = _parse_string_list(precursor_formulas)
+        elements = _parse_string_list(elements)
+
+        # Compatibility with the original web/API contract.
+        if not analysis_mode:
+            analysis_mode = "reaction" if use_rxn_predictor else "elemental"
+            if analysis_mode == "elemental" and not elements:
+                elements, precursor_formulas = precursor_formulas, []
+        if analysis_mode not in {"reaction", "elemental", "known_mixture"}:
+            raise HTTPException(status_code=400, detail="Invalid analysis mode")
 
         if additional_phases:
             additional_cifs = []
@@ -77,62 +259,104 @@ async def submit(
             [Composition(p) for p in precursor_formulas]
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid precursor formulas")
+        try:
+            elements = sorted({str(Element(element)) for element in elements})
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid element symbols")
+
+        if not elements and precursor_formulas:
+            elements = sorted(
+                {
+                    str(element)
+                    for formula in precursor_formulas
+                    for element in Composition(formula).elements
+                }
+            )
+
+        if analysis_mode in {"reaction", "known_mixture"} and not precursor_formulas:
+            raise HTTPException(
+                status_code=400,
+                detail="This analysis mode requires precursor/known-phase formulas",
+            )
+        if analysis_mode == "elemental" and not elements:
+            raise HTTPException(status_code=400, detail="Elemental mode requires elements")
+        if not 0 <= mp_e_hull_cutoff <= 1:
+            raise HTTPException(status_code=400, detail="MP E-hull cutoff must be 0 to 1 eV/atom")
+        if not 1 <= max_mp_structures <= 1000:
+            raise HTTPException(status_code=400, detail="MP structure limit must be 1 to 1000")
 
         try:
             wavelength = float(wavelength)
         except ValueError:
             pass
 
-        if use_rxn_predictor:
+        cif_dbs = []
+        if use_cod:
+            cif_dbs.append(CODDatabase())
+        if use_mp:
             try:
                 import mp_api  # noqa: F401
             except ImportError:
                 raise HTTPException(
                     status_code=400,
-                    detail="Reaction predictor is not available. Please install mp_api.",
+                    detail="Materials Project support is unavailable. Please install mp_api.",
                 )
             if not os.environ.get("MP_API_KEY"):
                 raise HTTPException(
                     status_code=400,
-                    detail="MP_API_KEY is not set. You need to `export MP_API_KEY=your_key` in "
-                    "your terminal before launching the server to use reaction predictor.",
+                    detail="MP_API_KEY is not set in the server environment.",
                 )
-            if temperature < -273:
+            cif_dbs.append(
+                MaterialsProjectDatabase(
+                    max_structures=max_mp_structures,
+                    e_hull_filter=mp_e_hull_cutoff,
+                )
+            )
+        if not cif_dbs and not additional_cifs:
+            raise HTTPException(status_code=400, detail="Select COD, MP, or upload reference CIFs")
+
+        search_kwargs = {
+            "instrument_profile": instrument_profile,
+            "wavelength": wavelength,
+        }
+        if analysis_mode == "known_mixture":
+            search_kwargs["max_phases"] = min(len(precursor_formulas), 5)
+        maker_kwargs = {
+            "xrd_data": pattern,
+            "precursors": precursor_formulas,
+            "elements": elements,
+            "analysis_mode": analysis_mode,
+            "database_e_hull_filter": mp_e_hull_cutoff,
+            "cif_dbs": cif_dbs,
+            "additional_cifs": additional_cifs,
+            "additional_cif_params": {"lattice_range": 0.05},
+            "search_kwargs": search_kwargs,
+        }
+
+        if analysis_mode == "reaction":
+            if not use_mp:
                 raise HTTPException(
                     status_code=400,
-                    detail="Temperature should be >= -273 when using reaction predictor",
+                    detail="Reaction mode requires Materials Project",
                 )
+            if temperature < 27 or temperature > 1727:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Reaction temperature must be between 27 and 1727 °C",
+                )
+            open_element = {"air": "O_air", "oxygen": "O"}.get(atmosphere)
             job = PhaseSearchMaker(name=name, verbose=False, max_num_results=5).make(
-                pattern,
-                precursors=precursor_formulas,
-                predict_kwargs={"temp": temperature + 273},
-                cif_dbs=[CODDatabase()],
-                additional_cifs=additional_cifs,
-                additional_cif_params={"lattice_range": 0.05},
-                search_kwargs={
-                    "instrument_profile": instrument_profile,
-                    "wavelength": wavelength,
+                predict_kwargs={
+                    "temp": temperature + 273,
+                    "open_elem": open_element,
+                    "e_hull_cutoff": mp_e_hull_cutoff,
                 },
+                **maker_kwargs,
             )
         else:
-            if temperature >= -273:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Temperature is not required when not using reaction predictor",
-                )
             job = PhaseSearchMaker(
                 name=name, verbose=False, phase_predictor=None, max_num_results=5
-            ).make(
-                pattern,
-                precursors=precursor_formulas,
-                cif_dbs=[CODDatabase()],
-                additional_cifs=additional_cifs,
-                additional_cif_params={"lattice_range": 0.05},
-                search_kwargs={
-                    "instrument_profile": instrument_profile,
-                    "wavelength": wavelength,
-                },
-            )
+            ).make(**maker_kwargs)
         job_index = add_job_to_queue(job, user=user)
         return {"message": "submitted", "wf_id": job_index}
     except Exception as e:
@@ -197,12 +421,40 @@ async def result(task_id: int):
     d = MontyDecoder().process_decoded(d["output"])
 
     all_results = []
+    equivalent_result_indexes: dict[tuple[str, ...], int] = {}
 
-    for result in d.results:
-        grouped_phases = (
-            d.grouped_phases[len(all_results)] if d.grouped_phases else None
-        )
+    for result_index, result in enumerate(d.results):
+        try:
+            result_weight_percent = {
+                phase: round(fraction * 100, 4)
+                for phase, fraction in result[1].get_phase_weights().items()
+            }
+        except (TypeError, ValueError, ZeroDivisionError):
+            result_weight_percent = {}
+        grouped_phases = d.grouped_phases[result_index] if d.grouped_phases else None
         phases = [[cif.filename for cif in cifs] for cifs in result[0]]
+        highlighted_phases = list(result[1].lst_data.phases_results)
+        phase_metadata = _refined_phase_metadata(result[1])
+        diagnostics = _peak_diagnostics(
+            result[1],
+            d.missing_peaks[result_index] if d.missing_peaks else None,
+            d.extra_peaks[result_index] if d.extra_peaks else None,
+            (
+                d.intensity_mismatch_peaks[result_index]
+                if getattr(d, "intensity_mismatch_peaks", None)
+                else None
+            ),
+        )
+
+        # A search path can reach exactly the same phase hypothesis in a different
+        # insertion order. Treat database records with the same formula/space
+        # group as one displayed phase, while preserving genuinely different
+        # polymorphs as separate results.
+        result_key = _search_result_key(highlighted_phases)
+        if result_key in equivalent_result_indexes:
+            existing = all_results[equivalent_result_indexes[result_key]]
+            existing["equivalent_result_count"] += 1
+            continue
 
         if not grouped_phases:  # for backward compatibility
             grouped_phases = []
@@ -224,46 +476,313 @@ async def result(task_id: int):
                     grouped_phases[i][j][1],
                 )
 
+        equivalent_result_indexes[result_key] = len(all_results)
         all_results.append(
             {
                 "rwp": result[1].lst_data.rwp,
+                "screening_rwp": (
+                    d.screening_rwps[result_index]
+                    if d.screening_rwps and result_index < len(d.screening_rwps)
+                    else result[1].lst_data.rwp
+                ),
+                "is_final_refined": bool(d.screening_rwps),
                 "phases": phases,
-                "highlighted_phases": list(result[1].lst_data.phases_results),
+                "highlighted_phases": highlighted_phases,
+                "phase_metadata": phase_metadata,
+                "fit_quality": _fit_quality(result[1]),
+                "phase_details": _phase_refinement_details(result[1]),
+                "peak_diagnostics": diagnostics,
                 "grouped_phases": grouped_phases,
+                "weight_percent": result_weight_percent,
+                "source_index": result_index,
+                "equivalent_result_count": 1,
             }
         )
 
-        if d.final_result is None:
-            raise HTTPException(status_code=404, detail="No search result returned")
+    if d.final_result is None:
+        raise HTTPException(status_code=404, detail="No search result returned")
 
-        start_time = convert_to_local_tz(job["start_time"])
-        end_time = convert_to_local_tz(job["end_time"])
-        runtime = (end_time - start_time).total_seconds()
-        return {
-            "status": job["status"],
-            "task_label": job["job"]["name"],
-            "best_rwp": d.best_rwp,
-            "final_result": {
-                "rwp": d.final_result.lst_data.rwp,
-                "phases": list(d.final_result.lst_data.phases_results),
-            },
-            "all_results": all_results,
-            "precursors": d.precursors,
-            "temperature": (
-                None
-                if d.predict_kwargs.get("temp", None) is None
-                else d.predict_kwargs["temp"] - 273
-            ),
-            "use_rxn_predictor": d.phase_predictor is not None,
-            "submitted_on": convert_to_local_tz(job["submitted_time"]).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-            "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "runtime": runtime,
-            "additional_search_options": d.search_kwargs,
+    start_time = convert_to_local_tz(job["start_time"])
+    end_time = convert_to_local_tz(job["end_time"])
+    runtime = (end_time - start_time).total_seconds()
+    predict_kwargs = d.predict_kwargs or {}
+    try:
+        weight_percent = {
+            phase: round(fraction * 100, 4)
+            for phase, fraction in d.final_result.get_phase_weights().items()
         }
+    except (TypeError, ValueError, ZeroDivisionError):
+        weight_percent = {}
+    final_phase_metadata = _refined_phase_metadata(d.final_result)
+    final_peak_diagnostics = _peak_diagnostics(d.final_result)
+    return {
+        "status": job["status"],
+        "task_label": job["job"]["name"],
+        "best_rwp": d.best_rwp,
+        "final_result": {
+            "rwp": d.final_result.lst_data.rwp,
+            "phases": list(d.final_result.lst_data.phases_results),
+            "weight_percent": weight_percent,
+            "phase_metadata": final_phase_metadata,
+            "fit_quality": _fit_quality(d.final_result),
+            "phase_details": _phase_refinement_details(d.final_result),
+            "peak_diagnostics": final_peak_diagnostics,
+        },
+        "all_results": all_results,
+        "duplicate_results_removed": len(d.results) - len(all_results),
+        "precursors": d.precursors,
+        "elements": getattr(d, "elements", None),
+        "analysis_mode": getattr(d, "analysis_mode", "reaction" if d.phase_predictor else "elemental"),
+        "candidate_sources": getattr(d, "candidate_sources", []),
+        "candidate_summary": getattr(d, "candidate_summary", {}),
+        "search_summary": getattr(d, "search_summary", {}),
+        "temperature": None if predict_kwargs.get("temp") is None else predict_kwargs["temp"] - 273,
+        "use_rxn_predictor": d.phase_predictor is not None,
+        "submitted_on": convert_to_local_tz(job["submitted_time"]).strftime("%Y-%m-%d %H:%M:%S"),
+        "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+        "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S"),
+        "runtime": runtime,
+        "additional_search_options": d.search_kwargs,
+    }
     raise HTTPException(status_code=404, detail="No phases identified in the pattern")
+
+
+def _safe_download_name(value: str) -> str:
+    """Return a filesystem-safe stem for a downloaded result archive."""
+    stem = Path(value).stem
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._") or "dara_result"
+
+
+def _phase_identity(filename: str) -> str:
+    """Return the selected reference identity for already-deduplicated results."""
+    return filename
+
+
+def _search_result_key(phases: list[str]) -> tuple[str, ...]:
+    """Canonicalize a selected phase hypothesis independent of insertion order."""
+    return tuple(sorted(_phase_identity(phase) for phase in phases))
+
+
+def _flatten_cifs(value) -> list[Cif]:
+    """Flatten the candidate CIF grouping used in stored search results."""
+    if isinstance(value, Cif):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return [cif for item in value for cif in _flatten_cifs(item)]
+    return []
+
+
+def _write_refinement_files(
+    output: zipfile.ZipFile,
+    refinement,
+    folder: str,
+    reference_cifs: list[Cif],
+    missing_peaks=None,
+    extra_peaks=None,
+) -> None:
+    """Write one refinement hypothesis into an open result archive."""
+    folder = f"{folder.strip('/')}/" if folder else ""
+    phase_parameters = {
+        name: phase.model_dump(by_alias=True, exclude={"atom_positions_string"})
+        for name, phase in refinement.lst_data.phases_results.items()
+    }
+    output.writestr(
+        f"{folder}phase_parameters.json",
+        json.dumps(phase_parameters, ensure_ascii=False, indent=2, default=str),
+    )
+
+    plot_data = refinement.plot_data
+    csv_buffer = StringIO(newline="")
+    writer = csv.writer(csv_buffer)
+    phase_names = list(plot_data.structs)
+    writer.writerow(
+        ["two_theta", "observed", "calculated", "background", "difference"]
+        + phase_names
+    )
+    for idx, angle in enumerate(plot_data.x):
+        writer.writerow(
+            [
+                angle,
+                plot_data.y_obs[idx],
+                plot_data.y_calc[idx],
+                plot_data.y_bkg[idx],
+                plot_data.y_obs[idx] - plot_data.y_calc[idx],
+            ]
+            + [plot_data.structs[name][idx] for name in phase_names]
+        )
+    output.writestr(f"{folder}refinement.csv", csv_buffer.getvalue())
+
+    metrics = getattr(refinement, "refinement_metrics", None)
+    figure = (
+        refinement.visualize()
+        if metrics is not None
+        else visualize(
+            result=refinement,
+            missing_peaks=missing_peaks,
+            extra_peaks=extra_peaks,
+        )
+    )
+    output.writestr(
+        f"{folder}plot.html",
+        figure.to_html(full_html=True, include_plotlyjs="cdn"),
+    )
+
+    for phase_name in refinement.lst_data.phases_results:
+        try:
+            cif_text = refinement.export_structure(phase_name).to(fmt="cif")
+        except (TypeError, ValueError, AttributeError):
+            reference = next(
+                (
+                    cif
+                    for cif in reference_cifs
+                    if Path(cif.filename or "").stem == phase_name
+                ),
+                None,
+            )
+            if reference is None or not reference.orig_string:
+                continue
+            cif_text = reference.orig_string
+        output.writestr(
+            f"{folder}refined_cifs/{_safe_download_name(phase_name)}.cif",
+            cif_text,
+        )
+
+
+def _make_result_archive(
+    task_id: int,
+    document,
+    summary: dict,
+    result_index: int | None = None,
+) -> BytesIO:
+    """Build a ZIP for all hypotheses or one selected search result."""
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+        if result_index is None:
+            export_summary = summary
+            description = (
+                "final/: final re-refinement\n"
+                "search_results/result_N/: every ranked search hypothesis\n"
+            )
+        else:
+            export_summary = {
+                key: value for key, value in summary.items() if key != "all_results"
+            }
+            displayed_index, displayed_result = next(
+                (
+                    (index, result)
+                    for index, result in enumerate(summary["all_results"])
+                    if result.get("source_index", index) == result_index
+                ),
+                (result_index, None),
+            )
+            if displayed_result is None:
+                raise ValueError("Search result is not part of the displayed results")
+            export_summary["search_result_number"] = displayed_index + 1
+            export_summary["search_result"] = displayed_result
+            description = f"Selected search hypothesis: {displayed_index + 1}\n"
+
+        output.writestr(
+            "summary.json",
+            json.dumps(export_summary, ensure_ascii=False, indent=2, default=str),
+        )
+        output.writestr(
+            "README.txt",
+            "DARA result export\n"
+            f"Task ID: {task_id}\n"
+            f"{description}"
+            "summary.json: task settings, phases, and Rwp values\n"
+            "pattern.xy: submitted diffraction pattern\n"
+            "Each result folder contains refinement.csv, phase_parameters.json, "
+            "plot.html, and refined_cifs/.\n"
+            "plot.html loads Plotly from its public CDN when opened.\n",
+        )
+
+        xy_columns = [document.xrd_data.angles, document.xrd_data.intensities]
+        if document.xrd_data.errors is not None:
+            xy_columns.append(document.xrd_data.errors)
+        xy_buffer = StringIO()
+        np.savetxt(xy_buffer, np.column_stack(xy_columns), fmt="%.8f")
+        output.writestr("pattern.xy", xy_buffer.getvalue())
+
+        if result_index is not None:
+            candidate_cifs, candidate_result = document.results[result_index]
+            _write_refinement_files(
+                output,
+                candidate_result,
+                "",
+                _flatten_cifs(candidate_cifs),
+                document.missing_peaks[result_index] if document.missing_peaks else None,
+                document.extra_peaks[result_index] if document.extra_peaks else None,
+            )
+        else:
+            if document.final_result is not None:
+                _write_refinement_files(
+                    output,
+                    document.final_result,
+                    "final",
+                    document.input_cifs or [],
+                )
+            displayed_results = summary.get("all_results", [])
+            for displayed_idx, displayed_result in enumerate(displayed_results):
+                idx = displayed_result.get("source_index", displayed_idx)
+                candidate_cifs, candidate_result = document.results[idx]
+                _write_refinement_files(
+                    output,
+                    candidate_result,
+                    f"search_results/result_{displayed_idx + 1}",
+                    _flatten_cifs(candidate_cifs),
+                    document.missing_peaks[idx] if document.missing_peaks else None,
+                    document.extra_peaks[idx] if document.extra_peaks else None,
+                )
+
+    archive.seek(0)
+    return archive
+
+
+@router.get("/task/{task_id}/download")
+async def download_result(task_id: int, idx: int | None = Query(None, ge=0)):
+    """Download all hypotheses or one selected search result as a ZIP archive."""
+    with get_worker_store() as worker_store:
+        job = worker_store.query_one({"index": task_id})
+    if job is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if job["status"] != "COMPLETED":
+        raise HTTPException(status_code=409, detail="Only completed tasks can be downloaded")
+
+    with get_result_store() as result_store:
+        stored = result_store.query_one({"uuid": job["uuid"]})
+    if stored is None:
+        raise HTTPException(status_code=404, detail="Task result not found")
+    document = MontyDecoder().process_decoded(stored["output"])
+    if idx is not None and idx >= len(document.results or []):
+        raise HTTPException(status_code=404, detail="Search result index out of range")
+    summary = await result(task_id)
+    archive = _make_result_archive(task_id, document, summary, result_index=idx)
+    suffix = "all_results" if idx is None else f"search_result_{idx + 1}"
+    filename = (
+        f"dara_task_{task_id}_{_safe_download_name(job['job']['name'])}_{suffix}.zip"
+    )
+    return StreamingResponse(
+        archive,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.delete("/task/{task_id}")
+async def delete_result(task_id: int):
+    """Delete a finished/failed task and its stored analysis document."""
+    with get_worker_store() as worker_store:
+        job = worker_store.query_one({"index": task_id})
+        if job is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if job["status"] in {"READY", "RUNNING"}:
+            raise HTTPException(status_code=409, detail="A queued or running task cannot be deleted")
+        worker_store.remove_docs({"index": task_id})
+
+    with get_result_store() as result_store:
+        result_store.remove_docs({"uuid": job["uuid"]})
+    return {"message": "deleted", "task_id": task_id}
 
 
 @router.get("/task/{task_id}/plot")
@@ -276,11 +795,13 @@ async def plot(task_id: int, idx: int = Query(None)):
         raise HTTPException(status_code=404, detail="Task not found")
     d = MontyDecoder().process_decoded(d["output"])
     if idx is None:
-        return visualize(result=d.final_result).to_json()
+        return d.final_result.visualize().to_json()
     if 0 <= idx < len(d.results):
         result = d.results[idx][1]
         missing_peaks = d.missing_peaks[idx] if d.missing_peaks else None
         extra_peaks = d.extra_peaks[idx] if d.extra_peaks else None
+        if getattr(result, "refinement_metrics", None) is not None:
+            return result.visualize().to_json()
         return visualize(
             result=result, missing_peaks=missing_peaks, extra_peaks=extra_peaks
         ).to_json()

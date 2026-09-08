@@ -174,6 +174,20 @@ class RefinementMetrics(BaseModel):
     intensity_mismatch_peaks: np.ndarray | None = Field(default=None, repr=False)
     rwp: float
 
+    @field_validator(
+        "missing_peaks",
+        "extra_peaks",
+        "intensity_mismatch_peaks",
+        mode="before",
+    )
+    @classmethod
+    def deserialize_peak_arrays(cls, value):
+        """Restore NumPy peak arrays serialized as JSON-compatible lists."""
+        if value is None or isinstance(value, np.ndarray):
+            return value
+        array = np.asarray(value, dtype=float)
+        return array.reshape(-1, 2) if array.size else np.empty((0, 2))
+
 
 class RefinementResult(BaseModel):
     """The result from the refinement, which is parsed from the .lst and .dia files.
@@ -401,7 +415,9 @@ def parse_lst(lst_path: Path, phase_names: list[str]) -> LstResult:
         return v_
 
     def parse_section(text: str) -> dict[str, Any]:
-        section = dict(re.findall(r"^(\w+)=(.+?)$", text, re.MULTILINE))
+        # Parenthesized profile parameters such as GrainSize(1,1,1) are valid
+        # BGMN output keys and must not be silently discarded.
+        section = dict(re.findall(r"^([^\s=]+)=(.+?)$", text, re.MULTILINE))
         return {k: parse_values(v) for k, v in section.items()}
 
     if not lst_path.exists():

@@ -52,6 +52,10 @@ class PhaseSearchDocument(BaseModel):
     results: Optional[
         list[tuple[Union[list[Cif], list[list[Cif]]], RefinementResult]]
     ] = Field(None, description="The result of the refinement.")
+    screening_rwps: Optional[list[float]] = Field(
+        None,
+        description="Fast search-stage Rwp values before candidate final refinement.",
+    )
 
     foms: Optional[list[list[list[float]]]] = Field(
         None, description="The FOMs of the results."
@@ -59,12 +63,15 @@ class PhaseSearchDocument(BaseModel):
     lattice_strains: Optional[list[list[list[float]]]] = Field(
         None, description="The lattice strains of the results."
     )
-    missing_peaks: Optional[list[list[list[float]]]] = Field(
+    missing_peaks: Optional[list[Optional[list[list[float]]]]] = Field(
         None, description="The missing peaks of the results."
     )
-    extra_peaks: Optional[list[list[list[float]]]] = Field(
+    extra_peaks: Optional[list[Optional[list[list[float]]]]] = Field(
         None, description="The extra peaks of the results."
     )
+    intensity_mismatch_peaks: Optional[
+        list[Optional[list[list[float]]]]
+    ] = Field(None, description="The intensity-mismatch peaks of the results.")
 
     final_result: Optional[RefinementResult] = Field(
         None, description="The result of the re-refinement of the best result."
@@ -73,6 +80,18 @@ class PhaseSearchDocument(BaseModel):
     xrd_data: XRDData = Field(description="The input XRD data.")
     input_cifs: Optional[list[Cif]] = Field(None, description="The input CIFs.")
     precursors: Optional[list[str]] = Field(None, description="The precursor formulas.")
+    elements: Optional[list[str]] = Field(None, description="The allowed elements.")
+    analysis_mode: str = Field("reaction", description="The analysis workflow.")
+    candidate_sources: list[str] = Field(
+        default_factory=list, description="Structure databases used for candidates."
+    )
+    candidate_summary: dict = Field(
+        default_factory=dict, description="Candidate counts before and after deduplication."
+    )
+    search_summary: dict = Field(
+        default_factory=dict,
+        description="Counts describing hypothesis grouping and final refinement.",
+    )
     phase_predictor: Optional[PhasePredictor] = Field(
         None, description="The phase predictor."
     )

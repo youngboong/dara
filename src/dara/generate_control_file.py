@@ -18,7 +18,11 @@ _DARA_SETTINGS = DaraSettings()
 
 def copy_instrument_files(instrument_profile: str | Path, working_dir: Path) -> str:
     """
-    Copy the instrument file (.geq) to the working directory.
+    Copy the instrument profile files to the working directory.
+
+    The compiled ``.geq`` profile is sufficient while the requested angular
+    range stays inside the compiled range. BGMN uses the companion ``.ger``
+    file to extend that range, so copy it as well when it is available.
 
     Args:
         working_dir: the working directory
@@ -42,6 +46,9 @@ def copy_instrument_files(instrument_profile: str | Path, working_dir: Path) -> 
         )
 
     shutil.copy(instrument_path, working_dir)
+    ger_path = instrument_path.with_suffix(".ger")
+    if ger_path.exists():
+        shutil.copy(ger_path, working_dir)
     return instrument_path.stem
 
 

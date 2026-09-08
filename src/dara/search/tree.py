@@ -1231,17 +1231,17 @@ class SearchTree(BaseSearchTree):
         # adjust the initial value of eps2 based on the weighted average of all the phases
         if not isinstance(self.refinement_params.get("eps2", 0), Number):
             weighted_eps2 = 0
-            rwp_sum = 0
+            weight_sum = 0
 
             for result in all_phases_result.values():
                 if result is not None:
-                    weighted_eps2 += (
-                        1
-                        / (result.lst_data.rwp + 1e-1)
-                        * get_number(result.lst_data.EPS2)
-                    )
-                    rwp_sum += result.lst_data.rwp
-            weighted_eps2 /= rwp_sum
+                    eps2 = get_number(result.lst_data.EPS2)
+                    if eps2 is None:
+                        continue
+                    weight = 1 / (result.lst_data.rwp + 1e-1)
+                    weighted_eps2 += weight * eps2
+                    weight_sum += weight
+            weighted_eps2 = weighted_eps2 / weight_sum if weight_sum else 0.0
             _, eps2_lower, eps2_upper = parse_refinement_param(
                 self.refinement_params["eps2"]
             )

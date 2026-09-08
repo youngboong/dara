@@ -1,7 +1,8 @@
 import React from 'react';
 import styled from 'styled-components';
 import Layout from '../components/Layout';
-import { Table, Tag, Input } from 'antd';
+import { Button, Input, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { DeleteOutlined, DownloadOutlined } from '@ant-design/icons';
 
 const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 
@@ -24,6 +25,7 @@ function ResultsPage({ location }) {
   const [ user, setUser ] = React.useState(queryParameters.get('user') || null)
 
   const [data, setData] = React.useState({})
+  const [messageApi, contextHolder] = message.useMessage();
 
   const onSearch = (value) => {
     setUser(value)
@@ -35,7 +37,21 @@ function ResultsPage({ location }) {
       .then(response => response.json())
       .then(data => setData(data));
   }, [page, limit, user]);
-  console.log(data)
+
+  const deleteTask = async (taskId) => {
+    const response = await fetch(`${URL}/task/${taskId}`, { method: 'DELETE' });
+    if (!response.ok) {
+      const error = await response.json();
+      messageApi.error(error.detail || 'Could not delete the result.');
+      return;
+    }
+    setData(previous => ({
+      ...previous,
+      tasks: (previous.tasks || []).filter(task => task.fw_id !== taskId),
+      total_tasks: Math.max((previous.total_tasks || 1) - 1, 0),
+    }));
+    messageApi.success(`Task ${taskId} deleted.`);
+  };
 
   const columns = [
     {
@@ -68,12 +84,45 @@ function ResultsPage({ location }) {
       title: 'Submitted by',
       dataIndex: 'user',
       key: 'user',
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_, entry) => (
+        <Space>
+          <Button
+            icon={<DownloadOutlined />}
+            href={`${URL}/task/${entry.fw_id}/download`}
+            disabled={entry.state !== 'COMPLETED'}
+          >
+            Download
+          </Button>
+          <Popconfirm
+            title={`Delete task ${entry.fw_id}?`}
+            description="This permanently removes the stored result."
+            okText="Delete"
+            okButtonProps={{ danger: true }}
+            cancelText="Cancel"
+            onConfirm={() => deleteTask(entry.fw_id)}
+            disabled={entry.state === 'READY' || entry.state === 'RUNNING'}
+          >
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              disabled={entry.state === 'READY' || entry.state === 'RUNNING'}
+            >
+              Delete
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
     }
   ]
 
   return (
     <Layout hasSider={false} title="">
       <Container>
+        {contextHolder}
         <div style={{ display: "flex", flexDirection: "row-reverse" }}>
           <Search
             placeholder="Filter username"
@@ -88,6 +137,7 @@ function ResultsPage({ location }) {
         {
           data.tasks ? (
             <Table 
+              rowKey="fw_id"
               dataSource={data.tasks}
               columns={columns} 
               pagination={{

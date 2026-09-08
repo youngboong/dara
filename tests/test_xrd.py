@@ -1,10 +1,50 @@
 import tempfile
 import unittest
+import struct
 from pathlib import Path
 
 import numpy as np
 
-from dara.xrd import RASXFile, rasx2xy
+from dara.xrd import RASXFile, get_xrdml_data, load_raw, rasx2xy
+
+
+def test_xrdml_accepts_legacy_intensities_tag():
+    xrdml = {
+        "xrdMeasurements": {
+            "xrdMeasurement": {
+                "scan": {
+                    "dataPoints": {
+                        "positions": [
+                            {"startPosition": "20.0", "endPosition": "21.0"}
+                        ],
+                        "intensities": {"@unit": "counts", "#text": "10 20 30"},
+                    }
+                }
+            }
+        }
+    }
+
+    angles, intensities = get_xrdml_data(xrdml)
+
+    np.testing.assert_allclose(angles, [20.0, 20.5, 21.0])
+    np.testing.assert_allclose(intensities, [10.0, 20.0, 30.0])
+
+
+def test_bruker_raw_v2_load(tmp_path):
+    content = bytearray(256 + 60 + 3 * 4)
+    content[:4] = b"RAW2"
+    struct.pack_into("<H", content, 4, 1)
+    struct.pack_into("<HH", content, 256, 60, 3)
+    struct.pack_into("<fff", content, 264, 2.0, 0.5, 10.0)
+    struct.pack_into("<fff", content, 316, 100.0, 200.0, 300.0)
+    raw_path = tmp_path / "test.RAW"
+    raw_path.write_bytes(content)
+
+    (angles, intensities), binary_data = load_raw(raw_path)
+
+    np.testing.assert_allclose(angles, [10.0, 10.5, 11.0])
+    np.testing.assert_allclose(intensities, [100.0, 200.0, 300.0])
+    assert binary_data == content
 
 
 class TestRASXFile(unittest.TestCase):

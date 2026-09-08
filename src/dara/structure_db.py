@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import itertools
+import os
+import tempfile
+import time
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 import requests
 from monty.json import MSONable
 from monty.serialization import loadfn
+from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.core import Composition
 from tqdm.contrib.concurrent import thread_map
 
@@ -260,7 +263,7 @@ class CODDatabase(StructureDatabase):
             self._download_cod,
             ids,
             chunksize=1,
-            max_workers=16,
+            max_workers=12,
             desc="Downloading CIFs from COD...",
         )
         if save:
@@ -293,24 +296,351 @@ class CODDatabase(StructureDatabase):
         return "cod"
 
     @staticmethod
-    def _download_cod(cod_id: str) -> Cif:
+    def _download_cod(cod_id: str, max_attempts: int = 3) -> Cif:
         """Download a COD file from its ID."""
         COD_URL = "https://www.crystallography.net/cod/{cod_id}.cif"
-        # Get the content of the URL
-        try:
-            url = COD_URL.format(cod_id=cod_id)
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()  # Raise an error for bad status codes
-            with NamedTemporaryFile(mode="w+b") as temp_file:
-                temp_file.write(response.content)
-                temp_file.flush()
-                cif = Cif.from_file(temp_file.name)
-            cif.filename = str(cod_id)
-        except Exception as e:
-            print(f"Failed to download {cod_id}: {e}")
-            raise
+        url = COD_URL.format(cod_id=cod_id)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.get(url, timeout=30)
+                response.raise_for_status()
+                # Windows locks an open NamedTemporaryFile, so close the handle
+                # before pymatgen opens the same path.
+                temp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=".cif"
+                    ) as temp_file:
+                        temp_file.write(response.content)
+                        temp_path = Path(temp_file.name)
+                    cif = Cif.from_file(temp_path)
+                finally:
+                    if temp_path is not None:
+                        temp_path.unlink(missing_ok=True)
+                cif.filename = str(cod_id)
+                return cif
+            except Exception as exc:
+                if attempt < max_attempts:
+                    delay = 0.5 * (2 ** (attempt - 1))
+                    logger.warning(
+                        "COD %s download failed (attempt %d/%d); retrying in %.1fs: %s",
+                        cod_id,
+                        attempt,
+                        max_attempts,
+                        delay,
+                        exc,
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(
+                        "COD %s unavailable after %d attempts: %s",
+                        cod_id,
+                        max_attempts,
+                        exc,
+                    )
+                    raise
 
-        return cif
+
+class MaterialsProjectDatabase(StructureDatabase):
+    """Use Materials Project structures as supplemental XRD references.
+
+    Unlike COD and ICSD, Materials Project primarily contains DFT-relaxed
+    structures.  These structures are therefore intended to fill gaps in the
+    experimental databases, rather than replace experimental references.
+
+    The API key is always read from ``MP_API_KEY`` at query time.  It is never
+    stored on this object, which keeps serialized jobs and result documents
+    free of credentials.
+    """
+
+    def __init__(
+        self,
+        path_to_cifs: Path | str | None = None,
+        max_structures: int = 200,
+        e_hull_filter: float = 0.05,
+    ):
+        super().__init__(path_to_cifs)
+        self.max_structures = max_structures
+        self.e_hull_filter = e_hull_filter
+        self._query_cache: dict[tuple, list] = {}
+
+    @property
+    def name(self) -> str:
+        return "mp"
+
+    @property
+    def default_folder_path(self) -> Path:
+        # MP references are downloaded per job; no persistent local mirror is
+        # assumed.  This property only satisfies the common database API.
+        return Path("materials_project_cifs")
+
+    @property
+    def local_copy_found(self) -> bool:
+        return False
+
+    def get_file_path(self, cif_id: str | int):
+        return self.path / f"{cif_id}.cif"
+
+    def download_structures(
+        self, ids: list[str] | None = None, save=False, default_folder=None
+    ) -> list[Cif]:
+        """Download MP structures by material id."""
+        if not ids:
+            return []
+        docs = self._query(material_ids=[str(i) for i in ids])
+        cifs = [self._document_to_cif(doc) for doc in docs]
+        if save:
+            destination = Path(default_folder or self.default_folder_path)
+            destination.mkdir(parents=True, exist_ok=True)
+            for cif in cifs:
+                cif.to_file(destination / f"{cif.filename}.cif")
+        return cifs
+
+    def get_cifs_by_formulas(
+        self,
+        formulas: list[str],
+        e_hull_filter: float | None = None,
+        copy_files=True,
+        dest_dir: str = "dara_cifs",
+        exclude_gases: bool = True,
+    ):
+        """Get stable MP structures matching one of the requested formulas."""
+        canonical = sorted({Composition(f).reduced_formula for f in formulas})
+        if not canonical:
+            return []
+        docs = self._query(
+            formulas=canonical,
+            e_hull_filter=e_hull_filter,
+            max_structures=max(self.max_structures, 20 * len(canonical)),
+        )
+        return self._write_documents(docs, copy_files, dest_dir, exclude_gases)
+
+    def get_cifs_by_chemsys(
+        self,
+        chemsys: str | list[str] | set[str],
+        e_hull_filter: float | None = None,
+        copy_files=True,
+        dest_dir: str = "dara_cifs",
+        exclude_gases: bool = True,
+    ):
+        """Get stable MP structures in every sub-system of an element set."""
+        elements = sorted(set(chemsys.split("-") if isinstance(chemsys, str) else chemsys))
+        systems = [
+            "-".join(combo)
+            for size in range(1, len(elements) + 1)
+            for combo in itertools.combinations(elements, size)
+        ]
+        docs = self._query(
+            chemsys=systems,
+            e_hull_filter=e_hull_filter,
+            max_structures=self.max_structures,
+        )
+        return self._write_documents(docs, copy_files, dest_dir, exclude_gases)
+
+    def _query(
+        self,
+        *,
+        formulas: list[str] | None = None,
+        chemsys: list[str] | None = None,
+        material_ids: list[str] | None = None,
+        e_hull_filter: float | None = None,
+        max_structures: int | None = None,
+    ):
+        api_key = os.environ.get("MP_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "MP_API_KEY is not set; Materials Project structures cannot be queried."
+            )
+
+        cutoff = self.e_hull_filter if e_hull_filter is None else e_hull_filter
+        limit = self.max_structures if max_structures is None else max_structures
+        cache_key = (
+            tuple(formulas or []),
+            tuple(chemsys or []),
+            tuple(material_ids or []),
+            cutoff,
+            limit,
+        )
+        if cache_key in self._query_cache:
+            return self._query_cache[cache_key]
+
+        try:
+            from mp_api.client import MPRester
+        except ImportError as exc:
+            raise ImportError("Please install the mp-api package.") from exc
+
+        query = {
+            "deprecated": False,
+            "fields": [
+                "material_id",
+                "formula_pretty",
+                "symmetry",
+                "energy_above_hull",
+                "structure",
+                "theoretical",
+            ],
+        }
+        if formulas:
+            query["formula"] = formulas
+        if chemsys:
+            query["chemsys"] = chemsys
+        if material_ids:
+            query["material_ids"] = material_ids
+        if not material_ids:
+            query["energy_above_hull"] = (0, cutoff)
+            # Bound broad element-system queries before downloading thousands
+            # of structures. Low-energy entries are the most useful first pass.
+            query["num_chunks"] = 1
+            query["chunk_size"] = limit
+            query["_sort_fields"] = "energy_above_hull"
+
+        logger.info(
+            "Querying Materials Project reference structures "
+            "(%d chemical systems, maximum %d structures)...",
+            len(chemsys or formulas or material_ids or []),
+            limit,
+        )
+        with MPRester(api_key=api_key, mute_progress_bars=True, timeout=60) as mpr:
+            docs = mpr.materials.summary.search(**query)
+
+        logger.info(
+            "Materials Project returned %d structures. Deduplicating...", len(docs)
+        )
+        docs = self._deduplicate_documents(docs)
+        if limit is not None and len(docs) > limit:
+            logger.warning(
+                "Materials Project returned %s unique structures; keeping the best %s.",
+                len(docs),
+                limit,
+            )
+            docs = docs[:limit]
+        logger.info("Retained %d unique Materials Project structures.", len(docs))
+        self._query_cache[cache_key] = docs
+        return docs
+
+    @staticmethod
+    def _doc_value(doc, name, default=None):
+        return doc.get(name, default) if isinstance(doc, dict) else getattr(doc, name, default)
+
+    def _deduplicate_documents(self, docs):
+        """Prefer experimental, low-energy representatives of matching MP structures."""
+        docs = sorted(
+            docs,
+            key=lambda doc: (
+                bool(self._doc_value(doc, "theoretical", True)),
+                self._energy_above_hull(doc),
+                str(self._doc_value(doc, "material_id", "")),
+            ),
+        )
+        matcher = StructureMatcher()
+        representatives = []
+        structures_by_formula: dict[str, list] = {}
+        for doc in docs:
+            structure = self._doc_value(doc, "structure")
+            if structure is None:
+                continue
+            formula = structure.composition.reduced_formula
+            known = structures_by_formula.setdefault(formula, [])
+            try:
+                duplicate = any(matcher.fit(structure, other) for other in known)
+            except Exception:
+                duplicate = False
+            if duplicate:
+                continue
+            known.append(structure)
+            representatives.append(doc)
+        return representatives
+
+    def _energy_above_hull(self, doc) -> float:
+        value = self._doc_value(doc, "energy_above_hull")
+        return float("inf") if value is None else float(value)
+
+    def _document_to_cif(self, doc) -> Cif:
+        structure = self._doc_value(doc, "structure")
+        material_id = str(self._doc_value(doc, "material_id"))
+        formula = structure.composition.reduced_formula
+        symmetry = self._doc_value(doc, "symmetry")
+        spacegroup = (
+            symmetry.get("number")
+            if isinstance(symmetry, dict)
+            else getattr(symmetry, "number", None)
+        )
+        if spacegroup is None:
+            try:
+                spacegroup = structure.get_space_group_info()[1]
+            except Exception:
+                spacegroup = "unknown"
+        e_hull = self._doc_value(doc, "energy_above_hull")
+        e_hull_mev = round(1000 * e_hull) if e_hull is not None else None
+        filename = f"{formula}_{spacegroup}_(mp_{material_id})-{e_hull_mev}"
+        return Cif.from_structure(structure, filename=filename)
+
+    def _write_documents(
+        self, docs, copy_files: bool, dest_dir: str, exclude_gases: bool = True
+    ):
+        if exclude_gases:
+            docs = [
+                doc
+                for doc in docs
+                if self._doc_value(doc, "structure").composition.reduced_formula
+                not in COMMON_GASES
+            ]
+        cifs = [self._document_to_cif(doc) for doc in docs]
+        if copy_files:
+            destination = Path(dest_dir)
+            destination.mkdir(parents=True, exist_ok=True)
+            for cif in cifs:
+                cif.to_file(destination / f"{cif.filename}.cif")
+        return [str(self._doc_value(doc, "material_id")) for doc in docs]
+
+
+def deduplicate_cif_paths(cif_paths: list[Path]) -> tuple[list[Path], dict]:
+    """Remove crystallographically equivalent references while preserving provenance.
+
+    User-uploaded CIFs have first priority, followed by COD's experimental
+    references and then MP's DFT-relaxed structures. Files are not deleted.
+    """
+
+    def source(path: Path) -> str:
+        name = path.stem.lower()
+        if "_(cod_" in name:
+            return "cod"
+        if "_(mp_" in name:
+            return "mp"
+        return "user"
+
+    priority = {"user": 0, "cod": 1, "mp": 2}
+    ordered = sorted(cif_paths, key=lambda path: (priority[source(path)], path.name))
+    matcher = StructureMatcher()
+    representatives: list[Path] = []
+    structures_by_formula: dict[str, list] = {}
+
+    for path in ordered:
+        try:
+            structure = Cif.from_file(path).to_structure()
+            formula = structure.composition.reduced_formula
+            known = structures_by_formula.setdefault(formula, [])
+            if any(matcher.fit(structure, other) for other in known):
+                continue
+            known.append(structure)
+        except Exception as exc:
+            logger.warning("Could not compare CIF %s for duplicates: %s", path, exc)
+        representatives.append(path)
+
+    def count_by_source(paths: list[Path]) -> dict[str, int]:
+        return {
+            name: sum(source(path) == name for path in paths)
+            for name in ("user", "cod", "mp")
+        }
+
+    summary = {
+        "before": len(cif_paths),
+        "after": len(representatives),
+        "removed_duplicates": len(cif_paths) - len(representatives),
+        "by_source_before": count_by_source(cif_paths),
+        "by_source_after": count_by_source(representatives),
+    }
+    return representatives, summary
 
 
 class ICSDDatabase(StructureDatabase):

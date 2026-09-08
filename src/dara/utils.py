@@ -266,7 +266,14 @@ def get_entries_in_chemsys_mp(chemsys: str):
         raise ImportError("Please install the mp-api package.") from e
 
     with MPRester() as mpr:
-        return mpr.get_entries_in_chemsys(chemsys)
+        # Keep reaction-network energies on the legacy mixed GGA/GGA+U hull.
+        # mp-api changed its default to include r2SCAN, but rxn_network's
+        # reference workflow explicitly uses GGA_GGA+U. Pinning the thermo type
+        # also keeps existing DARA results reproducible across mp-api releases.
+        return mpr.get_entries_in_chemsys(
+            chemsys,
+            additional_criteria={"thermo_types": ["GGA_GGA+U"]},
+        )
 
 
 def get_entries_db(db: MongoStore, chemsys: str):

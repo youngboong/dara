@@ -64,18 +64,22 @@ def run_job(uuid):
 def add_job_to_queue(job, user):
     """Add a job to the queue for remote execution."""
     with get_worker_store() as worker_store:
-        number_of_jobs = worker_store.count()
+        newest = next(
+            iter(worker_store.query(sort={"index": -1}, limit=1)),
+            None,
+        )
+        next_index = (newest["index"] if newest else 0) + 1
         worker_store.update(
             {
                 "uuid": job.uuid,
                 "job": job.as_dict(),
                 "status": "READY",
                 "submitted_time": datetime.now(tz=timezone.utc),
-                "index": number_of_jobs + 1,
+                "index": next_index,
                 "user": user,
             }
         )
-    return number_of_jobs + 1  # index of the job in the queue
+    return next_index  # task IDs remain unique even after older tasks are deleted
 
 
 def get_all_pending_jobs(sort_by_submitted_time=False):

@@ -37,6 +37,17 @@ if typing.TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _stringify_mapping_keys(value):
+    """Recursively make entry metadata safe for JSON serialization."""
+    if isinstance(value, dict):
+        return {str(key): _stringify_mapping_keys(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_stringify_mapping_keys(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_stringify_mapping_keys(item) for item in value)
+    return value
+
+
 class ReactionNetworkEngine(PredictionEngine):
     """Engine for predicting products in a chemical reaction."""
 
@@ -82,6 +93,10 @@ class ReactionNetworkEngine(PredictionEngine):
         precursors_comp = [Composition(p) for p in precursors]
         precursors_formulas = [p.reduced_formula for p in precursors_comp]
         temp = round(temp)
+        if temp < 300 or temp > 2000:
+            raise ValueError(
+                "Reaction prediction temperature must be between 300 and 2000 K."
+            )
         cf = self._get_cost_function(temp)
 
         if open_elem == "O_air":
@@ -140,6 +155,12 @@ class ReactionNetworkEngine(PredictionEngine):
     def _get_entries(
         self, precursors, computed_entries, open_elem, e_hull_cutoff, temp
     ):
+        # Element instances can appear as metadata keys in MP entries, but
+        # Monty/JSON only accepts scalar dictionary keys.
+        for entry in computed_entries:
+            if hasattr(entry, "data"):
+                entry.data = _stringify_mapping_keys(entry.data)
+
         gibbs = GibbsEntrySet.from_computed_entries(
             computed_entries,
             300,
