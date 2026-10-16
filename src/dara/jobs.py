@@ -261,6 +261,7 @@ class PhaseSearchMaker(Maker):
         predict_kwargs: dict | None = None,
         search_kwargs: dict | None = None,
         final_refinement_params: dict | None = None,
+        final_refinement_overrides: dict | None = None,
         computed_entries=None,
     ):
         """Perform phase search.
@@ -326,6 +327,9 @@ class PhaseSearchMaker(Maker):
         if analysis_mode not in {"reaction", "elemental", "known_mixture"}:
             raise ValueError(f"Unknown analysis mode: {analysis_mode}")
 
+        from dara.task_progress import report_progress, checkpoint_candidate
+
+        report_progress("Loading reference structures / reaction prediction")
         if cifs is not None:
             logger.info("CIFs provided. Skipping CIF download and phase prediction.")
             for cif in cifs + (additional_cifs or []):
@@ -409,6 +413,7 @@ class PhaseSearchMaker(Maker):
                         path=cif_paths[i], params=additional_cif_params or {}
                     )
 
+        report_progress("Peak detection, reference screening and phase-combination search")
         results = search_phases(
             pattern_path=pattern_path, phases=cif_paths, **search_kwargs
         )
@@ -431,12 +436,17 @@ class PhaseSearchMaker(Maker):
             for candidate_index, (result, screening_rwp) in enumerate(
                 zip(results, screening_rwps), start=1
             ):
+                report_progress("Final candidate refinement", candidate_index - 1, len(results))
                 candidate_dir = directory / f"_final_candidate_{candidate_index}"
                 if candidate_dir.exists():
                     shutil.rmtree(candidate_dir)
                 candidate_dir.mkdir()
                 dumpfn(final_refinement_params, candidate_dir / "phase_params.json")
                 selected_phases = [phase_group[0] for phase_group in result.phases]
+                if final_refinement_overrides:
+                    from dara.refinement_controls import override_phase_settings
+
+                    selected_phases = override_phase_settings(selected_phases, final_refinement_overrides)
                 try:
                     refined = do_refinement(
                         pattern_path=pattern_path,
@@ -452,8 +462,11 @@ class PhaseSearchMaker(Maker):
                         candidate_index,
                     )
                     shutil.rmtree(candidate_dir, ignore_errors=True)
+                    report_progress("Final candidate refinement", candidate_index, len(results))
                     continue
 
+                checkpoint_candidate(candidate_index, refined, candidate_dir)
+                report_progress("Final candidate refinement", candidate_index, len(results))
                 metrics = refined.refinement_metrics
                 refined_candidates.append(
                     (

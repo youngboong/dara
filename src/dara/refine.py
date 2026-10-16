@@ -10,6 +10,7 @@ from typing import Any, Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from dara.analysis_range import analysis_mask
 from dara.bgmn_worker import BGMNWorker
 from dara.cif2str import cif2str
 from dara.generate_control_file import generate_control_file
@@ -79,6 +80,7 @@ def _attach_peak_markers(
     extra_intensity_ratio: float = 0.03,
     intensity_mismatch_height_tolerance: float = 0.40,
     intensity_mismatch_area_tolerance: float = 0.60,
+    refinement_params: dict | None = None,
 ) -> None:
     """Run the full peak-matching pipeline and store results on *result* in-place.
 
@@ -112,8 +114,10 @@ def _attach_peak_markers(
         suppress_coincident_marker_pairs,
     )
 
+    range_params = {key: value for key, value in (refinement_params or {}).items()
+                    if key in {"wmin", "wmax", "excluded_ranges"}}
     edf      = detect_peaks(str(pattern_path), wavelength=wavelength,
-                            instrument_profile=str(instrument_profile))
+                            instrument_profile=str(instrument_profile), **range_params)
     obs_raw  = edf[["2theta", "intensity"]].values
     calc_raw = result.peak_data[["2theta", "intensity"]].values
 
@@ -121,6 +125,16 @@ def _attach_peak_markers(
     yobs  = np.asarray(result.plot_data.y_obs)
     ycalc = np.asarray(result.plot_data.y_calc)
     ybkg  = np.asarray(result.plot_data.y_bkg)
+
+    if range_params:
+        obs_raw = obs_raw[analysis_mask(obs_raw[:, 0], **range_params)]
+        calc_raw = calc_raw[analysis_mask(calc_raw[:, 0], **range_params)]
+        keep = analysis_mask(px, **range_params)
+        # Mask contributions only in diagnostic working arrays. The measured
+        # profile and the native BGMN fit/Rwp remain untouched in saved results.
+        yobs = np.where(keep, yobs, 0.0)
+        ycalc = np.where(keep, ycalc, 0.0)
+        ybkg = np.where(keep, ybkg, 0.0)
 
     pm = PeakMatcher(calc_raw, obs_raw, intensity_resolution=0.005,
                      profile_x=px, profile_y_calc=ycalc,
@@ -152,6 +166,10 @@ def _attach_peak_markers(
         height_tolerance=intensity_mismatch_height_tolerance,
         area_tolerance=intensity_mismatch_area_tolerance,
     )
+
+    miss_combined = miss_combined[analysis_mask(miss_combined[:, 0], **range_params)]
+    extra_f = extra_f[analysis_mask(extra_f[:, 0], **range_params)]
+    mismatch = mismatch[analysis_mask(mismatch[:, 0], **range_params)]
 
     result.refinement_metrics = RefinementMetrics(
         missing_peaks=miss_combined if len(miss_combined) else None,
@@ -236,6 +254,12 @@ def do_refinement(
     bgmn_worker = BGMNWorker()
     bgmn_worker.run_refinement_cmd(control_file_path, show_progress=show_progress)
     result = get_result(control_file_path)
+    range_params = {key: value for key, value in refinement_params.items()
+                    if key in {"wmin", "wmax", "excluded_ranges"}}
+    if range_params:
+        result.peak_data = result.peak_data.loc[
+            analysis_mask(result.peak_data["2theta"], **range_params)
+        ].reset_index(drop=True)
     _attach_peak_markers(
         result, pattern_path, wavelength, instrument_profile,
         use_residual=use_residual,
@@ -246,6 +270,7 @@ def do_refinement(
         extra_intensity_ratio=extra_intensity_ratio,
         intensity_mismatch_height_tolerance=intensity_mismatch_height_tolerance,
         intensity_mismatch_area_tolerance=intensity_mismatch_area_tolerance,
+        refinement_params=refinement_params,
     )
     return result
 

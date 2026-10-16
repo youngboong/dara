@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import Layout from '../components/Layout';
-import { Alert, Button, Form, Input, InputNumber, message, Modal, Radio, Select, Switch, Upload } from 'antd';
-import { UploadOutlined } from '@ant-design/icons';
+import { Alert, Button, Form, Input, InputNumber, message, Modal, Radio, Select, Space, Switch, Upload } from 'antd';
+import { MinusCircleOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { DEFAULT_CONTROLS, InstrumentManager, RefinementControlsEditor } from '../components/PracticalControls';
 
 const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 const { confirm } = Modal;
@@ -44,21 +45,62 @@ function Submission() {
   const [synchrotron, setSynchrotron] = useState(false);
   const [previousInstrument, setPreviousInstrument] = useState('Aeris-fds-Pixcel1d-Medipix3');
   const [instrumentNames, setInstrumentNames] = useState(INSTRUMENT_NAMES);
+  const [instrumentDetails, setInstrumentDetails] = useState({});
+  const [refinementControls, setRefinementControls] = useState(DEFAULT_CONTROLS);
+  const selectedInstrument = Form.useWatch('instrument_profile', form);
   const [patternInspection, setPatternInspection] = useState(null);
   const [inspectingPattern, setInspectingPattern] = useState(false);
   const inspectionSequence = useRef(0);
   const [msg, setMsg] = useState(null);
   const [messageApi, contextHolder] = message.useMessage();
   const [spinning, setSpinning] = useState(false);
+  const [cloneSource, setCloneSource] = useState(null);
+  const [loadingClone, setLoadingClone] = useState(false);
 
   useEffect(() => {
     fetch(`${URL}/instrument-profiles`)
       .then(response => response.ok ? response.json() : Promise.reject(new Error('Profile list unavailable')))
       .then(data => {
         if (Array.isArray(data.profiles) && data.profiles.length) setInstrumentNames(data.profiles);
+        setInstrumentDetails(data.details || {});
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const sourceId = new URLSearchParams(window.location.search).get('clone_task');
+    if (!sourceId || !/^\d+$/.test(sourceId)) return;
+    let active = true;
+    setLoadingClone(true);
+    fetch(`${URL}/task/${sourceId}/rerun-settings`)
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Saved input could not be loaded.');
+        return data;
+      })
+      .then(data => {
+        if (!active) return;
+        const settings = data.settings;
+        const isSync = typeof settings.wavelength === 'number';
+        form.setFieldsValue({
+          ...settings,
+          elements: (settings.elements || []).join(', '),
+          precursor_formulas: (settings.precursor_formulas || []).join(', '),
+          synchrotron: isSync,
+          wavelength_sync: isSync ? String(settings.wavelength) : undefined,
+          wavelength_lab: isSync ? 'Cu' : settings.wavelength,
+          excluded_ranges: settings.excluded_ranges || [],
+          reuse_additional_cifs: true,
+        });
+        setAnalysisMode(settings.analysis_mode);
+        setSynchrotron(isSync);
+        setPreviousInstrument(settings.instrument_profile);
+        setCloneSource(data);
+      })
+      .catch(error => { if (active) setMsg(String(error.message || error)); })
+      .finally(() => { if (active) setLoadingClone(false); });
+    return () => { active = false; };
+  }, [form]);
 
   const inspectPattern = async info => {
     const fileValue = info?.fileList?.length ? info.file : null;
@@ -118,12 +160,18 @@ function Submission() {
     formData.append('temperature', values.analysis_mode === 'reaction' ? values.temperature : -1);
     formData.append('atmosphere', values.atmosphere);
     formData.append('instrument_profile', values.instrument_profile);
-    formData.append('wavelength', synchrotron ? Number(values.wavelength_sync) / 10 : values.wavelength_lab);
+    formData.append('refinement_controls', JSON.stringify(refinementControls));
+    formData.append('wavelength', synchrotron ? Number(values.wavelength_sync) : values.wavelength_lab);
     formData.append('use_cod', values.use_cod);
     formData.append('use_mp', values.use_mp);
     formData.append('mp_e_hull_cutoff', values.mp_e_hull_cutoff);
     formData.append('max_mp_structures', values.max_mp_structures);
-    formData.append('pattern_file', uploadFile(values.pattern_file));
+    if (values.pattern_file) formData.append('pattern_file', uploadFile(values.pattern_file));
+    if (cloneSource) formData.append('source_task_id', cloneSource.source_task_id);
+    formData.append('reuse_additional_cifs', values.reuse_additional_cifs !== false);
+    if (values.two_theta_min != null) formData.append('two_theta_min', values.two_theta_min);
+    if (values.two_theta_max != null) formData.append('two_theta_max', values.two_theta_max);
+    formData.append('excluded_ranges', JSON.stringify(values.excluded_ranges || []));
     (values.additional_phases || []).forEach(file => formData.append('additional_phases', uploadFile(file)));
 
     const abortControl = new AbortController();
@@ -137,6 +185,10 @@ function Submission() {
           .then(data => {
             if (data.message === 'submitted') {
               form.resetFields();
+              setCloneSource(null);
+              setPatternInspection(null);
+              setAnalysisMode('elemental');
+              setSynchrotron(false);
               messageApi.open({ type: 'success', content: 'The refinement task was submitted.' });
             } else {
               setMsg(data.detail || JSON.stringify(data));
@@ -167,13 +219,21 @@ function Submission() {
             analysis_mode: 'elemental', temperature: 800, atmosphere: 'air', use_cod: true,
             use_mp: true, mp_e_hull_cutoff: 0.05, max_mp_structures: 100,
             wavelength_lab: 'Cu', instrument_profile: 'Aeris-fds-Pixcel1d-Medipix3', synchrotron: false,
+            excluded_ranges: [], reuse_additional_cifs: true,
           }}
           onValuesChange={(_, values) => setAnalysisMode(values.analysis_mode)}
         >
           <Form.Item label="User" name="user" rules={[{ required: true, message: 'Please input your username.' }]}>
             <Input placeholder="Username" />
           </Form.Item>
-          <Form.Item label="XRD pattern" name="pattern_file" rules={[{ required: true, message: 'Please upload an XRD pattern.' }]}
+          {loadingClone ? <Alert type="info" showIcon message="Loading saved pattern and conditions..." style={{ marginBottom: 20 }} /> : null}
+          {cloneSource ? (
+            <Alert type="info" showIcon style={{ marginBottom: 20 }}
+              message={`Copied from Task ${cloneSource.source_task_id}: ${cloneSource.filename}`}
+              description={`The original pattern (${cloneSource.pattern.data_points.toLocaleString()} points) will be reused unless you upload a replacement. Edit any conditions below; the source task is unchanged.`}
+            />
+          ) : null}
+          <Form.Item label={cloneSource ? 'Replacement pattern (optional)' : 'XRD pattern'} name="pattern_file" rules={[{ required: !cloneSource, message: 'Please upload an XRD pattern.' }]}
             extra="XRDML is recommended: its acquisition metadata can select the closest instrument profile and wavelength automatically.">
             <Dragger maxCount={1} beforeUpload={() => false} onChange={inspectPattern}
               accept=".xy,.xye,.xrdml,.raw,.rasx,.txt,.scn">
@@ -256,8 +316,19 @@ function Submission() {
           </Form.Item>
           <Form.Item label="Instrument profile" name="instrument_profile"
             tooltip="For XRDML, DARA applies the closest bundled profile from the recorded instrument and detector. Always confirm unusual slit or optic setups.">
-            <Select showSearch optionFilterProp="label" options={instrumentNames.map(name => ({ label: name, value: name }))} />
+            <Select showSearch optionFilterProp="label" options={instrumentNames.map(name => ({ label: instrumentDetails[name] ? `${instrumentDetails[name].label} — ${instrumentDetails[name].verified ? 'operator verified' : 'unverified'}` : name, value: name }))} />
           </Form.Item>
+          <div style={{marginBottom:16}}>
+            <InstrumentManager onRegistered={profile => {
+              setInstrumentNames(previous => [...previous, profile.id]);
+              setInstrumentDetails(previous => ({...previous,[profile.id]:profile}));
+              form.setFieldsValue({instrument_profile:profile.id});
+            }} />
+            {instrumentDetails[selectedInstrument] ? <Alert style={{marginTop:10}} type={instrumentDetails[selectedInstrument].verified ? 'info' : 'warning'} showIcon
+              message={`${instrumentDetails[selectedInstrument].label} — ${instrumentDetails[selectedInstrument].verified ? 'verification declared by ' + instrumentDetails[selectedInstrument].verified_by : 'not verified against a standard'}`}
+              description={<>{instrumentDetails[selectedInstrument].geometry} · {instrumentDetails[selectedInstrument].radiation}<br />{instrumentDetails[selectedInstrument].notes}</>} /> : null}
+          </div>
+          <RefinementControlsEditor value={refinementControls} onChange={setRefinementControls} />
           <Form.Item label="Synchrotron" name="synchrotron" valuePropName="checked">
             <Switch onChange={checked => {
               setSynchrotron(checked);
@@ -278,13 +349,46 @@ function Submission() {
               <Input />
             </Form.Item>
           )}
+          <Form.Item label="Analysis range · 2θ (°)" extra="Leave blank to use the measured range. Explicit limits apply to search and final refinement alike.">
+            <Space wrap>
+              <Form.Item name="two_theta_min" noStyle><InputNumber min={0} max={180} placeholder="Start" aria-label="Analysis start angle" /></Form.Item>
+              <span>to</span>
+              <Form.Item name="two_theta_max" noStyle><InputNumber min={0} max={180} placeholder="End" aria-label="Analysis end angle" /></Form.Item>
+            </Space>
+          </Form.Item>
+          <Form.Item label="Excluded intervals · 2θ (°)" extra="Exclude confirmed holder/artifact regions only. These intervals are omitted from fitting and peak diagnostics; measured intensities are preserved.">
+            <Form.List name="excluded_ranges">
+              {(fields, { add, remove }) => (
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  {fields.map(field => (
+                    <Space key={field.key} wrap>
+                      <Form.Item name={[field.name, 0]} rules={[{ required: true, message: 'Start angle required' }]} style={{ marginBottom: 0 }}>
+                        <InputNumber min={0} max={180} placeholder="Start" aria-label="Excluded interval start" />
+                      </Form.Item>
+                      <span>to</span>
+                      <Form.Item name={[field.name, 1]} rules={[{ required: true, message: 'End angle required' }]} style={{ marginBottom: 0 }}>
+                        <InputNumber min={0} max={180} placeholder="End" aria-label="Excluded interval end" />
+                      </Form.Item>
+                      <Button type="text" icon={<MinusCircleOutlined />} onClick={() => remove(field.name)} aria-label="Remove excluded interval" />
+                    </Space>
+                  ))}
+                  <Button type="dashed" icon={<PlusOutlined />} onClick={() => add([null, null])}>Add excluded interval</Button>
+                </Space>
+              )}
+            </Form.List>
+          </Form.Item>
+          {cloneSource?.additional_cif_count > 0 ? (
+            <Form.Item label={`Reuse ${cloneSource.additional_cif_count} saved reference CIFs`} name="reuse_additional_cifs" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+          ) : null}
           <Form.Item label="Additional reference CIFs" name="additional_phases" valuePropName="fileList" getValueFromEvent={event => event?.fileList}>
             <Upload beforeUpload={() => false} multiple accept=".cif">
               <Button icon={<UploadOutlined />}>Select CIF files</Button>
             </Upload>
           </Form.Item>
           <Form.Item className="center" wrapperCol={{ span: 24 }}>
-            <Button type="primary" size="large" onClick={onSubmit} disabled={spinning} loading={spinning}>Submit</Button>
+            <Button type="primary" size="large" onClick={onSubmit} disabled={spinning || loadingClone} loading={spinning}>Submit</Button>
           </Form.Item>
         </Form>
       </Container>

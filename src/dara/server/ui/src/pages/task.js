@@ -8,6 +8,9 @@ import parse from 'html-react-parser';
 import {STATE_COLOR} from './results';
 import { buildRefinementView, isTraceSelected, legendKey } from '../components/refinementPlotState.mjs';
 import { formatParameterWithEsd, latticeParameterRows } from '../components/latticeParameters.mjs';
+import { AdoptButton, RefineSelectionButton, ReportDownloadButton, ReviewPanel, useTaskReview } from '../components/ResultWorkflows';
+import { TaskProgress } from '../components/PracticalControls';
+import CandidateComparison from '../components/CandidateComparison';
 
 const { Text } = Typography;
 
@@ -143,7 +146,7 @@ const Title = styled.div`
 
 
 const Plotly = Loadable({
-  loader: () => import(`react-plotly.js`),
+  loader: () => import('../components/RefinementPlotly'),
   loading: ({ timedOut }) =>
     timedOut ? (
       <blockquote>Error: Loading Plotly timed out.</blockquote>
@@ -153,8 +156,41 @@ const Plotly = Loadable({
   timeout: 10000,
 })
 
+const plotRequests = new Map();
 
-function RefinementPlot({ task_id, plot_id }) {
+function plotUrl(taskId, plotId) {
+  return plotId === null ? `${URL}/task/${taskId}/plot` : `${URL}/task/${taskId}/plot?idx=${plotId}`;
+}
+
+function loadPlot(taskId, plotId) {
+  const requestUrl = plotUrl(taskId, plotId);
+  if (!plotRequests.has(requestUrl)) {
+    const request = fetch(requestUrl)
+      .then(response => {
+        if (!response.ok) throw new Error(`Could not load plot (HTTP ${response.status}).`);
+        return response.json();
+      })
+      // Older servers returned a JSON string. Keep compatibility while the
+      // direct JSON response rolls out.
+      .then(response => typeof response === 'string' ? JSON.parse(response) : response)
+      .catch(error => {
+        plotRequests.delete(requestUrl);
+        throw error;
+      });
+    // Bound retained plot data when an operator reviews many tasks in one tab.
+    if (plotRequests.size >= 24) plotRequests.delete(plotRequests.keys().next().value);
+    plotRequests.set(requestUrl, request);
+  }
+  return plotRequests.get(requestUrl);
+}
+
+function preloadPlot(taskId, plotId) {
+  Plotly.preload();
+  if (taskId !== undefined && plotId !== undefined) loadPlot(taskId, plotId).catch(() => {});
+}
+
+
+function RefinementPlot({ task_id, plot_id, excludedRanges = [] }) {
   const [plot, setPlot] = React.useState(undefined);
   const [error, setError] = React.useState('');
   const [scale, setScale] = React.useState('linear');
@@ -166,23 +202,17 @@ function RefinementPlot({ task_id, plot_id }) {
   const [yRange, setYRange] = React.useState(null);
   const lastLegendKey = React.useRef(null);
   const sameLegendClicked = React.useRef(false);
-  const request_url = plot_id === null ? `${URL}/task/${task_id}/plot` : `${URL}/task/${task_id}/plot?idx=${plot_id}`;
   React.useEffect(() => {
     setPlot(undefined);
     setError('');
     setSelection({});
     setYRange(null);
     if (task_id === undefined || plot_id === undefined) return;
-    const controller = new AbortController();
-    fetch(request_url, { signal: controller.signal })
-      .then(response => {
-        if (!response.ok) throw new Error(`Could not load plot (HTTP ${response.status}).`);
-        return response.json();
-      })
-      .then(response => {
-        setPlot(typeof response === 'string' ? JSON.parse(response) : response);
-      }).catch(error => { if (error.name !== 'AbortError') setError(error.message); });
-    return () => controller.abort();
+    let active = true;
+    loadPlot(task_id, plot_id)
+      .then(response => { if (active) setPlot(response); })
+      .catch(error => { if (active) setError(error.message); });
+    return () => { active = false; };
   }, [task_id, plot_id]);
   if (error) return <Alert type="error" showIcon message={error} />;
   if (!plot) return <Spin />;
@@ -225,6 +255,10 @@ function RefinementPlot({ task_id, plot_id }) {
     </div>
     <Plotly key={`${task_id}-${plot_id}-${resetKey}`} data={view.data}
       layout={{ ...view.layout, autosize: true,
+        shapes: [...(view.layout.shapes || []), ...excludedRanges.flatMap(([x0, x1]) => [
+          { type: 'rect', xref: 'x', yref: 'y domain', x0, x1, y0: 0, y1: 1, fillcolor: 'rgba(130,130,130,0.15)', line: { width: 0 }, layer: 'below' },
+          { type: 'rect', xref: 'x2', yref: 'y2 domain', x0, x1, y0: 0, y1: 1, fillcolor: 'rgba(130,130,130,0.15)', line: { width: 0 }, layer: 'below' },
+        ])],
         uirevision: `${task_id}-${plot_id}-${resetKey}` }}
       onLegendClick={toggleLegend}
       onLegendDoubleClick={isolateLegend}
@@ -450,6 +484,20 @@ function PhaseRefinementTable({ phases = [], metadata = {}, details = {} }) {
 function TaskDetail({ data, task_id }) {
   const [plot_id, setPlotId] = React.useState(undefined);
   const [showAlternatives, setShowAlternatives] = React.useState(false);
+  const review = useTaskReview(task_id);
+  const firstPlotId = data.all_results[0]?.source_index ?? (data.all_results.length ? 0 : null);
+  React.useEffect(() => {
+    const warm = () => preloadPlot(task_id, firstPlotId);
+    if (window.requestIdleCallback) {
+      const handle = window.requestIdleCallback(warm, { timeout: 1500 });
+      return () => window.cancelIdleCallback(handle);
+    }
+    const handle = window.setTimeout(warm, 250);
+    return () => window.clearTimeout(handle);
+  }, [task_id, firstPlotId]);
+  const referenceMetadata = Object.assign({}, data.final_result.phase_metadata,
+    ...data.all_results.map(result => result.phase_metadata));
+  const renderReference = reference => <PhaseIdentity reference={reference} metadata={referenceMetadata[reference]} />;
   const displayedResult = plot_id === null
     ? data.final_result
     : data.all_results.find((result, index) => (result.source_index ?? index) === plot_id);
@@ -457,12 +505,13 @@ function TaskDetail({ data, task_id }) {
   return (
     <>
       <TitleContriner>
-        <h3>Task details (<a onClick={() => setPlotId(null)}>Visualize final result</a>)</h3>
+        <h3>Task details (<a onMouseEnter={() => preloadPlot(task_id, null)} onFocus={() => preloadPlot(task_id, null)} onClick={() => setPlotId(null)}>Visualize final result</a>)</h3>
         <DownloadButton taskId={task_id} type="primary" icon={<DownloadOutlined />}>
           Download all results
         </DownloadButton>
       </TitleContriner>
       <Divider />
+      <ReviewPanel taskId={task_id} data={data} review={review} onView={setPlotId} />
       <Descriptions bordered column={2} size='small'>
         <Descriptions.Item label="Pattern file name" span={2}>{data.task_label}</Descriptions.Item>
         <Descriptions.Item label="Best_Rwp" span={2}><Tag color="green">{data.best_rwp} %</Tag></Descriptions.Item>
@@ -470,6 +519,7 @@ function TaskDetail({ data, task_id }) {
           known_mixture: 'Known-phase refinement',
           elemental: 'Phase identification',
           reaction: 'Reaction check',
+          selected_phases: 'User-selected phase refinement',
         })[data.analysis_mode] || data.analysis_mode || (data.use_rxn_predictor ? "Reaction check" : "Phase identification")}</Descriptions.Item>
         <Descriptions.Item label="Temperature" span={2}>{data.temperature || "None"}</Descriptions.Item>
         <Descriptions.Item label="Use reaction network?" span={2}>{data.use_rxn_predictor ? "Yes" : "No"}</Descriptions.Item>
@@ -478,6 +528,12 @@ function TaskDetail({ data, task_id }) {
         <Descriptions.Item label="Candidate CIFs" span={2}>{data.candidate_summary?.after ?? "Unknown"} retained ({data.candidate_summary?.removed_duplicates ?? 0} duplicates removed)</Descriptions.Item>
         <Descriptions.Item label="Hypothesis search" span={2}><SearchSummary summary={data.search_summary} /></Descriptions.Item>
         <Descriptions.Item label="Additional search options" span={2}><code style={{backgroundColor: 'transparent'}}>{JSON.stringify(data.additional_search_options)}</code></Descriptions.Item>
+        {data.additional_search_options?.refinement_params?.excluded_ranges?.length ? <Descriptions.Item label="Excluded 2θ intervals" span={2}>
+          {data.additional_search_options.refinement_params.excluded_ranges.map(([lo, hi]) => `${lo}–${hi}°`).join(', ')} (shaded in the fit plot; omitted from fitting)
+        </Descriptions.Item> : null}
+        {data.search_summary?.parent_task_id ? <Descriptions.Item label="Derived from" span={2}>
+          <a href={`/task/?id=${data.search_summary.parent_task_id}`}>Task {data.search_summary.parent_task_id}</a> — selected-phase refinement; original result retained
+        </Descriptions.Item> : null}
         <Descriptions.Item label="Precursor / expected formulas" span={2}>{(data.precursors || []).join(', ') || "None"}</Descriptions.Item>
         <Descriptions.Item label="Final phases" span={2}>
           <Space size="large" wrap>
@@ -515,6 +571,11 @@ function TaskDetail({ data, task_id }) {
         <Descriptions.Item label="Duration" span={2}><Tag color="cyan">{data.runtime.toFixed(2)} s</Tag></Descriptions.Item>
       </Descriptions>
       <h3 style={{ marginTop: 20 }}>Final refined phase parameters</h3>
+      <Space wrap style={{ marginBottom: 12 }}>
+        <AdoptButton review={review} selection="best" />
+        <RefineSelectionButton taskId={task_id} phases={data.final_result.phases} renderPhase={renderReference} />
+        <ReportDownloadButton taskId={task_id} selection="best" disabled={review.loading || review.saving || review.dirty || !!review.error}>Best-fit report</ReportDownloadButton>
+      </Space>
       <Text type="secondary">Uncertainties are BGMN estimated standard deviations where reported. Weight uncertainty is propagated after normalization and is omitted when unavailable.</Text>
       <div style={{ marginTop: 10 }}>
         <PhaseRefinementTable phases={data.final_result.phases} metadata={data.final_result.phase_metadata} details={data.final_result.phase_details} />
@@ -531,6 +592,11 @@ function TaskDetail({ data, task_id }) {
       </ResultTitleContainer>
       <Divider />
       <h3>Candidate comparison</h3>
+      {data.instrument_profile_details ? <Alert type={data.instrument_profile_details.verified ? 'info' : 'warning'} showIcon style={{marginBottom:12}}
+        message={`Instrument: ${data.instrument_profile_details.label} — ${data.instrument_profile_details.verified ? 'operator-verified' : 'unverified'}`}
+        description={<>{data.instrument_profile_details.geometry} · {data.instrument_profile_details.radiation}<br />{data.instrument_profile_details.notes}</>} /> : null}
+      <CandidateComparison taskId={task_id} candidates={data.all_results} renderPhase={renderReference} />
+      {data.final_refinement_params ? <details style={{marginBottom:12}}><summary>Final-refinement settings used</summary><pre>{JSON.stringify(data.final_refinement_params, null, 2)}</pre></details> : null}
       <Text type="secondary">Sort columns to compare candidates. Candidate numbers and downloads keep their original identity. Fractions are normalized over modeled crystalline phases; diagnostic counts are review flags, not confidence scores.</Text>
       <Table size="small" pagination={false} scroll={{ x: 900 }} style={{ marginTop: 12, marginBottom: 24 }}
         rowKey="source_index"
@@ -542,7 +608,7 @@ function TaskDetail({ data, task_id }) {
           { title: 'GOF', sorter: (a,b) => (a.fit_quality?.gof ?? Infinity)-(b.fit_quality?.gof ?? Infinity), render: (_,row) => formatMetric(row.fit_quality?.gof) },
           ...[['missing','Missing'],['extra','Extra'],['intensity_mismatch','Intensity mismatch']].map(([key,title]) => ({ title, sorter: (a,b) => (a.peak_diagnostics?.counts?.[key] ?? Infinity)-(b.peak_diagnostics?.counts?.[key] ?? Infinity), render: (_,row) => row.peak_diagnostics?.counts?.[key] ?? '—' })),
           { title: 'No. of phases', sorter: (a,b) => a.highlighted_phases.length-b.highlighted_phases.length, render: (_,row) => row.highlighted_phases.length },
-          { title: 'Actions', render: (_,row) => <Space><Button size="small" onClick={() => setPlotId(row.source_index)}>View fit</Button><DownloadButton taskId={task_id} resultIndex={row.source_index} size="small" icon={<DownloadOutlined />} aria-label={`Download candidate ${row.candidate_number}`} /></Space> },
+          { title: 'Actions', render: (_,row) => <Space wrap><Button size="small" onMouseEnter={() => preloadPlot(task_id, row.source_index)} onFocus={() => preloadPlot(task_id, row.source_index)} onClick={() => setPlotId(row.source_index)}>View fit</Button><DownloadButton taskId={task_id} resultIndex={row.source_index} size="small" icon={<DownloadOutlined />} aria-label={`Download candidate ${row.candidate_number}`} /><AdoptButton size="small" review={review} selection={row.source_index} /></Space> },
         ]} />
       {data.duplicate_results_removed > 0 ? (
         <Alert
@@ -572,7 +638,9 @@ function TaskDetail({ data, task_id }) {
                   <PeakDiagnosticTags diagnostics={result.peak_diagnostics} />
                 </Space><br />
                 <Space size="small">
-                  <a onClick={() => setPlotId(result.source_index ?? index)}>Visualize result</a>
+                  <a onMouseEnter={() => preloadPlot(task_id, result.source_index ?? index)}
+                    onFocus={() => preloadPlot(task_id, result.source_index ?? index)}
+                    onClick={() => setPlotId(result.source_index ?? index)}>Visualize result</a>
                   <Tooltip title={`Download search result ${index + 1}`}>
                     <DownloadButton
                       taskId={task_id}
@@ -600,12 +668,18 @@ function TaskDetail({ data, task_id }) {
           onChange={value => setPlotId(value === 'best' ? null : value)}
           options={[{value:'best',label:'Best fit'}, ...data.all_results.map((r,i) => ({ value:r.source_index ?? i,label:`Candidate ${i+1} — Rwp ${r.rwp}%` }))]} />
         {displayedResult ? <>
+          <Space wrap style={{ marginBottom: 12 }}>
+            <AdoptButton review={review} selection={plot_id === null ? 'best' : plot_id} />
+            <RefineSelectionButton taskId={task_id} selection={plot_id === null ? 'best' : plot_id}
+              phases={displayedResult.highlighted_phases || displayedResult.phases || []} renderPhase={renderReference} />
+            <ReportDownloadButton taskId={task_id} selection={plot_id === null ? 'best' : plot_id} disabled={review.loading || review.saving || review.dirty || !!review.error}>This fit's report</ReportDownloadButton>
+          </Space>
           <div style={{ marginBottom: 12 }}><FitQualitySummary quality={displayedResult.fit_quality} /></div>
           <PhaseRefinementTable phases={displayedResult.highlighted_phases || displayedResult.phases || []}
             metadata={displayedResult.phase_metadata} details={displayedResult.phase_details} />
           <Divider />
         </> : null}
-        <RefinementPlot task_id={task_id} plot_id={plot_id} />
+        <RefinementPlot task_id={task_id} plot_id={plot_id} excludedRanges={data.additional_search_options?.refinement_params?.excluded_ranges || []} />
       </Modal>
     </>
   )
@@ -630,6 +704,8 @@ function TaskPage({ location }) {
   const [error, setError] = React.useState("");
 
   const [data, setData] = React.useState(undefined);
+  const [statusRevision, setStatusRevision] = React.useState('');
+  const handleStatusChange = React.useCallback(status => setStatusRevision(status), []);
   const deleteTask = () => {
     Modal.confirm({
       title: `Delete task ${task_id}?`,
@@ -657,7 +733,7 @@ function TaskPage({ location }) {
         return response.json();
       })
       .then(data => setData(data));
-  }, [task_id]);
+  }, [task_id, statusRevision]);
 
   return (
     <Layout hasSider={false} title="Result">
@@ -665,15 +741,17 @@ function TaskPage({ location }) {
         <Title>
         <h2>Task {task_id}</h2>
         <Space>
+          {data ? <Button href={`/?clone_task=${task_id}`}>Copy conditions &amp; rerun</Button> : null}
           {data && data.status === 'COMPLETED' ? (
             <DownloadButton taskId={task_id} icon={<DownloadOutlined />}>Download all</DownloadButton>
           ) : null}
-          {data && data.status !== 'READY' && data.status !== 'RUNNING' ? (
+          {data && !['READY','RUNNING','CANCELLING'].includes(data.status) ? (
             <Button danger icon={<DeleteOutlined />} onClick={deleteTask}>Delete</Button>
           ) : null}
           <Button type="primary" href={`https://github.com/CederGroupHub/dara/issues/new`} target="_blank">Open Github Issue</Button>
         </Space>
         </Title>
+        {data && data.status !== 'COMPLETED' ? <TaskProgress taskId={task_id} onStatusChange={handleStatusChange} /> : null}
         {
           data === null ? <h3>{error}</h3> : <></>
         }

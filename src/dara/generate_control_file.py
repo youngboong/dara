@@ -10,6 +10,7 @@ from typing import Literal
 
 import numpy as np
 
+from dara.analysis_range import validate_analysis_range
 from dara.settings import DaraSettings
 from dara.utils import read_phase_name_from_str
 
@@ -34,6 +35,10 @@ def copy_instrument_files(instrument_profile: str | Path, working_dir: Path) -> 
     default_instrument_path = (
         Path(__file__).parent / "data" / "BGMN-Templates" / "Devices"
     )
+    if str(instrument_profile).startswith("user-"):
+        from dara.instrument_profiles import registered_profile_path
+
+        instrument_profile = registered_profile_path(instrument_profile)
     instrument_path = Path(instrument_profile)  # try to parse as a path
     if instrument_path.suffix != ".geq" or not instrument_path.exists():
         instrument_profile = instrument_path.name.removesuffix(".geq")
@@ -84,6 +89,7 @@ def generate_control_file(
     n_threads: int = _DARA_SETTINGS.BGMN_N_THREADS,
     wmin: float | None = None,
     wmax: float | None = None,
+    excluded_ranges: list[list[float]] | None = None,
     eps1: float | str = 0.0,
     eps2: float | str = "0_-0.05^0.05",
     wavelength: Literal["Cu", "Co", "Cr", "Fe", "Mo"] | float = "Cu",
@@ -97,8 +103,9 @@ def generate_control_file(
         instrument_profile: the name of the instrument, if it is a path, it must be ended with `.geq`
         working_dir: the working directory
         n_threads: the number of threads to use
-        wmin: the minimum wavelength
-        wmax: the maximum wavelength
+        wmin: the minimum 2-theta angle in degrees
+        wmax: the maximum 2-theta angle in degrees
+        excluded_ranges: [start, end] angular intervals excluded using native BGMN CUT
         eps1: the epsilon1 value, it is used to refine zero point
         eps2: the epsilon2 value, it is used to refine sample height
         wavelength: the wavelength to use. If a float is provided, it is used as the
@@ -124,7 +131,15 @@ def generate_control_file(
         raise ValueError(f"Could not load pattern file {pattern_path}") from e
 
     xy_content = trim_pattern(xy_content)
+    range_params = validate_analysis_range(xy_content[:, 0], wmin, wmax, excluded_ranges)
     np.savetxt(xy_pattern_path, xy_content, fmt="%.6f")
+
+    # BGMN manual, section 10 / p.72: CUT[1]=29:34 excludes that interval
+    # from least squares without changing the measured intensities.
+    cut_lines = "\n".join(
+        f"CUT[{index}]={lower:g}:{upper:g}"
+        for index, (lower, upper) in enumerate(range_params.get("excluded_ranges", []), 1)
+    )
 
     phases_str = "\n".join(
         [f"STRUC[{i}]={str_path.name}" for i, str_path in enumerate(str_paths, start=1)]
@@ -148,6 +163,7 @@ def generate_control_file(
     {f"LAMBDA={wavelength.upper()}" if isinstance(wavelength, str) else f"SYNCHROTRON={wavelength:.4f}"}
     {f"WMIN={wmin}" if wmin is not None else ""}
     {f"WMAX={wmax}" if wmax is not None else ""}
+    {cut_lines}
     % Phases
     {phases_str}
     % Measured data

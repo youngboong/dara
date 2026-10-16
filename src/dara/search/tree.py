@@ -15,6 +15,7 @@ from sklearn.cluster import AgglomerativeClustering
 from treelib import Node, Tree
 
 from dara import do_refinement_no_saving
+from dara.analysis_range import analysis_mask
 from dara.cif2str import CIF2StrError
 from dara.peak_detection import detect_peaks
 from dara.refine import RefinementPhase
@@ -345,7 +346,8 @@ def group_phases(
 
 
 def remove_unnecessary_phases(
-    result: RefinementResult, cif_paths: list[Path], rpb_threshold: float = 0.0
+    result: RefinementResult, cif_paths: list[Path], rpb_threshold: float = 0.0,
+    refinement_params: dict | None = None,
 ) -> list[Path]:
     """
     Remove unnecessary phases from the result.
@@ -356,6 +358,12 @@ def remove_unnecessary_phases(
     y_obs = np.array(result.plot_data.y_obs)
     y_calc = np.array(result.plot_data.y_calc)
     y_bkg = np.array(result.plot_data.y_bkg)
+    limits = {key: value for key, value in (refinement_params or {}).items()
+              if key in {"wmin", "wmax", "excluded_ranges"}}
+    if limits:
+        keep = analysis_mask(result.plot_data.x, **limits)
+        phases_results = {name: values[keep] for name, values in phases_results.items()}
+        y_obs, y_calc, y_bkg = y_obs[keep], y_calc[keep], y_bkg[keep]
 
     cif_paths_dict = {cif_path.stem: cif_path for cif_path in cif_paths}
 
@@ -581,6 +589,7 @@ class BaseSearchTree(Tree):
                             new_result,
                             [p.path for p in new_phases],
                             self.rpb_threshold,
+                            self.refinement_params,
                         )
                     )
                     != len(new_phases)
@@ -1026,7 +1035,10 @@ class SearchTree(BaseSearchTree):
         # Auto-determine rpb_threshold from pattern SNR if not provided
         if rpb_threshold is None:
             xrd = load_pattern(pattern_path)
-            rpb_threshold = estimate_rpb_threshold(xrd.intensities)
+            limits = {key: value for key, value in (refine_params or {}).items()
+                      if key in {"wmin", "wmax", "excluded_ranges"}}
+            keep = analysis_mask(xrd.angles, **limits)
+            rpb_threshold = estimate_rpb_threshold(xrd.intensities[keep])
             logger.info(
                 f"rpb_threshold automatically set to {rpb_threshold:.2f} "
                 f"based on pattern SNR."
@@ -1128,6 +1140,8 @@ class SearchTree(BaseSearchTree):
             self.all_phases_result = all_phases_result
 
     def _detect_peak_in_pattern(self) -> pd.DataFrame:
+        from dara.task_progress import report_progress
+        report_progress("Detecting measured peaks (EFLECH)")
         logger.info("Detecting peaks in the pattern.")
         if (
             self.enable_angular_cut
@@ -1142,8 +1156,14 @@ class SearchTree(BaseSearchTree):
             wavelength=self.wavelength,
             instrument_profile=self.instrument_profile,
             wmin=self.refinement_params.get("wmin", None),
-            wmax=None,
+            wmax=None if self.enable_angular_cut else self.refinement_params.get("wmax"),
+            excluded_ranges=self.refinement_params.get("excluded_ranges"),
         )
+        peak_list = peak_list.loc[analysis_mask(
+            peak_list["2theta"], self.refinement_params.get("wmin"),
+            None if self.enable_angular_cut else self.refinement_params.get("wmax"),
+            self.refinement_params.get("excluded_ranges"),
+        )]
         if len(peak_list) == 0:
             raise ValueError("No peaks are detected in the pattern.")
 
@@ -1179,6 +1199,8 @@ class SearchTree(BaseSearchTree):
         return peak_list
 
     def _create_root_node(self) -> Node:
+        from dara.task_progress import report_progress
+        report_progress("Searching phase combinations")
         logger.info("Creating the root node.")
         return Node(
             data=SearchNodeData(
@@ -1192,6 +1214,8 @@ class SearchTree(BaseSearchTree):
         )
 
     def _get_all_cleaned_phases_result(self) -> dict[RefinementPhase, RefinementResult]:
+        from dara.task_progress import report_progress
+        report_progress("Screening reference phases")
         logger.info("Refining all the phases in the dataset.")
         pinned_phases_set = set(self.pinned_phases)
         cif_paths = [

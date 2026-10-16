@@ -8,6 +8,8 @@ import shutil
 import tempfile
 import zipfile
 from ast import literal_eval
+from copy import deepcopy
+from functools import lru_cache
 from io import BytesIO, StringIO
 from pathlib import Path
 from traceback import print_exc
@@ -15,12 +17,13 @@ from typing import Annotated, Optional
 
 import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from monty.serialization import MontyDecoder
 from pymatgen.core import Composition, Element
 from pymatgen.symmetry.groups import SpaceGroup
 
 from dara.cif import Cif
+from dara.analysis_range import validate_analysis_range
 from dara.jobs import PhaseSearchMaker
 from dara.plot import peaks_in_fit_range, visualize
 from dara.server.utils import convert_to_local_tz, get_result_store, get_worker_store
@@ -210,7 +213,10 @@ def _parse_string_list(value: str | None) -> list[str]:
 @router.get("/instrument-profiles")
 async def instrument_profiles():
     """Return the instrument profiles actually bundled with this server."""
-    return {"profiles": _available_instrument_profiles()}
+    from dara.instrument_profiles import registered_profiles
+
+    custom = registered_profiles()
+    return {"profiles": _available_instrument_profiles() + list(custom), "details": custom}
 
 
 @router.post("/pattern/inspect")
@@ -249,10 +255,84 @@ async def inspect_pattern(pattern_file: Annotated[UploadFile, File()]):
     }
 
 
+def _saved_task_input(task_id: int) -> tuple[dict, dict, object]:
+    """Restore only a stored pattern/input snapshot, never execute a stored job."""
+    with get_worker_store() as worker_store:
+        record = worker_store.query_one({"index": task_id})
+    if record is None:
+        raise HTTPException(status_code=404, detail="Source task not found")
+    raw_job = record.get("job", {})
+    kwargs = deepcopy(raw_job.get("function_kwargs", {}))
+    raw_pattern = kwargs.get("xrd_data")
+    if raw_pattern is None and raw_job.get("function_args"):
+        raw_pattern = raw_job["function_args"][0]
+    if raw_pattern is None:
+        raise HTTPException(status_code=409, detail="Original pattern is not available for this task")
+    try:
+        pattern = MontyDecoder().process_decoded(raw_pattern)
+        if not hasattr(pattern, "angles") or not hasattr(pattern, "intensities"):
+            raise ValueError("Not an XRD pattern")
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="The saved original pattern could not be restored") from exc
+    return record, kwargs, pattern
+
+
+def _rerun_settings(record: dict, kwargs: dict, pattern) -> dict:
+    """Return an explicit UI allowlist; credentials and private DB config stay server-side."""
+    raw_job = record.get("job", {})
+    saved = raw_job.get("metadata", {}).get("submission_settings", {})
+    search = kwargs.get("search_kwargs") or {}
+    refine = search.get("refinement_params") or {}
+    predict = kwargs.get("predict_kwargs") or {}
+    context = kwargs.get("context") or {}
+    dbs = kwargs.get("cif_dbs") or []
+    classes = {db.get("@class") for db in dbs if isinstance(db, dict)}
+    mp_db = next((db for db in dbs if isinstance(db, dict) and db.get("@class") == "MaterialsProjectDatabase"), {})
+    mode = saved.get("analysis_mode", kwargs.get("analysis_mode", "reaction" if predict else "elemental"))
+    if mode not in {"elemental", "reaction", "known_mixture"}:
+        mode = "elemental"
+    settings = {
+        "user": record.get("user", ""),
+        "analysis_mode": mode,
+        "elements": kwargs.get("elements") or context.get("elements") or [],
+        "precursor_formulas": kwargs.get("precursors") or context.get("precursors") or [],
+        "instrument_profile": search.get("instrument_profile", "Aeris-fds-Pixcel1d-Medipix3"),
+        "wavelength": search.get("wavelength", "Cu"),
+        "temperature": predict.get("temp", 1073) - 273,
+        "atmosphere": saved.get("atmosphere", {"O_air": "air", "O": "oxygen"}.get(predict.get("open_elem"), "inert")),
+        "use_cod": "CODDatabase" in classes or (not dbs and not kwargs.get("cifs") and not kwargs.get("additional_cifs")),
+        "use_mp": "MaterialsProjectDatabase" in classes,
+        "mp_e_hull_cutoff": kwargs.get("database_e_hull_filter", mp_db.get("e_hull_filter", 0.05)),
+        "max_mp_structures": mp_db.get("max_structures", 100),
+        "two_theta_min": refine.get("wmin"),
+        "two_theta_max": refine.get("wmax"),
+        "excluded_ranges": refine.get("excluded_ranges", []),
+    }
+    angles = np.asarray(pattern.angles, dtype=float)
+    finite = angles[np.isfinite(angles)]
+    return {
+        "source_task_id": record["index"],
+        "filename": saved.get("filename", raw_job.get("name", "saved_pattern.xy")),
+        "settings": settings,
+        "additional_cif_count": len(kwargs.get("additional_cifs") or kwargs.get("cifs") or []),
+        "pattern": {
+            "two_theta_min": float(finite.min()) if finite.size else None,
+            "two_theta_max": float(finite.max()) if finite.size else None,
+            "data_points": int(angles.size),
+        },
+    }
+
+
+@router.get("/task/{task_id}/rerun-settings")
+async def rerun_settings(task_id: int):
+    return _rerun_settings(*_saved_task_input(task_id))
+
+
 @router.post("/submit")
 async def submit(
-    pattern_file: Annotated[UploadFile, File()],
     user: Annotated[str, Form()],
+    pattern_file: Annotated[UploadFile | None, File()] = None,
+    source_task_id: Annotated[int | None, Form()] = None,
     precursor_formulas: Annotated[str, Form()] = "[]",
     elements: Annotated[str, Form()] = "[]",
     analysis_mode: Annotated[str, Form()] = "",
@@ -266,17 +346,32 @@ async def submit(
     max_mp_structures: Annotated[int, Form()] = 100,
     use_rxn_predictor: Annotated[Optional[bool], Form()] = None,
     additional_phases: Annotated[list[UploadFile], File()] = None,
+    reuse_additional_cifs: Annotated[bool, Form()] = True,
+    two_theta_min: Annotated[float | None, Form()] = None,
+    two_theta_max: Annotated[float | None, Form()] = None,
+    excluded_ranges: Annotated[str, Form()] = "[]",
+    refinement_controls: Annotated[str, Form()] = "{}",
 ):
     try:
-        name = pattern_file.filename
-        with tempfile.TemporaryDirectory() as pattern_temp_dir:
-            temp_path = Path(pattern_temp_dir) / Path(name).name
-            with open(temp_path, "wb") as temp_file:
-                shutil.copyfileobj(pattern_file.file, temp_file)
-            try:
-                pattern = load_pattern(temp_path)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid file format")
+        original_kwargs = {}
+        if source_task_id is not None:
+            source_record, original_kwargs, pattern = _saved_task_input(source_task_id)
+            name = _rerun_settings(source_record, original_kwargs, pattern)["filename"]
+        if pattern_file is not None:
+            name = Path(pattern_file.filename or "pattern.xy").name
+            with tempfile.TemporaryDirectory() as pattern_temp_dir:
+                temp_path = Path(pattern_temp_dir) / name
+                with open(temp_path, "wb") as temp_file:
+                    shutil.copyfileobj(pattern_file.file, temp_file)
+                try:
+                    pattern = load_pattern(temp_path)
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid file format")
+        elif source_task_id is None:
+            raise HTTPException(status_code=400, detail="Upload an XRD pattern or select a source task")
+        range_params = validate_analysis_range(
+            pattern.angles, two_theta_min, two_theta_max, excluded_ranges
+        )
 
         precursor_formulas = _parse_string_list(precursor_formulas)
         elements = _parse_string_list(elements)
@@ -289,22 +384,25 @@ async def submit(
         if analysis_mode not in {"reaction", "elemental", "known_mixture"}:
             raise HTTPException(status_code=400, detail="Invalid analysis mode")
 
+        additional_cifs = []
+        if source_task_id is not None and reuse_additional_cifs:
+            additional_cifs = MontyDecoder().process_decoded(
+                original_kwargs.get("additional_cifs") or original_kwargs.get("cifs") or []
+            )
         if additional_phases:
-            additional_cifs = []
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_dir = Path(temp_dir)
                 for phase in additional_phases:
-                    with open(temp_dir / phase.filename, "wb") as f:
+                    phase_name = Path(phase.filename or "reference.cif").name
+                    with open(temp_dir / phase_name, "wb") as f:
                         shutil.copyfileobj(phase.file, f)
-                    cif_file = Cif.from_file(temp_dir / phase.filename)
+                    cif_file = Cif.from_file(temp_dir / phase_name)
                     if not cif_file.data:
                         raise HTTPException(
                             status_code=400,
                             detail="Invalid additional CIF file provided",
                         )
-                    additional_cifs.append(Cif.from_file(temp_dir / phase.filename))
-        else:
-            additional_cifs = None
+                    additional_cifs.append(cif_file)
 
         try:
             [Composition(p) for p in precursor_formulas]
@@ -366,10 +464,22 @@ async def submit(
         if not cif_dbs and not additional_cifs:
             raise HTTPException(status_code=400, detail="Select COD, MP, or upload reference CIFs")
 
-        search_kwargs = {
+        search_kwargs = {**(original_kwargs.get("search_kwargs") or {}), **{
             "instrument_profile": instrument_profile,
             "wavelength": wavelength,
-        }
+        }}
+        inherited_refine = dict(search_kwargs.get("refinement_params") or {})
+        for key in ("wmin", "wmax", "excluded_ranges"):
+            inherited_refine.pop(key, None)
+        inherited_refine.update(range_params)
+        if inherited_refine:
+            search_kwargs["refinement_params"] = inherited_refine
+        else:
+            search_kwargs.pop("refinement_params", None)
+        if range_params:
+            search_kwargs["enable_angular_cut"] = False
+        if original_kwargs.get("analysis_mode") == "known_mixture" and analysis_mode != "known_mixture":
+            search_kwargs.pop("max_phases", None)
         if analysis_mode == "known_mixture":
             search_kwargs["max_phases"] = min(len(precursor_formulas), 5)
         maker_kwargs = {
@@ -380,8 +490,23 @@ async def submit(
             "database_e_hull_filter": mp_e_hull_cutoff,
             "cif_dbs": cif_dbs,
             "additional_cifs": additional_cifs,
-            "additional_cif_params": {"lattice_range": 0.05},
+            "additional_cif_params": (
+                deepcopy(original_kwargs["additional_cif_params"])
+                if original_kwargs.get("additional_cif_params") is not None
+                else {"lattice_range": 0.05}
+            ),
             "search_kwargs": search_kwargs,
+        }
+        if original_kwargs.get("final_refinement_params") is not None:
+            maker_kwargs["final_refinement_params"] = deepcopy(original_kwargs["final_refinement_params"])
+        from dara.refinement_controls import RefinementControls, apply_controls
+
+        controls = RefinementControls.model_validate_json(refinement_controls)
+        maker_kwargs["final_refinement_params"] = apply_controls(
+            maker_kwargs.get("final_refinement_params"), controls)
+        maker_kwargs["final_refinement_overrides"] = {
+            **(original_kwargs.get("final_refinement_overrides") or {}),
+            **apply_controls({}, controls),
         }
 
         if analysis_mode == "reaction":
@@ -408,6 +533,15 @@ async def submit(
             job = PhaseSearchMaker(
                 name=name, verbose=False, phase_predictor=None, max_num_results=5
             ).make(**maker_kwargs)
+        job.metadata["submission_settings"] = {
+            "filename": name, "analysis_mode": analysis_mode, "atmosphere": atmosphere,
+            "source_task_id": source_task_id,
+        }
+        if instrument_profile.startswith("user-"):
+            from dara.instrument_profiles import registered_profiles, registered_profile_path
+
+            registered_profile_path(instrument_profile)
+            job.metadata["instrument_profile_details"] = registered_profiles().get(instrument_profile)
         job_index = add_job_to_queue(job, user=user)
         return {"message": "submitted", "wf_id": job_index}
     except Exception as e:
@@ -437,14 +571,14 @@ async def result(task_id: int):
             ),
         }
 
-    if job["status"] == "RUNNING":
+    if job["status"] in {"RUNNING", "CANCELLING", "CANCELLED"}:
         return {
             "task_label": job_name,
             "status": job["status"],
             "submitted_on": convert_to_local_tz(job["submitted_time"]).strftime(
                 "%Y-%m-%d %H:%M:%S"
             ),
-            "start_time": convert_to_local_tz(job["start_time"]).strftime(
+            "start_time": convert_to_local_tz(job.get("start_time", job["submitted_time"])).strftime(
                 "%Y-%m-%d %H:%M:%S"
             ),
         }
@@ -594,6 +728,8 @@ async def result(task_id: int):
         "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S"),
         "runtime": runtime,
         "additional_search_options": d.search_kwargs,
+        "final_refinement_params": d.final_refinement_params,
+        "instrument_profile_details": job["job"].get("metadata", {}).get("instrument_profile_details"),
     }
     raise HTTPException(status_code=404, detail="No phases identified in the pattern")
 
@@ -827,36 +963,64 @@ async def delete_result(task_id: int):
         job = worker_store.query_one({"index": task_id})
         if job is None:
             raise HTTPException(status_code=404, detail="Task not found")
-        if job["status"] in {"READY", "RUNNING"}:
+        if job["status"] in {"READY", "RUNNING", "CANCELLING"}:
             raise HTTPException(status_code=409, detail="A queued or running task cannot be deleted")
         worker_store.remove_docs({"index": task_id})
 
     with get_result_store() as result_store:
         result_store.remove_docs({"uuid": job["uuid"]})
+    _plot_json.cache_clear()
+    from dara.server.task_control_router import task_directory
+    try:
+        checkpoint_dir = task_directory(job["uuid"])
+    except ValueError:
+        checkpoint_dir = None  # Legacy non-UUID records have no checkpoints.
+    if checkpoint_dir is not None and checkpoint_dir.is_dir() and not checkpoint_dir.is_symlink():
+        # UUID validation fixes the exact target below the checkpoint parent.
+        shutil.rmtree(checkpoint_dir)
     return {"message": "deleted", "task_id": task_id}
 
 
-@router.get("/task/{task_id}/plot")
-async def plot(task_id: int, idx: int = Query(None)):
-    with get_worker_store() as worker_store:
-        uuid = worker_store.query_one({"index": task_id}, ["uuid"])["uuid"]
+@lru_cache(maxsize=24)
+def _plot_json(uuid: str, idx: int | None) -> str:
+    """Build an immutable completed-result plot once per server process."""
     with get_result_store() as result_store:
-        d = result_store.query_one({"uuid": uuid})
-    if d is None:
+        stored = result_store.query_one({"uuid": uuid})
+    if stored is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    d = MontyDecoder().process_decoded(d["output"])
+    document = MontyDecoder().process_decoded(stored["output"])
     if idx is None:
-        return d.final_result.visualize().to_json()
-    if 0 <= idx < len(d.results):
-        result = d.results[idx][1]
-        missing_peaks = d.missing_peaks[idx] if d.missing_peaks else None
-        extra_peaks = d.extra_peaks[idx] if d.extra_peaks else None
-        if getattr(result, "refinement_metrics", None) is not None:
-            return result.visualize().to_json()
-        return visualize(
-            result=result, missing_peaks=missing_peaks, extra_peaks=extra_peaks
-        ).to_json()
-    raise HTTPException(status_code=404, detail="Index out of range")
+        if document.final_result is None:
+            raise HTTPException(status_code=404, detail="Final result not found")
+        figure = document.final_result.visualize()
+    elif 0 <= idx < len(document.results or []):
+        result = document.results[idx][1]
+        missing_peaks = document.missing_peaks[idx] if document.missing_peaks else None
+        extra_peaks = document.extra_peaks[idx] if document.extra_peaks else None
+        figure = (
+            result.visualize()
+            if getattr(result, "refinement_metrics", None) is not None
+            else visualize(result=result, missing_peaks=missing_peaks, extra_peaks=extra_peaks)
+        )
+    else:
+        raise HTTPException(status_code=404, detail="Index out of range")
+    return figure.to_json()
+
+
+@router.get("/task/{task_id}/plot")
+async def plot(task_id: int, idx: int | None = Query(None, ge=0)):
+    with get_worker_store() as worker_store:
+        task = worker_store.query_one({"index": task_id}, ["uuid", "status"])
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    payload = _plot_json(task["uuid"], idx)
+    # Returning the serialized figure directly avoids FastAPI JSON-encoding the
+    # JSON string a second time (extra copies, escaping and client-side parse).
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.get("/tasks")

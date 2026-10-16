@@ -2,7 +2,8 @@ import React from 'react';
 import styled from 'styled-components';
 import Layout from '../components/Layout';
 import { Button, Input, Popconfirm, Space, Table, Tag, message } from 'antd';
-import { DeleteOutlined, DownloadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownloadOutlined, LineChartOutlined } from '@ant-design/icons';
+import { parseComparisonTaskIds } from '../components/patternComparison.mjs';
 
 const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 
@@ -15,7 +16,10 @@ export const STATE_COLOR = {
   'COMPLETED': 'green',
   'FIZZLED': 'red',
   'PENDING': 'blue',
-  'RUNNING': 'yellow'
+  'RUNNING': 'yellow',
+  'READY': 'blue',
+  'CANCELLING': 'orange',
+  'CANCELLED': 'default'
 }
 
 function ResultsPage({ location }) {
@@ -25,11 +29,12 @@ function ResultsPage({ location }) {
   const [ user, setUser ] = React.useState(queryParameters.get('user') || null)
 
   const [data, setData] = React.useState({})
+  const [selectedTaskIds, setSelectedTaskIds] = React.useState(() => parseComparisonTaskIds(queryParameters.get('selected')));
   const [messageApi, contextHolder] = message.useMessage();
 
   const onSearch = (value) => {
     setUser(value)
-    window.location.href = `/results?page=1&limit=${limit}` + (value ? `&user=${value}` : "")
+    window.location.href = `/results?page=1&limit=${limit}` + (value ? `&user=${encodeURIComponent(value)}` : "") + (selectedTaskIds.length ? `&selected=${selectedTaskIds.join(',')}` : "")
   }
 
   React.useEffect(() => {
@@ -50,6 +55,7 @@ function ResultsPage({ location }) {
       tasks: (previous.tasks || []).filter(task => task.fw_id !== taskId),
       total_tasks: Math.max((previous.total_tasks || 1) - 1, 0),
     }));
+    setSelectedTaskIds(previous => previous.filter(id => id !== taskId));
     messageApi.success(`Task ${taskId} deleted.`);
   };
 
@@ -104,12 +110,12 @@ function ResultsPage({ location }) {
             okButtonProps={{ danger: true }}
             cancelText="Cancel"
             onConfirm={() => deleteTask(entry.fw_id)}
-            disabled={entry.state === 'READY' || entry.state === 'RUNNING'}
+            disabled={['READY','RUNNING','CANCELLING'].includes(entry.state)}
           >
             <Button
               danger
               icon={<DeleteOutlined />}
-              disabled={entry.state === 'READY' || entry.state === 'RUNNING'}
+              disabled={['READY','RUNNING','CANCELLING'].includes(entry.state)}
             >
               Delete
             </Button>
@@ -134,18 +140,36 @@ function ResultsPage({ location }) {
             style={{ width: 400, marginBottom: "24px" }}
           />
         </div>
+        <Space wrap style={{ marginBottom: 16 }}>
+          <Button
+            icon={<LineChartOutlined />}
+            disabled={selectedTaskIds.length < 2}
+            href={selectedTaskIds.length >= 2 ? `/compare?tasks=${selectedTaskIds.join(',')}` : undefined}
+          >Compare selected ({selectedTaskIds.length})</Button>
+          <span>Select 2–20 completed tasks to overlay measured patterns.</span>
+          {selectedTaskIds.length > 0 && <Button type="link" onClick={() => setSelectedTaskIds([])}>Clear selection</Button>}
+        </Space>
         {
           data.tasks ? (
             <Table 
               rowKey="fw_id"
               dataSource={data.tasks}
               columns={columns} 
+              rowSelection={{
+                selectedRowKeys: selectedTaskIds,
+                preserveSelectedRowKeys: true,
+                onChange: keys => {
+                  if (keys.length > 20) messageApi.warning('Compare up to 20 patterns at a time.');
+                  setSelectedTaskIds(keys.slice(0, 20));
+                },
+                getCheckboxProps: record => ({ disabled: record.state !== 'COMPLETED' }),
+              }}
               pagination={{
                 total: data.total_tasks,
                 pageSize: limit,
                 current: page,
                 onChange: (page, pageSize) => {
-                  window.location.href = `/results?page=${page}&limit=${pageSize}` + (user ? `&user=${user}` : "")
+                  window.location.href = `/results?page=${page}&limit=${pageSize}` + (user ? `&user=${encodeURIComponent(user)}` : "") + (selectedTaskIds.length ? `&selected=${selectedTaskIds.join(',')}` : "")
                 }
             }}/>
           ) : (

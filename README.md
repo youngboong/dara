@@ -22,6 +22,17 @@ dara server
 
 Then you can open http://localhost:8898 to see an application that can submit, manage, and view jobs.
 
+### Windows one-click launch
+
+After installing DARA, double-click **`Start DARA Web.cmd`** in the repository folder. The launcher:
+
+- uses the repository's Python environment when one is available;
+- starts `dara server` in a visible terminal;
+- waits until the server is ready, then opens http://localhost:8898 automatically; and
+- opens the existing server without starting a duplicate if DARA is already running.
+
+Keep the terminal window open while using DARA. Press `Ctrl+C` in that window to stop the server.
+
 
 ## Documentation
 For more details about usage, please refer to the [documentation](https://CederGroupHub.github.io/dara/).
