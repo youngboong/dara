@@ -33,11 +33,11 @@ With **Python 3.10 or newer** installed, run **`START.cmd`** in the top-level re
 - on first launch, shows an optional Materials Project API key dialog with **Save and continue** and **Skip for now**;
 - skips installation when DARA is already installed;
 - otherwise creates `.venv`, runs `pip install dara-xrd`, and installs this checkout in editable mode so its customized UI and server are used;
-- starts `dara server` in a separate minimized terminal;
-- waits until the server is ready, then opens http://localhost:8898 automatically; and
+- opens a startup page immediately before loading the scientific libraries, showing progress and any startup errors;
+- automatically switches to http://localhost:8898 when the server is ready; and
 - opens the existing server without starting a duplicate if DARA is already running.
 
-The START window closes after opening the browser; the server keeps running. Restore the minimized server terminal and press `Ctrl+C`, or close it, to stop DARA.
+Keep the START window open while using DARA. Press `Ctrl+C` there to stop the server started by START. No separate `dara.exe` console needs to be launched. Startup logs are saved under `artifacts/launcher/`. The launcher bypasses HTTP proxy settings for local readiness checks and tries installed Edge or Chrome if the default browser cannot be opened.
 
 The API key is saved as the `MP_API_KEY` environment variable for your Windows account and reused automatically. It is not saved in this repository. Existing keys are detected without prompting. If you skip setup, run **`Configure MP API.cmd`** later to add a key; the same file can replace an existing key. Restart the DARA server after changing the key, then enable **MP** under **Reference databases** in the web app. The dialog saves the key without contacting Materials Project to validate it.
 

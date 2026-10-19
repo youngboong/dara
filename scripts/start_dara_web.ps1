@@ -2,7 +2,7 @@ param(
     [switch]$NoBrowser,
     [switch]$ConfigureApiKey,
     [switch]$SkipApiKeySetup,
-    [int]$StartupTimeoutSeconds = 120
+    [int]$StartupTimeoutSeconds = 180
 )
 
 $ErrorActionPreference = "Stop"
@@ -105,18 +105,11 @@ if (-not $SkipApiKeySetup) {
     $apiKeyChanged = Initialize-MaterialsProjectKey
 }
 
-if (Test-DaraWeb) {
-    if ($apiKeyChanged) {
-        [void][System.Windows.Forms.MessageBox]::Show(
-            "Your API key is saved. DARA is already running: close its server terminal and run START.cmd again to use the new key.",
-            "DARA - Restart required"
-        )
-    }
-    Write-Host "DARA is already running. Opening $url"
-    if (-not $NoBrowser) {
-        Start-Process $url
-    }
-    exit 0
+if ($apiKeyChanged -and (Test-DaraWeb)) {
+    [void][System.Windows.Forms.MessageBox]::Show(
+        "Your API key is saved. DARA is already running: close its server terminal and run START.cmd again to use the new key.",
+        "DARA - Restart required"
+    )
 }
 
 $daraExecutable = Find-DaraExecutable
@@ -124,25 +117,24 @@ if ($null -eq $daraExecutable -or (Test-Path -LiteralPath (Join-Path $repoRoot "
     $daraExecutable = Install-Dara
 }
 Write-Host "Starting DARA with $daraExecutable"
-Write-Host "The browser will open when the server is ready."
-Write-Host "The server runs in a separate minimized terminal. Close that terminal to stop DARA."
+Write-Host "Opening the startup page, then DARA automatically."
+Write-Host "Keep this START window open while using DARA."
 Write-Host ""
 
-# Launch the browser from this interactive process, not a PowerShell background
-# job. The server stays alive after START finishes and its window closes.
-$serverProcess = Start-Process -FilePath $daraExecutable -ArgumentList "server" -WorkingDirectory $repoRoot -WindowStyle Minimized -PassThru
-$deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
-while ((Get-Date) -lt $deadline) {
-    if (Test-DaraWeb) {
-        Write-Host "DARA is ready: $url"
-        if (-not $NoBrowser) {
-            Start-Process $url
-        }
-        exit 0
-    }
-    if ($serverProcess.HasExited) {
-        throw "DARA stopped before it was ready (exit code $($serverProcess.ExitCode)). Check the server terminal."
-    }
-    Start-Sleep -Milliseconds 500
+$scriptsPath = Split-Path -Parent $daraExecutable
+$pythonCandidates = @(
+    (Join-Path $scriptsPath "python.exe"),
+    (Join-Path (Split-Path -Parent $scriptsPath) "python.exe")
+)
+$serverPython = $pythonCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $serverPython) {
+    throw "Could not find the Python interpreter for $daraExecutable."
 }
-throw "DARA did not become ready within $StartupTimeoutSeconds seconds. Check the server terminal before trying again."
+$launchArguments = @("-u", (Join-Path $PSScriptRoot "launch_dara_web.py"), "--timeout", "$StartupTimeoutSeconds")
+if ($NoBrowser) {
+    $launchArguments += "--no-browser"
+}
+& $serverPython @launchArguments
+if ($LASTEXITCODE -gt 0) {
+    throw "DARA could not start. See the startup page and artifacts\launcher logs."
+}
