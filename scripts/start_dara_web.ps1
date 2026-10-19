@@ -1,11 +1,20 @@
 param(
     [switch]$NoBrowser,
+    [switch]$ConfigureApiKey,
+    [switch]$SkipApiKeySetup,
     [int]$StartupTimeoutSeconds = 120
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $url = "http://127.0.0.1:8898"
+. (Join-Path $PSScriptRoot "materials_project_key.ps1")
+
+if ($ConfigureApiKey) {
+    [void](Initialize-MaterialsProjectKey -Force)
+    Write-Host "If DARA is running, close its server terminal and run START.cmd to apply changes."
+    exit 0
+}
 
 function Test-DaraWeb {
     try {
@@ -91,7 +100,18 @@ function Install-Dara {
     return $executable
 }
 
+$apiKeyChanged = $false
+if (-not $SkipApiKeySetup) {
+    $apiKeyChanged = Initialize-MaterialsProjectKey
+}
+
 if (Test-DaraWeb) {
+    if ($apiKeyChanged) {
+        [void][System.Windows.Forms.MessageBox]::Show(
+            "Your API key is saved. DARA is already running: close its server terminal and run START.cmd again to use the new key.",
+            "DARA - Restart required"
+        )
+    }
     Write-Host "DARA is already running. Opening $url"
     if (-not $NoBrowser) {
         Start-Process $url

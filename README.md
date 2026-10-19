@@ -30,6 +30,7 @@ Then you can open http://localhost:8898 to see an application that can submit, m
 With **Python 3.10 or newer** installed, run **`START.cmd`** in the top-level repository folder. Installation, server startup, and opening the browser happen in that single launch. No manual pip command or second launch is needed. The previous `Start DARA Web.cmd` also forwards to START. The launcher:
 
 - uses the repository's Python environment when one is available;
+- on first launch, shows an optional Materials Project API key dialog with **Save and continue** and **Skip for now**;
 - skips installation when DARA is already installed;
 - otherwise creates `.venv`, runs `pip install dara-xrd`, and installs this checkout in editable mode so its customized UI and server are used;
 - starts `dara server` in a separate minimized terminal;
@@ -37,6 +38,8 @@ With **Python 3.10 or newer** installed, run **`START.cmd`** in the top-level re
 - opens the existing server without starting a duplicate if DARA is already running.
 
 The START window closes after opening the browser; the server keeps running. Restore the minimized server terminal and press `Ctrl+C`, or close it, to stop DARA.
+
+The API key is saved as the `MP_API_KEY` environment variable for your Windows account and reused automatically. It is not saved in this repository. Existing keys are detected without prompting. If you skip setup, run **`Configure MP API.cmd`** later to add a key; the same file can replace an existing key. Restart the DARA server after changing the key, then enable **MP** under **Reference databases** in the web app. The dialog saves the key without contacting Materials Project to validate it.
 
 The first installation needs an internet connection and may take several minutes. Installation errors remain visible in the terminal; fix the reported issue and run START again to retry. This installs Python packages only; any separate scientific tools or credentials required by your analysis still need to be configured.
 
