@@ -24,14 +24,18 @@ Then you can open http://localhost:8898 to see an application that can submit, m
 
 ### Windows one-click launch
 
-After installing DARA, double-click **`Start DARA Web.cmd`** in the repository folder. The launcher:
+With **Python 3.10 or newer** installed, double-click **`Start DARA Web.cmd`** in the repository folder. No manual pip command is needed. The launcher:
 
 - uses the repository's Python environment when one is available;
+- skips installation when DARA is already installed;
+- otherwise creates `.venv`, runs `pip install dara-xrd`, and installs this checkout in editable mode so its customized UI and server are used;
 - starts `dara server` in a visible terminal;
 - waits until the server is ready, then opens http://localhost:8898 automatically; and
 - opens the existing server without starting a duplicate if DARA is already running.
 
 Keep the terminal window open while using DARA. Press `Ctrl+C` in that window to stop the server.
+
+The first installation needs an internet connection and may take several minutes. Installation errors remain visible in the terminal; fix the reported issue and double-click the launcher again to retry. This installs Python packages only; any separate scientific tools or credentials required by your analysis still need to be configured.
 
 
 ## Documentation
