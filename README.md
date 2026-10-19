@@ -7,6 +7,9 @@
 [![Ruff Check](https://github.com/CederGroupHub/dara/actions/workflows/ruff.yaml/badge.svg?branch=main)](https://github.com/CederGroupHub/dara/actions/workflows/ruff.yaml)
 
 Automated phase search with BGMN.
+
+**Windows: run [`START.cmd`](START.cmd) to install DARA if needed, start the server, and open the web app automatically.** Python 3.10 or newer is required.
+
 ## Installation
 ```bash
 pip install dara-xrd
@@ -24,18 +27,18 @@ Then you can open http://localhost:8898 to see an application that can submit, m
 
 ### Windows one-click launch
 
-With **Python 3.10 or newer** installed, double-click **`Start DARA Web.cmd`** in the repository folder. No manual pip command is needed. The launcher:
+With **Python 3.10 or newer** installed, run **`START.cmd`** in the top-level repository folder. Installation, server startup, and opening the browser happen in that single launch. No manual pip command or second launch is needed. The previous `Start DARA Web.cmd` also forwards to START. The launcher:
 
 - uses the repository's Python environment when one is available;
 - skips installation when DARA is already installed;
 - otherwise creates `.venv`, runs `pip install dara-xrd`, and installs this checkout in editable mode so its customized UI and server are used;
-- starts `dara server` in a visible terminal;
+- starts `dara server` in a separate minimized terminal;
 - waits until the server is ready, then opens http://localhost:8898 automatically; and
 - opens the existing server without starting a duplicate if DARA is already running.
 
-Keep the terminal window open while using DARA. Press `Ctrl+C` in that window to stop the server.
+The START window closes after opening the browser; the server keeps running. Restore the minimized server terminal and press `Ctrl+C`, or close it, to stop DARA.
 
-The first installation needs an internet connection and may take several minutes. Installation errors remain visible in the terminal; fix the reported issue and double-click the launcher again to retry. This installs Python packages only; any separate scientific tools or credentials required by your analysis still need to be configured.
+The first installation needs an internet connection and may take several minutes. Installation errors remain visible in the terminal; fix the reported issue and run START again to retry. This installs Python packages only; any separate scientific tools or credentials required by your analysis still need to be configured.
 
 
 ## Documentation

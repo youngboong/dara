@@ -52,7 +52,7 @@ function Find-SetupPython {
             return "$pythonPath"
         }
     }
-    throw "Python 3.10 or newer is required. Install Python, then double-click Start DARA Web.cmd again."
+    throw "Python 3.10 or newer is required. Install Python, then run START.cmd again."
 }
 
 function Install-Dara {
@@ -105,43 +105,24 @@ if ($null -eq $daraExecutable -or (Test-Path -LiteralPath (Join-Path $repoRoot "
 }
 Write-Host "Starting DARA with $daraExecutable"
 Write-Host "The browser will open when the server is ready."
-Write-Host "Keep this window open. Press Ctrl+C to stop DARA."
+Write-Host "The server runs in a separate minimized terminal. Close that terminal to stop DARA."
 Write-Host ""
 
-$browserJob = $null
-if (-not $NoBrowser) {
-    $browserJob = Start-Job -ScriptBlock {
-        param($TargetUrl, $TimeoutSeconds)
-
-        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-        while ((Get-Date) -lt $deadline) {
-            try {
-                $response = Invoke-WebRequest -Uri $TargetUrl -UseBasicParsing -TimeoutSec 2
-                if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
-                    Start-Process $TargetUrl
-                    return
-                }
-            }
-            catch {
-                Start-Sleep -Milliseconds 500
-            }
+# Launch the browser from this interactive process, not a PowerShell background
+# job. The server stays alive after START finishes and its window closes.
+$serverProcess = Start-Process -FilePath $daraExecutable -ArgumentList "server" -WorkingDirectory $repoRoot -WindowStyle Minimized -PassThru
+$deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
+while ((Get-Date) -lt $deadline) {
+    if (Test-DaraWeb) {
+        Write-Host "DARA is ready: $url"
+        if (-not $NoBrowser) {
+            Start-Process $url
         }
-    } -ArgumentList $url, $StartupTimeoutSeconds
-}
-
-try {
-    Push-Location $repoRoot
-    & $daraExecutable server
-    # Windows reports Ctrl+C/termination as a negative exit code. Treat that
-    # as a normal stop so the click-to-run terminal can close cleanly.
-    if ($LASTEXITCODE -gt 0) {
-        throw "DARA exited with code $LASTEXITCODE."
+        exit 0
     }
-}
-finally {
-    Pop-Location
-    if ($null -ne $browserJob) {
-        Stop-Job $browserJob -ErrorAction SilentlyContinue
-        Remove-Job $browserJob -Force -ErrorAction SilentlyContinue
+    if ($serverProcess.HasExited) {
+        throw "DARA stopped before it was ready (exit code $($serverProcess.ExitCode)). Check the server terminal."
     }
+    Start-Sleep -Milliseconds 500
 }
+throw "DARA did not become ready within $StartupTimeoutSeconds seconds. Check the server terminal before trying again."
