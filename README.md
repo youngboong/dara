@@ -10,6 +10,10 @@ Automated phase search with BGMN.
 
 **Windows: run [`START.cmd`](START.cmd) to install DARA if needed, start the server, and open the web app automatically.** Python 3.10 or newer is required.
 
+**한글 사용법:** [DARA 사용 설명서 PDF](docs/user-guide/DARA_사용설명서_한글.pdf) — 설치, 최초 API 키 입력, 분석 조건, 결과 해석, 재정련, 보고서 저장과 문제 해결을 실제 UI 이미지와 함께 설명합니다.
+
+Windows 실행 파일은 **`START.cmd` 하나**입니다. 최초 API 키 입력도 여기에 포함됩니다. `src/`, `scripts/`, `pyproject.toml`은 실행에 필요한 구성요소이므로 함께 보관하세요. 시험 출력물은 Git에서 제외되는 `artifacts/`에 보관합니다.
+
 ## Installation
 ```bash
 pip install dara-xrd
@@ -27,7 +31,7 @@ Then you can open http://localhost:8898 to see an application that can submit, m
 
 ### Windows one-click launch
 
-With **Python 3.10 or newer** installed, run **`START.cmd`** in the top-level repository folder. Installation, server startup, and opening the browser happen in that single launch. No manual pip command or second launch is needed. The previous `Start DARA Web.cmd` also forwards to START. The launcher:
+With **Python 3.10 or newer** installed, run **`START.cmd`** in the top-level repository folder. Installation, server startup, and opening the browser happen in that single launch. No manual pip command or second launch is needed. The launcher:
 
 - uses the repository's Python environment when one is available;
 - on first launch, shows an optional Materials Project API key dialog with **Save and continue** and **Skip for now**;
@@ -39,7 +43,7 @@ With **Python 3.10 or newer** installed, run **`START.cmd`** in the top-level re
 
 Keep the START window open while using DARA. Press `Ctrl+C` there to stop the server started by START. No separate `dara.exe` console needs to be launched. Startup logs are saved under `artifacts/launcher/`. The launcher bypasses HTTP proxy settings for local readiness checks and tries installed Edge or Chrome if the default browser cannot be opened.
 
-The API key is saved as the `MP_API_KEY` environment variable for your Windows account and reused automatically. It is not saved in this repository. Existing keys are detected without prompting. If you skip setup, run **`Configure MP API.cmd`** later to add a key; the same file can replace an existing key. Restart the DARA server after changing the key, then enable **MP** under **Reference databases** in the web app. The dialog saves the key without contacting Materials Project to validate it.
+The API key is saved as the `MP_API_KEY` environment variable for your Windows account and reused automatically. It is not saved in this repository. Existing keys are detected without prompting. If you skip setup, turn **MP** off under **Reference databases** and use COD. The skip choice is remembered. There is no separate key-change launcher. The dialog saves the key without contacting Materials Project to validate it.
 
 The first installation needs an internet connection and may take several minutes. Installation errors remain visible in the terminal; fix the reported issue and run START again to retry. This installs Python packages only; any separate scientific tools or credentials required by your analysis still need to be configured.
 

@@ -72,17 +72,15 @@ function Show-MaterialsProjectKeyDialog {
 }
 
 function Initialize-MaterialsProjectKey {
-    param([switch]$Force)
-
     $existingKey = Get-MaterialsProjectKey
     if (-not [string]::IsNullOrWhiteSpace($existingKey)) {
         $env:MP_API_KEY = $existingKey
-        if (-not $Force) { return $false }
+        return $false
     }
 
     $settingsDir = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "DARA"
     $skipMarker = Join-Path $settingsDir "mp-api-setup-skipped"
-    if (-not $Force -and (Test-Path -LiteralPath $skipMarker)) { return $false }
+    if (Test-Path -LiteralPath $skipMarker) { return $false }
 
     $enteredKey = Show-MaterialsProjectKeyDialog
     if (-not [string]::IsNullOrWhiteSpace($enteredKey)) {
@@ -95,7 +93,7 @@ function Initialize-MaterialsProjectKey {
     elseif ([string]::IsNullOrWhiteSpace($existingKey)) {
         New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
         New-Item -ItemType File -Path $skipMarker -Force | Out-Null
-        Write-Host "Materials Project setup skipped. Use Configure MP API.cmd to add a key later."
+        Write-Host "Materials Project setup skipped. Turn off MP under Reference databases to use COD without a key."
     }
     return $false
 }

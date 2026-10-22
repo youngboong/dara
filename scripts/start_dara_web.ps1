@@ -1,6 +1,5 @@
 param(
     [switch]$NoBrowser,
-    [switch]$ConfigureApiKey,
     [switch]$SkipApiKeySetup,
     [int]$StartupTimeoutSeconds = 180
 )
@@ -9,12 +8,6 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $url = "http://127.0.0.1:8898"
 . (Join-Path $PSScriptRoot "materials_project_key.ps1")
-
-if ($ConfigureApiKey) {
-    [void](Initialize-MaterialsProjectKey -Force)
-    Write-Host "If DARA is running, close its server terminal and run START.cmd to apply changes."
-    exit 0
-}
 
 function Test-DaraWeb {
     try {
