@@ -19,7 +19,7 @@ from dara import __version__
 
 # -- Project information -----------------------------------------------------
 
-project = "Alab Management System"
+project = "DARA"
 copyright = f"{date.today().year}, Ceder Group"
 author = "Yuxing Fei, Matthew J. McDermott"
 

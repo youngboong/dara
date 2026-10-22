@@ -1,92 +1,29 @@
-# Installation of DARA
+# 설치
 
-## Installation from PyPI (recommended)
+## Windows에서 처음 설치
 
-The easiest way to install the latest release of Dara is via pip from PyPI:
+[한글 사용 설명서 PDF](user-guide/DARA_사용설명서_한글.pdf)의 Python 설치부터 따라 하세요.
+저장소 전체를 내려받아 압축을 푼 후 `START.cmd`를 실행합니다.
+Python 3.10 이상과 최초 설치용 인터넷 연결이 필요합니다.
+START가 필요한 환경과 패키지를 설치하고 이 저장소의 맞춤 DARA를 실행합니다.
 
-```bash
-pip install dara-xrd
+## 개발용 설치 — Optional(선택)
+
+별도의 Python 가상환경을 활성화한 상태에서 저장소 루트에서 실행합니다.
+
+```console
+python -m pip install -e .
+dara server
 ```
 
-Note that this approach will only acquire the latest release. For the most recent
-changes, you may want to install from source (see below).
+프런트엔드 개발 방법은 `src/dara/server/ui/README.md`에 있습니다.
 
-## Installation from source (GitHub)
+## 원본 PyPI 배포판 — Optional(선택)
 
-This approach is recommended if you want to use the latest features and bug fixes. It is
-a good idea to install Dara in a dedicated virtual environment to avoid conflicts with other
-Python packages.
-
-```bash
-git clone https://github.com/CederGroupHub/dara
-cd dara
-pip install -e .
+```console
+python -m pip install dara-xrd
 ```
 
-### Special case: installation on older cluster (e.g., Lawrencium, LBNL)
-
-BGMN (the refinement backend) is a compiled program, and it may not be directly usable
-on some machines, such as computational clusters (e.g., Lawrencium at Lawrence Berkeley
-National Laboratory).
-
-For example, you may see an error GLIBC versions when you run `bgmn`:
-
-    version `GLIBC_2.29 not found (required by …)
-
-To fix this issue specifically, we need to install GLIBC 2.29. First, make sure to run:
-
-```bash
-module load gcc
-```
-
-Now follow the directions below. These are based on this post:
-<https://stackoverflow.com/questions/50564999/lib64-libc-so-6-version-glibc-2-14-not-found-why-am-i-getting-this-error>
-
-```bash
-mkdir ~/glibc229
-cd ~/glibc229
-wget http://ftp.gnu.org/gnu/glibc/glibc-2.29.tar.gz
-tar zxvf glibc-2.29.tar.gz
-cd glibc-2.29
-mkdir build
-cd build
-../configure --prefix=$HOME/.local
-make -j4
-make install
-```
-
-Unfortunately, you can’t set *LD_LIBRARY_PATH* without breaking everything. Instead, we take this approach:
-
-#### Installation of Patchelf
-
-Git clone and follow setup instructions here: <https://github.com/NixOS/patchelf?tab=readme-ov-file>
-
-The command below will edit every binary. First, make sure Dara is installed in a folder
-located as `$HOME/dara/`. Then run:
-
-```bash
-patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/bgmn && patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/eflech && patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/geomet && patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/gertest && patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/index && patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/lamtest && patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/makegeq && patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/output && patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/plot1 && patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/spacegrp && patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/teil && patchelf --set-interpreter $HOME/.local/lib/ld-linux-x86-64.so.2 --set-rpath $HOME/.local/lib/ $HOME/dara/dara/src/dara/bgmn/BGMNwin/verzerr
-```
-
-You may need to edit this command to work with your specific installation.
-
----
-
-:::{note}
-If the earlier GLIBC installation failed, and it looks like it's related to the version of make/gmake:
-
-    checking version of gmake... 3.82, bad
-
-Then you must install newer version and symbolic link:
-
-```bash
-curl -O http://ftp.gnu.org/gnu/make/make-4.2.1.tar.gz
-tar xvf make-4.2.1.tar.gz
-cd make-4.2.1
-./configure --prefix=$HOME/.local/bin && make && make install
-export PATH=/$HOME/.local/bin:$PATH
-ln -s $HOME/.local/bin/make $HOME/.local/bin/gmake
-```
-
-Now try again to install GLIBC….
-:::
+이 명령만으로는 이 저장소의 맞춤 변경사항이 설치되지 않습니다.
+맞춤 버전은 START 또는 위의 개발용 설치 절차를 사용하세요.
+추가 플랫폼 안내는 [원본 공식 설치 문서](https://CederGroupHub.github.io/dara/install.html)에 있습니다.
