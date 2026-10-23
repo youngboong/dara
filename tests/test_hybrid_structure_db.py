@@ -41,6 +41,7 @@ def test_pattern_inspection_returns_xrdml_profile_suggestion():
     assert result["recommended_wavelength"] == "Cu"
     assert result["profile_suggestion"]["profile"] == "Aeris-fds-Pixcel1d-Medipix3"
     assert result["two_theta_min"] < result["two_theta_max"]
+    assert result["filename_chemistry"]["elements"] == ["N", "H", "P", "O", "Na", "C"]
 
 
 def test_mp_document_dedup_prefers_experimental_low_energy():

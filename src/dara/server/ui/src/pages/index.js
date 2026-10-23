@@ -51,6 +51,7 @@ function Submission() {
   const [patternInspection, setPatternInspection] = useState(null);
   const [inspectingPattern, setInspectingPattern] = useState(false);
   const inspectionSequence = useRef(0);
+  const autoElements = useRef(null);
   const [msg, setMsg] = useState(null);
   const [messageApi, contextHolder] = message.useMessage();
   const [spinning, setSpinning] = useState(false);
@@ -107,6 +108,10 @@ function Submission() {
     const file = uploadFile(fileValue);
     form.setFieldValue('pattern_file', fileValue);
     const sequence = ++inspectionSequence.current;
+    if (autoElements.current !== null && form.getFieldValue('elements') === autoElements.current) {
+      form.setFieldValue('elements', '');
+    }
+    autoElements.current = null;
     setPatternInspection(null);
     if (!file) {
       setInspectingPattern(false);
@@ -124,6 +129,12 @@ function Submission() {
 
       const suggestion = data.profile_suggestion;
       const updates = {};
+      const inferredElements = data.filename_chemistry?.elements || [];
+      const applyElements = inferredElements.length > 0 && !(form.getFieldValue('elements') || '').trim();
+      if (applyElements) {
+        updates.elements = inferredElements.join(', ');
+        autoElements.current = updates.elements;
+      }
       if (suggestion?.profile) {
         updates.instrument_profile = suggestion.profile;
         setPreviousInstrument(suggestion.profile);
@@ -134,7 +145,7 @@ function Submission() {
         updates.wavelength_lab = data.recommended_wavelength;
       }
       form.setFieldsValue(updates);
-      setPatternInspection(data);
+      setPatternInspection({ ...data, elementsAutoApplied: applyElements });
     } catch (error) {
       if (sequence === inspectionSequence.current) {
         setPatternInspection({ error: String(error.message || error) });
@@ -185,6 +196,7 @@ function Submission() {
           .then(data => {
             if (data.message === 'submitted') {
               form.resetFields();
+              autoElements.current = null;
               setCloneSource(null);
               setPatternInspection(null);
               setAnalysisMode('elemental');
@@ -221,7 +233,10 @@ function Submission() {
             wavelength_lab: 'Cu', instrument_profile: 'Aeris-fds-Pixcel1d-Medipix3', synchrotron: false,
             excluded_ranges: [], reuse_additional_cifs: true,
           }}
-          onValuesChange={(_, values) => setAnalysisMode(values.analysis_mode)}
+          onValuesChange={(changed, values) => {
+            setAnalysisMode(values.analysis_mode);
+            if (Object.prototype.hasOwnProperty.call(changed, 'elements')) autoElements.current = null;
+          }}
         >
           <Form.Item label="User" name="user" rules={[{ required: true, message: 'Please input your username.' }]}>
             <Input placeholder="Username" />
@@ -265,6 +280,16 @@ function Submission() {
                 patternInspection.profile_suggestion ? 'Confirm the selection if the actual slit or optical setup was different.' : null,
               ].filter(Boolean).join(' · ')}
               style={{ marginBottom: 20 }}
+            />
+          ) : null}
+          {patternInspection?.filename_chemistry ? (
+            <Alert type="info" showIcon style={{ marginBottom: 20 }}
+              message={patternInspection.filename_chemistry.elements.length
+                ? `파일명에서 인식한 원소: ${patternInspection.filename_chemistry.elements.join(', ')}`
+                : '파일명에서 확실한 화학식을 찾지 못했습니다. 원소를 직접 입력하세요.'}
+              description={patternInspection.filename_chemistry.elements.length
+                ? `인식한 화학식: ${patternInspection.filename_chemistry.formulas.join(', ')}. ${patternInspection.elementsAutoApplied ? 'Included elements에 자동 입력했습니다.' : '기존 원소 입력은 유지했습니다.'} 파일명 기반 제안이므로 실제 시료의 원소와 비교해 확인하세요. 온도·시간과 단독 원소 기호는 자동 입력에서 제외합니다.`
+                : '예: BiFeO3_800C_60min.xrdml → Bi, Fe, O. C, S 등의 단독 기호나 모호한 표기는 직접 확인해 입력하세요.'}
             />
           ) : null}
           <Form.Item label="Analysis mode" name="analysis_mode">

@@ -222,6 +222,8 @@ async def instrument_profiles():
 @router.post("/pattern/inspect")
 async def inspect_pattern(pattern_file: Annotated[UploadFile, File()]):
     """Validate an uploaded pattern and suggest XRDML acquisition settings."""
+    from dara.filename_chemistry import suggest_filename_chemistry
+
     filename = Path(pattern_file.filename or "pattern").name
     try:
         with tempfile.TemporaryDirectory() as pattern_temp_dir:
@@ -252,6 +254,7 @@ async def inspect_pattern(pattern_file: Annotated[UploadFile, File()]):
         "metadata": metadata,
         "profile_suggestion": suggestion,
         "recommended_wavelength": metadata.get("radiation"),
+        "filename_chemistry": suggest_filename_chemistry(filename),
     }
 
 
