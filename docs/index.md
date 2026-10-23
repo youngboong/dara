@@ -13,7 +13,7 @@ sd_hide_title: true
 
 # Overview
 
-새 Windows PC의 설치와 사용은 [한글 사용 설명서 PDF](user-guide/DARA_사용설명서_한글.pdf)를 참고하세요.
+새 Windows PC의 설치와 사용은 [한글 사용 설명서 PDF](../DARA_사용설명서_한글.pdf)를 참고하세요.
 
 ```{image} /_static/logo-with-text.svg
 :width: 100%

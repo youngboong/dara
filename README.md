@@ -10,7 +10,7 @@ Automated phase search with BGMN.
 
 **Windows: run [`START.cmd`](START.cmd) to install DARA if needed, start the server, and open the web app automatically.** Python 3.10 or newer is required.
 
-**한글 사용법:** [DARA 사용 설명서 PDF](docs/user-guide/DARA_사용설명서_한글.pdf) — 새 Windows PC의 Python 설치부터 DARA 다운로드·실행까지 설명합니다. 필수/Optional(선택) 준비물, GEQ·CIF 확보 방법, 분석 조건, 결과 해석과 보고서 저장을 실제 UI 이미지와 함께 안내합니다.
+**한글 사용법:** [DARA 사용 설명서 PDF](DARA_사용설명서_한글.pdf) — 새 Windows PC의 Python 설치부터 DARA 다운로드·실행까지 설명합니다. 필수/Optional(선택) 준비물, GEQ·CIF 확보 방법, 분석 조건, 결과 해석과 보고서 저장을 실제 UI 이미지와 함께 안내합니다.
 
 Windows 실행 파일은 **`START.cmd` 하나**입니다. 최초 API 키 입력도 여기에 포함됩니다. `src/`, `scripts/`, `pyproject.toml`은 실행에 필요한 구성요소이므로 함께 보관하세요. 시험 출력물은 Git에서 제외되는 `artifacts/`에 보관합니다.
 

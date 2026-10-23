@@ -107,7 +107,7 @@ section('1. 맞춤 저장소 열기', '브라우저 주소창에 아래 주소�
 p('<link href="https://github.com/youngboong/dara" color="#007E87">https://github.com/youngboong/dara</link>')
 section('2. ZIP으로 내려받기', '저장소의 <b>Code → Download ZIP</b>을 선택합니다. 기본 main 브랜치를 받으면 보통 dara-main.zip이라는 파일이 저장됩니다. 이 방식은 Git 설치가 필요하지 않습니다. 파일 하나씩 다운로드하지 말고 전체 ZIP을 받습니다.')
 section('3. 압축을 완전히 풀기', '파일 탐색기의 다운로드 폴더에서 ZIP을 오른쪽 클릭하고 <b>모두 압축 풀기</b>를 선택합니다. 문서 폴더 등 사용자가 쓰기 가능한 위치에 풉니다. 압축파일 안에서 START.cmd를 바로 실행하지 마세요. 압축 해제 후 START.cmd와 src, scripts, pyproject.toml이 함께 보이는 폴더까지 들어갑니다.')
-table([['확인할 항목', '설명'], ['START.cmd', '더블클릭할 실행 파일. 확장자를 숨겼다면 START로 보일 수 있습니다.'], ['scripts 및 src', '서버 시작 코드와 프로그램. 위치를 바꾸거나 삭제하지 않습니다.'], ['pyproject.toml', '설치 정보. START.cmd와 같은 저장소 폴더에 둡니다.'], ['docs/user-guide', '한글 PDF와 설명용 화면 자료'], ['.gitignore / .gitattributes', 'Git 관리 설정. 그대로 두어도 실행에 지장이 없습니다.']])
+table([['확인할 항목', '설명'], ['START.cmd', '더블클릭할 실행 파일. 확장자를 숨겼다면 START로 보일 수 있습니다.'], ['scripts 및 src', '서버 시작 코드와 프로그램. 위치를 바꾸거나 삭제하지 않습니다.'], ['pyproject.toml', '설치 정보. START.cmd와 같은 저장소 폴더에 둡니다.'], ['DARA_사용설명서_한글.pdf', 'START.cmd 옆에 있는 한글 사용자 가이드'], ['.gitignore / .gitattributes', 'Git 관리 설정. 그대로 두어도 실행에 지장이 없습니다.']])
 section('4. 첫 실행에서 자동으로 설치되는 것', 'START.cmd를 실행하면 최초 키 안내 후 저장소 폴더에 <b>.venv</b>를 만들고 Python 패키지와 맞춤 DARA를 설치합니다. 별도로 가상환경을 만들거나 pip 명령을 먼저 입력할 필요가 없습니다. 첫 실행은 다운로드 때문에 오래 걸릴 수 있으므로 창을 열어 둡니다.')
 section('5. BGMN 계산 엔진', 'BGMN은 실제 정밀화에 필요한 계산 엔진입니다. DARA는 엔진 파일이 없으면 필요 시 자동 다운로드를 시도합니다. 첫 분석까지 인터넷을 연결해 두세요. Profex를 설치해야만 DARA가 실행되는 것은 아닙니다. 다운로드 오류가 나면 작업 메시지와 서버 로그에서 실패 주소를 확인합니다.')
 
@@ -133,7 +133,7 @@ section('3. 키 없이 시작하기', '<b>Skip for now</b>를 선택하면 키 �
 p('키 확인 위치: 로그인 후 <link href="https://next-gen.materialsproject.org/dashboard" color="#007E87">Materials Project profile dashboard</link>. <link href="https://docs.materialsproject.org/downloading-data/using-the-api/getting-started" color="#007E87">공식 API 시작 안내</link>에서도 확인할 수 있습니다.', 'caption')
 section('4. 시작 화면과 웹 주소', '과학 계산 라이브러리를 불러오는 동안 시작 진행 화면이 먼저 열리고, 준비되면 <b>http://localhost:8898</b>로 전환됩니다. 이미 서버가 실행 중이면 기존 서버를 엽니다. 처음에는 설치와 라이브러리 로딩에 시간이 걸릴 수 있습니다. 오류가 표시되면 START 창의 메시지와 artifacts/launcher 안의 로그를 확인합니다.')
 section('5. 종료', '사용 중에는 START 명령 창을 열어 두세요. 브라우저 탭만 닫아도 서버는 계속 실행될 수 있습니다. 분석을 끝내고 START 창에서 <b>Ctrl+C</b>를 눌러 해당 창에서 시작한 서버를 종료합니다. 실행 중인 분석은 작업 상세의 Stop analysis로 먼저 정리하는 편이 좋습니다.')
-table([['구성', '역할'], ['START.cmd', '일반 사용자가 실행할 유일한 CMD 파일'], ['scripts/', '서버 시작·최초 키 입력 등의 내부 실행 코드'], ['src/ 및 pyproject.toml', '맞춤 DARA 프로그램과 설치 정보'], ['docs/user-guide/', '이 PDF, 화면 이미지 및 PDF 생성 소스']])
+table([['구성', '역할'], ['START.cmd', '일반 사용자가 실행할 유일한 CMD 파일'], ['DARA_사용설명서_한글.pdf', '최상위 폴더에서 바로 여는 사용자 가이드'], ['scripts/', '서버 시작·최초 키 입력 등의 내부 실행 코드'], ['src/ 및 pyproject.toml', '맞춤 DARA 프로그램과 설치 정보'], ['docs/user-guide/', '화면 이미지 및 PDF 생성 소스']])
 
 page('02  측정 파일 올리기')
 shot('copied-conditions', '그림 1. Submit 입력 화면. 이 예시는 기존 작업을 복사한 상태이므로 파란 안내와 Replacement pattern이 표시됩니다.', 300)
@@ -238,7 +238,7 @@ def footer(canvas, doc):
 
 
 if __name__ == '__main__':
-    target = ROOT / 'DARA_사용설명서_한글.pdf'
+    target = ROOT.parents[1] / 'DARA_사용설명서_한글.pdf'
     doc = SimpleDocTemplate(str(target), pagesize=A4, rightMargin=54, leftMargin=54,
                             topMargin=48, bottomMargin=62, title='DARA 한글 사용 설명서', author='DARA 프로젝트')
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
