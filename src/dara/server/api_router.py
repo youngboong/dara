@@ -13,8 +13,11 @@ import sys
 import tempfile
 import threading
 import time
+import warnings
 import zipfile
 from ast import literal_eval
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from copy import deepcopy
 from functools import lru_cache
 from io import BytesIO, StringIO
@@ -37,6 +40,7 @@ from dara.plot import peaks_in_fit_range, spacegroup_symbol, visualize
 from dara.server.data_quality import intensities_look_like_counts, pattern_quality
 from dara.server.failure_summary import summarize_failure
 from dara.server import confidence as confidence_module
+from dara.server import peak_significance
 from dara.server.fit_cautions import (
     broad_background_caution,
     cached_lattice_flags,
@@ -53,7 +57,13 @@ from dara.server.table_export import (
     rows_to_csv,
     task_table_rows,
 )
-from dara.server.task_summary import SUMMARY_SCHEMA, compact_summary, runtime_seconds
+from dara.server.task_summary import (
+    SUMMARY_SCHEMA,
+    compact_summary,
+    SUMMARY_REFRESH_GAVE_UP,
+    refresh_stale_summary,
+    runtime_seconds,
+)
 from dara.server.utils import convert_to_local_tz, get_result_store, get_worker_store
 from dara.server.worker import (
     add_job_to_queue,
@@ -235,6 +245,231 @@ def _peak_diagnostics(refinement, missing=None, extra=None, mismatch=None) -> di
         **values,
         "counts": {key: len(value or []) for key, value in values.items()},
     }
+
+
+# ---------------------------------------------------------------------------
+# size / signal-to-noise aware unexplained-peak classification
+# ---------------------------------------------------------------------------
+_REFERENCE_MEMO_MAX = 512
+_REFERENCE_MEMO: "OrderedDict[tuple, tuple | None]" = OrderedDict()
+_REFERENCE_MEMO_LOCK = threading.Lock()
+
+
+@dataclass
+class _PeakContext:
+    """Per-document inputs of the missing-peak classification (built once)."""
+
+    document: object
+    wavelength: dict | None
+    counts_like: bool | None
+    range_params: dict
+    hint_mode: str
+    job_key: object = None
+    _cod: object = field(default=None, repr=False)
+    _cod_done: bool = field(default=False, repr=False)
+
+    def measured_range(self, refinement=None) -> tuple[float, float] | None:
+        """Angular range of the measurement (falls back to the refinement's profile)."""
+        for source in (
+            lambda: self.document.xrd_data.angles,
+            lambda: refinement.plot_data.x,
+            lambda: self.document.final_result.plot_data.x,
+        ):
+            try:
+                values = np.asarray(source(), dtype=float)
+                values = values[np.isfinite(values)]
+                if values.size:
+                    return float(values.min()), float(values.max())
+            except Exception:
+                continue
+        return None
+
+    def cod_patterns(self, refinement=None) -> list | None:
+        """Cached COD reference patterns (one lookup per document)."""
+        if self._cod_done:
+            return self._cod
+        window = self.measured_range(refinement)
+        if self.wavelength is None or window is None:
+            return None
+        elements = list(getattr(self.document, "elements", None) or [])
+        precursors = list(getattr(self.document, "precursors", None) or [])
+        patterns = peak_significance.cod_reference_patterns(
+            elements, precursors, self.wavelength["alpha1_a"], window, mode=self.hint_mode
+        )
+        if patterns is not None or self.hint_mode != "background":
+            self._cod, self._cod_done = patterns, True
+        return patterns
+
+
+def _peak_context(document, hint_mode: str | None = None, job_key=None) -> _PeakContext:
+    """Wavelength, count-type and analysis-range inputs shared by all candidates."""
+    settings = getattr(document, "search_kwargs", None) or {}
+    refinement_params = settings.get("refinement_params") or {}
+    range_params = {}
+    if isinstance(refinement_params, dict):
+        range_params = {
+            key: refinement_params[key]
+            for key in ("wmin", "wmax", "excluded_ranges")
+            if refinement_params.get(key) is not None
+        }
+    return _PeakContext(
+        document=document,
+        wavelength=peak_significance.resolve_wavelength(settings.get("wavelength", "Cu")),
+        counts_like=_counts_like(document),
+        range_params=range_params,
+        hint_mode=hint_mode or peak_significance.hint_mode(),
+        job_key=job_key if job_key is not None else id(document),
+    )
+
+
+_NOT_SIMULATED = object()
+
+
+def _reference_key(ctx: _PeakContext, stem: str, window) -> tuple:
+    return (
+        ctx.job_key, stem, round(ctx.wavelength["alpha1_a"], 5),
+        round(window[0], 1), round(window[1], 1),
+    )
+
+
+def _simulated_reference(cif, stem: str, ctx: _PeakContext, window, *, compute: bool = True):
+    """Simulated ``(two_theta, intensity)`` of one reference CIF.
+
+    With ``compute=False`` only the memo is consulted and ``_NOT_SIMULATED`` is returned for
+    a CIF that has not been simulated yet. ``None`` means "cannot be simulated".
+    """
+    key = _reference_key(ctx, stem, window)
+    with _REFERENCE_MEMO_LOCK:
+        if key in _REFERENCE_MEMO:
+            _REFERENCE_MEMO.move_to_end(key)
+            return _REFERENCE_MEMO[key]
+    if not compute:
+        return _NOT_SIMULATED
+    result = None
+    try:
+        from dara.search.prefilter import simulate_structure_reflections
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            structure = cif.to_structure()
+            if structure.volume <= peak_significance.HINT_MAX_VOLUME_A3:
+                two_theta, intensity, _ = simulate_structure_reflections(
+                    structure, ctx.wavelength["alpha1_a"], window
+                )
+                result = (np.asarray(two_theta, float), np.asarray(intensity, float))
+    except Exception:
+        logger.debug("Reference %s could not be simulated", stem, exc_info=True)
+    with _REFERENCE_MEMO_LOCK:
+        _REFERENCE_MEMO[key] = result
+        while len(_REFERENCE_MEMO) > _REFERENCE_MEMO_MAX:
+            _REFERENCE_MEMO.popitem(last=False)
+    return result
+
+
+def _simulate_references_in_background(todo: list, ctx: _PeakContext, window) -> None:
+    """Fill the reference memo for ``todo`` ``[(cif, stem)]`` on the low-priority worker."""
+
+    def job() -> None:
+        for cif, stem in todo:
+            if peak_significance.stop_requested():
+                return
+            _simulated_reference(cif, stem, ctx, window)
+            peak_significance.yield_cpu()
+
+    key = ("references", ctx.job_key, round(ctx.wavelength["alpha1_a"], 5),
+           round(window[0], 1), round(window[1], 1))
+    peak_significance.submit_background(key, job)
+
+
+def _reference_patterns(document, refinement, ctx: _PeakContext) -> list[dict]:
+    """Simulated reference patterns: candidate CIFs, input CIFs, then the COD cache.
+
+    In ``background`` mode no structure is simulated on the calling thread: references that
+    are not memoized yet are simulated by the background worker and appear in the hints of a
+    later request. ``sync`` mode (benchmark, offline) simulates them immediately.
+    """
+    patterns: list[dict] = []
+    window = ctx.measured_range(refinement)
+    if ctx.wavelength is None or window is None:
+        return patterns
+    sources = [
+        (cif, "candidate")
+        for entry in getattr(document, "results", None) or []
+        for cif in _flatten_cifs(entry[0])
+    ] + [
+        (cif, "input")
+        for cif in _flatten_cifs(list(getattr(document, "input_cifs", None) or []))
+    ]
+    background = ctx.hint_mode == "background"
+    seen: set[str] = set()
+    todo: list = []
+    for cif, source in sources:
+        stem = Path(str(getattr(cif, "filename", "") or "")).stem
+        if not stem or stem in seen:
+            continue
+        seen.add(stem)
+        simulated = _simulated_reference(cif, stem, ctx, window, compute=not background)
+        if simulated is _NOT_SIMULATED:
+            todo.append((cif, stem))
+            continue
+        if simulated is None:
+            continue
+        formula, number = confidence_module.phase_identity(stem)
+        patterns.append({
+            "name": stem,
+            "formula": formula or stem.split("_")[0],
+            "spacegroup_number": number,
+            "spacegroup_symbol": _spacegroup_symbol(number) if number else None,
+            "source": source,
+            "popularity": 1,
+            "two_theta": simulated[0],
+            "intensity": simulated[1],
+        })
+    if todo:
+        _simulate_references_in_background(todo, ctx, window)
+    patterns.extend(ctx.cod_patterns(refinement) or [])
+    return patterns
+
+
+def _classified_peak_diagnostics(
+    document, refinement, missing=None, extra=None, mismatch=None, *,
+    hint_mode: str | None = None, context: _PeakContext | None = None,
+) -> dict:
+    """``_peak_diagnostics`` plus the size/S-N classification of the missing peaks.
+
+    The legacy keys are unchanged. The new keys (``missing_classified``,
+    ``counts_by_class``, ``missing_significance``, ``trace_hints``) are omitted when the
+    refinement profile is not available (old payloads), so consumers fall back to counts.
+    ``hint_mode`` ("off", "background", "sync") overrides the context's trace-hint mode;
+    "off" skips every reference simulation.
+    """
+    diag = _peak_diagnostics(refinement, missing, extra, mismatch)
+    try:
+        ctx = context or _peak_context(document, hint_mode)
+        mode = hint_mode or ctx.hint_mode
+        classified = peak_significance.classify_missing_peaks(
+            refinement, diag["missing"], wavelength=ctx.wavelength,
+            counts_like=ctx.counts_like, range_params=ctx.range_params,
+        )
+        if classified is None:
+            return diag
+        has_targets = any(
+            entry["class"] in ("minor", "significant")
+            for entry in classified["missing_classified"]
+        )
+        if has_targets and mode != "off" and ctx.wavelength is not None:
+            if mode != ctx.hint_mode:
+                ctx = _PeakContext(
+                    document=ctx.document, wavelength=ctx.wavelength,
+                    counts_like=ctx.counts_like, range_params=ctx.range_params,
+                    hint_mode=mode, job_key=ctx.job_key,
+                )
+            patterns = _reference_patterns(document, refinement, ctx)
+            classified = peak_significance.attach_trace_hints(classified, refinement, patterns)
+        return {**diag, **classified}
+    except Exception:
+        logger.debug("Missing-peak classification failed", exc_info=True)
+        return diag
 
 
 def _parse_string_list(value: str | None) -> list[str]:
@@ -1187,6 +1422,8 @@ def _backfill_summary(job: dict, document, runtime) -> None:
 
 @router.get("/task/{task_id}")
 async def result(task_id: int):
+    # Deliberately not offloaded to a thread: montydb cannot be opened from several threads
+    # at once (ConfigurationError / "Empty module name"), and every handler opens stores.
     # get the task state
     with get_worker_store() as worker_store:
         job = worker_store.query_one({"index": task_id})
@@ -1277,12 +1514,14 @@ def _confidence_blocks(
         )
         final_block = confidence_module.evaluate_confidence(
             target, displayed,
-            missing_peaks=(final_diagnostics.get("counts") or {}).get("missing"), **kwargs,
+            missing_peaks=(final_diagnostics.get("counts") or {}).get("missing"),
+            missing_summary=final_diagnostics, **kwargs,
         )
         blocks = [
             confidence_module.evaluate_confidence(
                 evidence, displayed,
-                missing_peaks=(row[5].get("counts") or {}).get("missing"), **kwargs,
+                missing_peaks=(row[5].get("counts") or {}).get("missing"),
+                missing_summary=row[5], **kwargs,
             )
             for evidence, row in zip(displayed, evidence_rows)
         ]
@@ -1301,6 +1540,11 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
     """
     d = document
     counts_like = _counts_like(d)
+    try:
+        peak_context = _peak_context(d, job_key=job.get("uuid"))
+    except Exception:  # classification is optional; fall back to the legacy diagnostics
+        logger.debug("Peak context could not be built", exc_info=True)
+        peak_context = None
 
     all_results = []
     evidence_rows = []
@@ -1318,7 +1562,8 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
         phases = [[cif.filename for cif in cifs] for cifs in result[0]]
         highlighted_phases = list(result[1].lst_data.phases_results)
         phase_metadata = _refined_phase_metadata(result[1])
-        diagnostics = _peak_diagnostics(
+        diagnostics = _classified_peak_diagnostics(
+            d,
             result[1],
             d.missing_peaks[result_index] if d.missing_peaks else None,
             d.extra_peaks[result_index] if d.extra_peaks else None,
@@ -1327,6 +1572,7 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
                 if getattr(d, "intensity_mismatch_peaks", None)
                 else None
             ),
+            context=peak_context,
         )
 
         # A search path can reach exactly the same phase hypothesis in a different
@@ -1405,7 +1651,9 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
     except (TypeError, ValueError, ZeroDivisionError):
         weight_percent = {}
     final_phase_metadata = _refined_phase_metadata(d.final_result)
-    final_peak_diagnostics = _peak_diagnostics(d.final_result)
+    final_peak_diagnostics = _classified_peak_diagnostics(
+        d, d.final_result, context=peak_context
+    )
     final_fit_quality = _fit_quality(d.final_result)
     final_phase_details = _phase_refinement_details(d.final_result)
     final_lattice_flags = _final_lattice_flags(job, d)
@@ -1850,6 +2098,35 @@ async def plot(task_id: int, idx: int | None = Query(None, ge=0)):
     )
 
 
+LIST_SUMMARY_REFRESH_MAX = 3  # stale summaries upgraded per list request (bounds the latency)
+
+
+def _refresh_listed_summaries(tasks: list[dict]) -> dict[int, dict | None]:
+    """Upgrade at most ``LIST_SUMMARY_REFRESH_MAX`` stale summaries of the listed tasks.
+
+    The remaining stale tasks are refreshed by later requests; until then they keep their
+    stored (older) summary. Runs inline like the series refresh (montydb is not thread-safe).
+    """
+    fresh: dict[int, dict | None] = {}
+    budget = LIST_SUMMARY_REFRESH_MAX
+    for task in tasks:
+        if budget <= 0:
+            break
+        summary = task.get("summary")
+        if task.get("status") != "COMPLETED" or (
+            isinstance(summary, dict) and summary.get("schema", 0) >= SUMMARY_SCHEMA
+        ):
+            continue
+        if not task.get("uuid") or task["uuid"] in SUMMARY_REFRESH_GAVE_UP:
+            continue
+        budget -= 1
+        try:
+            fresh[task["index"]] = refresh_stale_summary(task, lambda: get_worker_store())
+        except Exception:
+            logger.debug("List summary refresh failed", exc_info=True)
+    return fresh
+
+
 @router.get("/tasks")
 async def get_all_tasks(
     page: int = Query(1, ge=1),
@@ -1876,11 +2153,12 @@ async def get_all_tasks(
         )
 
     tasks_result = []
+    refreshed = _refresh_listed_summaries(tasks)
 
     for task in tasks:
         index = task["index"]
         state = task["status"]
-        summary = task.get("summary")
+        summary = refreshed.get(index, task.get("summary"))
         tasks_result.append(
             {
                 "fw_id": index,

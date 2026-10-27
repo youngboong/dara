@@ -395,6 +395,66 @@ def score_from_run(run_dir: Path, *, gt_sets: list[GTSet] | None = None) -> dict
     return {"scores": scores, "aggregate": aggregate(scores), "run": run_info}
 
 
+def resummarize_run(run_dir: Path, out_dir: Path | None = None) -> int:
+    """Rebuild ``summary.json`` of every stored sample document with the current code.
+
+    Reads ``samples/*/document.json.gz`` of ``run_dir`` and writes the new summaries to
+    ``<out_dir or run_dir>/samples/<id>/summary.json`` (``score.json`` is copied along
+    when ``out_dir`` differs, so runtimes are kept). The source run is never modified when
+    ``out_dir`` is given. Returns the number of samples written; failures are skipped.
+    """
+    import shutil
+    from datetime import timedelta
+
+    from monty.serialization import loadfn
+
+    os.environ.setdefault("DARA_TRACE_HINTS", "off")
+    run_dir = Path(run_dir)
+    target = Path(out_dir) if out_dir is not None else run_dir
+    _, summarize_document = _load_api()
+    gt_sets = [load_ground_truth("pairwise"), load_ground_truth("precursor")]
+    index = _gt_index(gt_sets)
+    started = datetime(2026, 1, 1, 0, 0, 0)
+    written = 0
+    for sample_dir in sorted((run_dir / "samples").glob("*")):
+        document_path = sample_dir / "document.json.gz"
+        if not document_path.is_file():
+            continue
+        sample_id = sample_dir.name
+        try:
+            document = loadfn(document_path)
+            old_score = {}
+            if (sample_dir / "score.json").is_file():
+                try:
+                    old_score = json.loads((sample_dir / "score.json").read_text(encoding="utf-8"))
+                except ValueError:
+                    old_score = {}
+            pattern_name = Path(index[sample_id][1].pattern).name if sample_id in index else ""
+            record = {
+                "uuid": f"bench-{sample_id}",
+                "index": None,
+                "status": "COMPLETED",
+                "job": {
+                    "name": pattern_name or sample_id,
+                    "function_kwargs": {},
+                    "metadata": {},
+                },
+                "submitted_time": started,
+                "start_time": started,
+                "end_time": started + timedelta(seconds=old_score.get("runtime_s") or 0),
+            }
+            summary = summarize_document(record, document, persist_summary=False)
+            destination = target / "samples" / sample_id
+            destination.mkdir(parents=True, exist_ok=True)
+            _dump_json(destination / "summary.json", summary)
+            if destination != sample_dir and (sample_dir / "score.json").is_file():
+                shutil.copyfile(sample_dir / "score.json", destination / "score.json")
+            written += 1
+        except Exception as exc:  # noqa: BLE001 - one bad sample must not stop the others
+            print(f"resummarize: {sample_id} skipped ({type(exc).__name__}: {exc})", file=sys.stderr)
+    return written
+
+
 def score_from_tasks(
     selector: str,
     *,

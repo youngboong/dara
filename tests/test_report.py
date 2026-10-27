@@ -274,3 +274,40 @@ def test_reported_mp_window_is_the_effective_one():
     assert "widened to -4.5% to +2.0%" in _refinement_text({"lattice_range": 0.02}, summary)
     assert "widened to -5.0% to +5.0%" in _refinement_text({"lattice_range": 0.05}, summary)
     assert "widened" not in _refinement_text({"lattice_range": "fixed"}, summary)
+
+
+# --- unexplained observed peaks -------------------------------------------------------------
+
+def _with_profile(refinement, injected, missing):
+    x = np.arange(10.0, 80.0, 0.01)
+    rng = np.random.default_rng(0)
+    calc = 1000 + 10000 * np.exp(-0.5 * ((x - 33) / 0.065) ** 2)
+    obs = calc + rng.normal(0, 31.6, x.size)
+    for centre, height in injected:
+        obs = obs + height * np.exp(-0.5 * ((x - centre) / 0.065) ** 2)
+    refinement.plot_data = SimpleNamespace(x=x, y_obs=obs, y_calc=calc, y_bkg=np.full_like(x, 1000.0))
+    refinement.refinement_metrics = SimpleNamespace(
+        missing_peaks=missing, extra_peaks=[], intensity_mismatch_peaks=[]
+    )
+    return refinement
+
+
+def test_report_lists_classified_unexplained_peaks(monkeypatch):
+    final = _with_profile(_refinement(7.0), [(45.0, 150.0), (60.0, 20.0)], [[45.0, 3.0], [60.0, 1.0]])
+    client, _, _ = _context(monkeypatch, final=final, results=[final])
+    html = client.get("/api/task/9/report?best=true").text
+    assert "<h3>Unexplained observed peaks</h3>" in html
+    assert "classified by their height relative to the strongest peak" in html
+    assert "at least 2% of the strongest peak and S/N ≥ 8" in html
+    assert "% of strongest peak" in html and "Interpretation" in html
+    assert "<td>45.00</td>" in html and "<td>minor</td>" in html
+    assert "<td>60.00</td>" not in html  # a noise-level feature is summarised, not listed
+    assert "1 further weak feature(s) are within the noise and are not listed." in html
+    assert "minor_unexplained_peaks" in html
+
+
+def test_report_without_profiles_has_no_unexplained_table(plain):
+    client, _, _ = plain
+    html = client.get("/api/task/9/report?best=true").text
+    assert "Unexplained observed peaks" not in html
+    assert "Confidence assessment and review cautions" in html

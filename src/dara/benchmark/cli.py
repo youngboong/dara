@@ -65,6 +65,10 @@ def build_parser() -> argparse.ArgumentParser:
     score.add_argument("--montydb", help="Path of the server database (with --from-tasks)")
     score.add_argument("--write", action="store_true", help="Write scores.json and report.md")
     score.add_argument("--out", type=Path, help="Output folder for --write (default: the run folder)")
+    score.add_argument(
+        "--resummarize", action="store_true",
+        help="With --from-run: rebuild summary.json from the stored documents first",
+    )
 
     compare = sub.add_parser("compare", help="Compare two runs; exit 1 on a regression")
     compare.add_argument("run_a", type=Path)
@@ -144,8 +148,16 @@ def _cmd_run(args) -> int:
 def _cmd_score(args) -> int:
     from dara.benchmark import runner
 
+    if args.resummarize and not args.from_run:
+        print("--resummarize needs --from-run.", file=sys.stderr)
+        return 2
     if args.from_run:
-        result = runner.score_from_run(args.from_run)
+        source = args.from_run
+        if args.resummarize:
+            count = runner.resummarize_run(args.from_run, args.out)
+            print(f"Re-summarized {count} sample(s)")
+            source = args.out or args.from_run
+        result = runner.score_from_run(source)
         target = args.out or args.from_run
     else:
         result = runner.score_from_tasks(args.from_tasks, montydb_path=args.montydb)

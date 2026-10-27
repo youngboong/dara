@@ -217,11 +217,18 @@ def simulate_reflections(
     path: Path, wavelength_a: float, two_theta_range: tuple[float, float]
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """``(two_theta, intensity, d_hkl)`` of a CIF; raises on failure."""
-    from pymatgen.analysis.diffraction.xrd import XRDCalculator
-
     from dara.cif import Cif
 
     structure = Cif.from_file(path).to_structure()
+    return simulate_structure_reflections(structure, wavelength_a, two_theta_range)
+
+
+def simulate_structure_reflections(
+    structure, wavelength_a: float, two_theta_range: tuple[float, float]
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(two_theta, intensity, d_hkl)`` of a pymatgen structure; raises on failure."""
+    from pymatgen.analysis.diffraction.xrd import XRDCalculator
+
     pattern = XRDCalculator(wavelength=wavelength_a).get_pattern(
         structure, scaled=True, two_theta_range=tuple(two_theta_range)
     )

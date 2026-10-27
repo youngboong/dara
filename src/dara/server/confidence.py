@@ -35,6 +35,8 @@ GOF_EXPERT = 4.0
 RWP_EXPERT = 25.0
 MISSING_HIGH_MAX = 1
 MISSING_EXPERT_MIN = 5
+MISSING_SIGNIFICANT_EXPERT_MIN = 4
+MISSING_SIGNIFICANT_REL_SUM_EXPERT = 0.20
 WEAK_MAJOR_WT = 5.0
 FAILED_FRACTION_EXPERT = 0.5
 SCREENING_MISSING_EXPERT_FRACTION = 0.25
@@ -662,6 +664,7 @@ def evaluate_confidence(
     missing_peaks: int | None,
     search_summary: dict | None,
     instrument_profile: str | None,
+    missing_summary: dict | None = None,
 ) -> dict | None:
     """Return the ``confidence`` JSON block for ``target`` (``None`` on total failure)."""
     try:
@@ -693,6 +696,7 @@ def evaluate_confidence(
         overall = _overall(
             target, phases, weights, displacement, background,
             counts_like=counts_like, missing_peaks=missing_peaks, search_summary=search_summary,
+            missing_summary=missing_summary,
         )
         return {
             "schema": SCHEMA,
@@ -706,9 +710,99 @@ def evaluate_confidence(
         return None
 
 
+def _classified_entries(missing_summary, cls: str) -> list[dict]:
+    entries = (missing_summary or {}).get("missing_classified")
+    if not isinstance(entries, list):
+        return []
+    return [e for e in entries if isinstance(e, dict) and e.get("class") == cls]
+
+
+def _rel_pct(entry) -> float:
+    return (_num(entry.get("rel_height")) or 0.0) * 100.0
+
+
+def _significant_reasons(missing_summary) -> tuple[list[str], list[str]]:
+    """``(expert, check)`` reasons for significant unexplained peaks."""
+    sig = sorted(
+        _classified_entries(missing_summary, "significant"),
+        key=lambda e: -(_num(e.get("rel_height")) or 0.0),
+    )
+    if not sig:
+        return [], []
+    n = len(sig)
+    largest = _rel_pct(sig[0])
+    total = sum((_num(e.get("rel_height")) or 0.0) for e in sig)
+    single = (
+        f"1 significant unexplained peak at {(_num(sig[0].get('two_theta')) or 0.0):.2f}° "
+        f"({largest:.1f}% of the strongest peak)."
+    )
+    if n >= MISSING_SIGNIFICANT_EXPERT_MIN or total >= MISSING_SIGNIFICANT_REL_SUM_EXPERT:
+        if n == 1:
+            return [single], []
+        return [
+            f"{n} significant unexplained peaks (largest {largest:.1f}% of the strongest peak)."
+        ], []
+    if n == 1:
+        return [], [single]
+    angles = ", ".join(f"{(_num(e.get('two_theta')) or 0.0):.2f}°" for e in sig[:3])
+    if n > 3:
+        angles += ", …"
+    return [], [
+        f"{n} significant unexplained peaks at {angles} "
+        f"(largest {largest:.1f}% of the strongest peak)."
+    ]
+
+
+def trace_hint_sentence(hints) -> str:
+    """`` Positions are consistent with trace ...`` for the first trace hint (else empty)."""
+    if not isinstance(hints, list) or not hints or not isinstance(hints[0], dict):
+        return ""
+    first = hints[0]
+    formula = first.get("formula")
+    if not formula:
+        return ""
+    symbol = first.get("spacegroup_symbol")
+    label = f"{formula} ({symbol})" if symbol else str(formula)
+    return f" Positions are consistent with trace {label}."
+
+
+def _info_reasons(missing_summary) -> list[str]:
+    """Reasons about minor and instrument peaks; they never change the verdict."""
+    out: list[str] = []
+    minor = _classified_entries(missing_summary, "minor")
+    if minor:
+        top = max(_rel_pct(e) for e in minor)
+        if len(minor) == 1:
+            text = (
+                f"1 minor unexplained peak ({top:.1f}% of the strongest peak) "
+                "does not affect the verdict."
+            )
+        else:
+            text = (
+                f"{len(minor)} minor unexplained peaks (up to {top:.1f}% of the strongest peak) "
+                "do not affect the verdict."
+            )
+        out.append(text + trace_hint_sentence(missing_summary.get("trace_hints")))
+    instrument = _classified_entries(missing_summary, "instrument")
+    if instrument:
+        from dara.server.peak_significance import instrument_line_phrase
+
+        anode = (missing_summary.get("missing_significance") or {}).get("anode")
+        label = instrument_line_phrase(instrument, anode)
+        if len(instrument) == 1:
+            out.append(f"1 weak peak matches a {label} line of a strong reflection.")
+        else:
+            out.append(f"{len(instrument)} weak peaks match {label} lines of strong reflections.")
+    return out
+
+
 def _overall(target, phases, weights, displacement, background, *, counts_like, missing_peaks,
-             search_summary) -> dict:
+             search_summary, missing_summary=None) -> dict:
     missing = int(missing_peaks or 0)
+    classified = isinstance(missing_summary, dict) and isinstance(
+        missing_summary.get("counts_by_class"), dict
+    )
+    sig_expert, sig_check = _significant_reasons(missing_summary) if classified else ([], [])
     gof, rwp = target.gof, target.rwp
     expert: list[str] = []
     check: list[str] = []
@@ -719,7 +813,9 @@ def _overall(target, phases, weights, displacement, background, *, counts_like, 
             text = f"Weak evidence for {_label(name)}"
             text += f" ({weight:.1f} wt%)." if weight is not None else "."
             (expert if weight is not None and weight >= WEAK_MAJOR_WT else check).append(text)
-    if missing >= MISSING_EXPERT_MIN:
+    if classified:
+        expert.extend(sig_expert)
+    elif missing >= MISSING_EXPERT_MIN:
         expert.append(f"{missing} observed peaks are not explained.")
     if rwp is not None and rwp > RWP_EXPERT:
         expert.append(f"Rwp is {rwp:.1f}%.")
@@ -752,7 +848,9 @@ def _overall(target, phases, weights, displacement, background, *, counts_like, 
             check.append(f"Ambiguous evidence for {_label(name)}.")
     if gof is not None and counts_like is not False and gof > GOF_HIGH:
         check.append(f"GOF is {gof:.2f}.")
-    if MISSING_HIGH_MAX < missing < MISSING_EXPERT_MIN:
+    if classified:
+        check.extend(sig_check)
+    elif MISSING_HIGH_MAX < missing < MISSING_EXPERT_MIN:
         check.append(f"{missing} observed peaks are not explained.")
     if displacement["level"] == "warning":
         check.append(displacement["message"])
@@ -761,10 +859,11 @@ def _overall(target, phases, weights, displacement, background, *, counts_like, 
             "Broad background hump: weight fractions refer to crystalline phases only."
         )
 
+    info = _info_reasons(missing_summary) if classified else []
     if expert:
-        level, reasons = "expert", expert + check
+        level, reasons = "expert", expert + check + info
     elif check or not phases:
-        level, reasons = "check", check or ["No refined phases were found."]
+        level, reasons = "check", (check or ["No refined phases were found."]) + info
     else:
         count = len(phases)
         level = "high"
@@ -772,7 +871,7 @@ def _overall(target, phases, weights, displacement, background, *, counts_like, 
             "The phase is supported by every criterion."
             if count == 1
             else f"All {count} phases are supported by every criterion."
-        ]
+        ] + info
     return {"level": level, "label": OVERALL_LABELS[level], "reasons": reasons[:4]}
 
 
@@ -880,7 +979,9 @@ def instrument_profile_of(document) -> str | None:
     return (getattr(document, "search_kwargs", None) or {}).get("instrument_profile")
 
 
-def confidence_for_selection(document, selection=None, *, lattice_flags=None) -> dict | None:
+def confidence_for_selection(
+    document, selection=None, *, lattice_flags=None, hint_mode: str = "off"
+) -> dict | None:
     """Confidence of the final result (``selection`` None/"best") or of one candidate.
 
     ``selection`` is a candidate source index (``document.results[selection]``). The
@@ -888,8 +989,8 @@ def confidence_for_selection(document, selection=None, *, lattice_flags=None) ->
     """
     try:
         from dara.server.api_router import (
-            _counts_like, _fit_quality, _flatten_cifs, _matching_candidate_cifs,
-            _peak_diagnostics, _phase_refinement_details, _refined_phase_metadata,
+            _classified_peak_diagnostics, _counts_like, _fit_quality, _flatten_cifs,
+            _matching_candidate_cifs, _phase_refinement_details, _refined_phase_metadata,
             _search_result_key,
         )
 
@@ -927,19 +1028,24 @@ def confidence_for_selection(document, selection=None, *, lattice_flags=None) ->
             key, number, source, refinement, quality, _phase_refinement_details(refinement),
             _refined_phase_metadata(refinement), lattice_flags=flags, cifs=cif_pool,
         )
-        diagnostics = _peak_diagnostics(refinement)
+        diagnostics = _classified_peak_diagnostics(document, refinement, hint_mode=hint_mode)
         return evaluate_confidence(
             target, displayed,
             counts_like=_counts_like(document),
             missing_peaks=(diagnostics.get("counts") or {}).get("missing"),
             search_summary=getattr(document, "search_summary", None),
             instrument_profile=instrument_profile_of(document),
+            missing_summary=diagnostics,
         )
     except Exception:
         logger.warning("Document confidence failed", exc_info=True)
         return None
 
 
-def confidence_for_document(document, *, lattice_flags=None) -> dict | None:
+def confidence_for_document(
+    document, *, lattice_flags=None, hint_mode: str = "off"
+) -> dict | None:
     """Confidence of the final result against all (deduplicated) displayed candidates."""
-    return confidence_for_selection(document, None, lattice_flags=lattice_flags)
+    return confidence_for_selection(
+        document, None, lattice_flags=lattice_flags, hint_mode=hint_mode
+    )

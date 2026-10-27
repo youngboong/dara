@@ -139,6 +139,10 @@ def fit_cautions(
             )
         )
 
+    classes = (diagnostics or {}).get("counts_by_class")
+    if isinstance(classes, dict):
+        cautions.extend(_classified_missing_cautions(diagnostics, classes))
+        return cautions
     missing = _number(((diagnostics or {}).get("counts") or {}).get("missing"))
     if missing is not None and missing >= 1:
         cautions.append(
@@ -149,6 +153,66 @@ def fit_cautions(
             )
         )
     return cautions
+
+
+def _largest_percent(diagnostics: dict, cls: str) -> float:
+    values = [
+        _number(entry.get("rel_height")) or 0.0
+        for entry in diagnostics.get("missing_classified") or []
+        if isinstance(entry, dict) and entry.get("class") == cls
+    ]
+    return 100.0 * max(values) if values else 0.0
+
+
+def _classified_missing_cautions(diagnostics: dict, classes: dict) -> list[dict]:
+    """Cautions for unexplained peaks classified by height and signal-to-noise ratio."""
+    from dara.server.confidence import trace_hint_sentence
+
+    out: list[dict] = []
+    significant = _count(classes.get("significant"))
+    minor = _count(classes.get("minor"))
+    instrument = _count(classes.get("instrument"))
+    if significant >= 1:
+        out.append(
+            _caution(
+                "missing_peaks_remain",
+                "warning" if significant >= 3 else "info",
+                f"{significant} significant unexplained peak(s), up to "
+                f"{_largest_percent(diagnostics, 'significant'):.1f}% of the strongest peak, "
+                "are not explained by the fitted phases.",
+            )
+        )
+    if minor >= 1:
+        out.append(
+            _caution(
+                "minor_unexplained_peaks",
+                "info",
+                f"{minor} minor unexplained peak(s), up to "
+                f"{_largest_percent(diagnostics, 'minor'):.1f}% of the strongest peak, remain; "
+                "they do not affect the overall assessment."
+                + trace_hint_sentence(diagnostics.get("trace_hints")),
+            )
+        )
+    if instrument >= 1:
+        from dara.server.peak_significance import instrument_line_phrase
+
+        anode = ((diagnostics.get("missing_significance") or {}).get("anode")) or None
+        label = instrument_line_phrase(
+            [
+                e for e in diagnostics.get("missing_classified") or []
+                if isinstance(e, dict) and e.get("class") == "instrument"
+            ],
+            anode,
+        )
+        out.append(
+            _caution(
+                "instrument_lines",
+                "info",
+                f"{instrument} weak peak(s) match {label} lines of strong reflections "
+                "and are not counted as unexplained.",
+            )
+        )
+    return out
 
 
 def displacement_caution(displacement: dict | None) -> dict | None:

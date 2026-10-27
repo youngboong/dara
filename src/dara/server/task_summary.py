@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 from html import unescape
 
-SUMMARY_SCHEMA = 2
+logger = logging.getLogger(__name__)
+
+SUMMARY_SCHEMA = 3  # single source of truth: every stale-summary check compares against this
+
+# Task uuids whose summary could not be refreshed; they are not retried until restart.
+SUMMARY_REFRESH_GAVE_UP: set[str] = set()
 
 
 def _finite(value, digits: int | None = None) -> float | None:
@@ -132,3 +138,42 @@ def runtime_seconds(start, end) -> float | None:
         return (end - start).total_seconds()
     except Exception:
         return None
+
+
+def refresh_stale_summary(record: dict, open_store) -> dict | None:
+    """Return a current-schema summary of a completed task, upgrading and persisting a stale one.
+
+    ``record`` is a worker-store record and ``open_store`` a callable returning the worker
+    store context manager. The refresh never raises and never simulates reference patterns
+    (trace hints stay off); on failure the old summary is returned and the task is not retried.
+    """
+    summary = record.get("summary")
+    summary = summary if isinstance(summary, dict) else None
+    uuid = record.get("uuid")
+    if record.get("status") != "COMPLETED":
+        return summary
+    if summary is not None and summary.get("schema", 0) >= SUMMARY_SCHEMA:
+        return summary
+    if not uuid or uuid in SUMMARY_REFRESH_GAVE_UP:
+        return summary
+    try:
+        fresh = summarize_stored_result(
+            uuid, runtime_seconds(record.get("start_time"), record.get("end_time"))
+        )
+    except Exception:
+        logger.info("Could not refresh the summary of task %s", record.get("index"), exc_info=True)
+        SUMMARY_REFRESH_GAVE_UP.add(uuid)
+        return summary
+    if not isinstance(fresh, dict):
+        return summary
+    if fresh.get("schema", 0) < SUMMARY_SCHEMA:
+        SUMMARY_REFRESH_GAVE_UP.add(uuid)
+    try:
+        with open_store() as store:
+            current = store.query_one({"index": record["index"]})
+            if current is not None and current.get("uuid") == uuid:
+                current["summary"] = fresh
+                store.update(current)
+    except Exception:
+        logger.warning("Could not store the refreshed summary", exc_info=True)
+    return fresh

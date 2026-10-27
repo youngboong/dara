@@ -583,3 +583,161 @@ def test_phase_details_fill_weight_esd_for_orientation_refined_phases():
     assert details[name]["weight_esd_percent"] == pytest.approx(0.31)
     digest = task_summary._phase_digests(refinement)[0]
     assert digest["weight_esd_percent"] == pytest.approx(0.31)
+
+
+# --- classified unexplained peaks ---------------------------------------------------------
+
+def _entry(tt, rel, cls, snr=20.0, hint=None):
+    return {"two_theta": tt, "rel_height": rel, "snr": snr, "class": cls, "source": "peak",
+            "attribution": None, "hint": hint}
+
+
+def _summary(entries, hints=None, anode="cu"):
+    counts = {"noise": 0, "minor": 0, "significant": 0, "instrument": 0}
+    for entry in entries:
+        counts[entry["class"]] += 1
+    counts["total"] = len(entries)
+    return {
+        "missing_classified": entries, "counts_by_class": counts, "trace_hints": hints or [],
+        "missing_significance": {"anode": anode},
+    }
+
+
+def _overall_with(summary, **kwargs):
+    base = {A: (60.0, 0.5), B: (40.0, 0.5)}
+    return _evaluate(_evidence("final", base, 7.0), [], missing_peaks=len(summary.get("missing_classified", [])),
+                     missing_summary=summary, **kwargs)["overall"]
+
+
+def test_minor_unexplained_peaks_do_not_lower_the_verdict():
+    summary = _summary([_entry(33.44, 0.0375, "minor", 5.4), _entry(35.89, 0.03, "minor", 4.3),
+                        _entry(99.28, 0.029, "minor", 3.9)])
+    overall = _overall_with(summary)
+    assert overall["level"] == "high"
+    assert overall["reasons"] == [
+        "All 2 phases are supported by every criterion.",
+        "3 minor unexplained peaks (up to 3.8% of the strongest peak) do not affect the verdict.",
+    ]
+    hinted = _summary([_entry(33.44, 0.0375, "minor")], hints=[
+        {"formula": "Fe2O3", "spacegroup_symbol": "R-3c"}])
+    assert _overall_with(hinted)["reasons"][-1] == (
+        "1 minor unexplained peak (3.8% of the strongest peak) does not affect the verdict. "
+        "Positions are consistent with trace Fe2O3 (R-3c)."
+    )
+    bare = _summary([_entry(33.44, 0.0375, "minor")], hints=[{"formula": "Fe2O3"}])
+    assert _overall_with(bare)["reasons"][-1].endswith("Positions are consistent with trace Fe2O3.")
+
+
+def test_one_significant_peak_asks_for_a_check():
+    overall = _overall_with(_summary([_entry(31.93, 0.028, "significant", 16.3)]))
+    assert overall["level"] == "check"
+    assert overall["reasons"] == [
+        "1 significant unexplained peak at 31.93° (2.8% of the strongest peak)."
+    ]
+
+
+def test_three_significant_peaks_still_check_but_four_or_a_large_sum_is_expert():
+    three = _summary([_entry(30.0 + i, 0.03, "significant") for i in range(3)])
+    overall = _overall_with(three)
+    assert overall["level"] == "check"
+    assert overall["reasons"][0] == (
+        "3 significant unexplained peaks at 30.00°, 31.00°, 32.00° (largest 3.0% of the strongest peak)."
+    )
+    many = _summary([_entry(30.0 + i, 0.03 - i * 0.001, "significant") for i in range(4)])
+    four = _overall_with(many)
+    assert four["level"] == "expert"
+    assert four["reasons"][0] == "4 significant unexplained peaks (largest 3.0% of the strongest peak)."
+    long = _summary([_entry(30.0 + i, 0.021, "significant") for i in range(3)])
+    assert _overall_with(long)["reasons"][0].endswith("30.00°, 31.00°, 32.00° (largest 2.1% of the strongest peak).")
+    five = _summary([_entry(30.0 + i, 0.021, "significant") for i in range(5)])
+    assert _overall_with(five)["level"] == "expert"
+    big_sum = _summary([_entry(30.0, 0.11, "significant"), _entry(31.0, 0.10, "significant")])
+    overall = _overall_with(big_sum)
+    assert overall["level"] == "expert"
+    assert overall["reasons"][0] == "2 significant unexplained peaks (largest 11.0% of the strongest peak)."
+    single = _overall_with(_summary([_entry(30.0, 0.25, "significant")]))
+    assert single["level"] == "expert"
+    assert single["reasons"][0] == "1 significant unexplained peak at 30.00° (25.0% of the strongest peak)."
+    sum_below = _summary([_entry(30.0, 0.10, "significant"), _entry(31.0, 0.099, "significant")])
+    assert _overall_with(sum_below)["level"] == "check"
+
+
+def test_instrument_lines_do_not_lower_the_verdict():
+    one = _overall_with(_summary([_entry(32.43, 0.008, "instrument")]))
+    assert one["level"] == "high"
+    assert one["reasons"][-1] == "1 weak peak matches a Cu Kβ or W Lα1 line of a strong reflection."
+    kb = dict(_entry(32.43, 0.008, "instrument"), attribution={"type": "kbeta"})
+    wl = dict(_entry(34.45, 0.007, "instrument"), attribution={"type": "w_lalpha"})
+    assert _overall_with(_summary([kb]))["reasons"][-1] == (
+        "1 weak peak matches a Cu Kβ line of a strong reflection."
+    )
+    assert _overall_with(_summary([wl]))["reasons"][-1] == (
+        "1 weak peak matches a W Lα1 line of a strong reflection."
+    )
+    assert _overall_with(_summary([kb, wl]))["reasons"][-1] == (
+        "2 weak peaks match Cu Kβ or W Lα1 lines of strong reflections."
+    )
+    two = _overall_with(_summary([_entry(32.43, 0.008, "instrument"), _entry(34.45, 0.007, "instrument")]))
+    assert two["reasons"][-1] == "2 weak peaks match Cu Kβ or W Lα1 lines of strong reflections."
+    unknown = _overall_with(_summary([_entry(32.43, 0.008, "instrument")], anode=None))
+    assert unknown["reasons"][-1] == "1 weak peak matches a Kβ or W Lα1 line of a strong reflection."
+
+
+def test_info_reasons_follow_check_reasons_and_total_stays_at_four():
+    base = {A: (60.0, 0.5), B: (40.0, 0.5)}
+    summary = _summary([_entry(30.0, 0.03, "significant"), _entry(33.0, 0.01, "minor")])
+    block = _evaluate(_evidence("final", base, 7.0, gof=3.5), [], missing_peaks=2, missing_summary=summary)
+    reasons = block["overall"]["reasons"]
+    assert block["overall"]["level"] == "check"
+    assert reasons[0] == "GOF is 3.50." and reasons[1].startswith("1 significant unexplained peak at 30.00°")
+    assert reasons[2].startswith("1 minor unexplained peak")
+    crowded = _evidence("final", base, 27.0, gof=5.0)
+    block = _evaluate(crowded, [], missing_peaks=3, missing_summary=_summary(
+        [_entry(30.0 + i, 0.03, "significant") for i in range(4)] + [_entry(60.0, 0.01, "minor")]))
+    assert len(block["overall"]["reasons"]) == 4
+    assert block["overall"]["level"] == "expert"
+
+
+def test_malformed_missing_summary_falls_back_to_the_legacy_count():
+    base = {A: (60.0, 0.5), B: (40.0, 0.5)}
+    for summary in ({}, None, {"counts_by_class": "x"}, {"missing_classified": []}, []):
+        block = _evaluate(_evidence("final", base, 7.0), [], missing_peaks=5, missing_summary=summary)
+        assert block["overall"]["level"] == "expert"
+        assert "5 observed peaks are not explained." in block["overall"]["reasons"]
+        block = _evaluate(_evidence("final", base, 7.0), [], missing_peaks=2, missing_summary=summary)
+        assert block["overall"]["level"] == "check"
+    # classified payloads ignore the legacy count entirely
+    clean = _summary([_entry(50.0, 0.001, "noise")] * 8)
+    assert _evaluate(_evidence("final", base, 7.0), [], missing_peaks=8,
+                     missing_summary=clean)["overall"]["level"] == "high"
+
+
+def test_confidence_for_selection_classifies_the_final_result():
+    from datetime import datetime  # noqa: F401  (kept local like the integration test above)
+
+    name = "CaF2_225_(cod_2300449)-0"
+    x = np.arange(10.0, 80.0, 0.01)
+    rng = np.random.default_rng(0)
+    calc = 1000 + 10000 * np.exp(-0.5 * ((x - 30) / 0.065) ** 2)
+    obs = calc + rng.normal(0, 31.6, x.size) + 400 * np.exp(-0.5 * ((x - 40) / 0.065) ** 2)
+    phase = SimpleNamespace(
+        spacegroup_no=225, hermann_mauguin="Fm-3m", gewicht=(0.5, 0.4), a=(0.546, 0.0001), b=None,
+        c=None, alpha=None, beta=None, gamma=None, xray_density=3.2, rphase=4.0, model_extra={}, unit="NM",
+    )
+    final = SimpleNamespace(
+        lst_data=SimpleNamespace(rwp=5.0, rexp=2.0, rp=3.0, rpb=4.0, r=5.0, d=1.8, rho=5.0,
+                                 num_steps=3, phases_results={name: phase}),
+        plot_data=SimpleNamespace(x=x, y_obs=obs, y_calc=calc, y_bkg=np.full_like(x, 1000.0)),
+        refinement_metrics=SimpleNamespace(missing_peaks=[[40.0, 3.0]], extra_peaks=[],
+                                           intensity_mismatch_peaks=[]),
+        get_phase_weights=lambda: {name: 1.0},
+    )
+    document = SimpleNamespace(
+        results=[([[SimpleNamespace(filename=name)]], final)], final_result=final, input_cifs=[],
+        search_kwargs={"wavelength": "Cu"}, search_summary=None,
+        xrd_data=SimpleNamespace(intensities=obs, angles=x, intensity_unit=None),
+    )
+    block = cf.confidence_for_document(document)
+    assert block["overall"]["level"] == "check"
+    assert any(reason.startswith("1 significant unexplained peak at 40.00°")
+               for reason in block["overall"]["reasons"])

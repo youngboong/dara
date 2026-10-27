@@ -150,6 +150,7 @@ Completed results show an evidence-based assessment next to the refinement:
 - A **banner** gives the overall level (High confidence, Check recommended, or Expert review recommended) and the reasons for it.
 - Each refined phase has a **verdict** (Confident, Ambiguous, or Weak evidence). Hover over it to see the evidence: how many candidate models contain the phase, its weight fraction relative to its uncertainty, the best candidate without the phase, and a Hamilton significance test.
 - A **specimen displacement** tag shows the refined displacement of the sample surface.
+- **Unexplained peaks** are observed peaks that the fitted phases do not reproduce. Each is classified by its height relative to the strongest peak and its signal-to-noise ratio: *significant* (at least 2% of the strongest peak and S/N ≥ 8) peaks lower the assessment; *minor* peaks and features within the noise are listed but do not; weak lines at Cu Kβ or W Lα1 positions of strong reflections are marked *instrument*. When a minor peak lines up with a reference structure from the candidate set or the local COD cache, the tooltip names it, for example "consistent with trace Fe2O3 (R-3c)". Such hints are suggestions, not identifications.
 
 The assessment describes what the data support. It is not a statement that a result is right or wrong, and weight fractions are relative to the modelled crystalline phases. Older results do not carry an assessment.
 

@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from dara.cif import Cif
 from dara.series import parse_series_variables, series_order
+from dara.server.task_summary import SUMMARY_REFRESH_GAVE_UP
 from dara.server.utils import convert_to_local_tz, get_worker_store
 from dara.xrd import load_pattern
 
@@ -23,12 +24,11 @@ router = APIRouter(prefix="/api")
 
 MAX_SERIES_FILES = 50
 MIN_SERIES_FILES = 2
-SUMMARY_SCHEMA_REQUIRED = 2
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 # Tasks whose summary could not be upgraded to the current schema; do not decode
-# their stored documents again on every poll of the series page.
-_summary_refresh_gave_up: set[str] = set()
+# their stored documents again on every poll of the series page (shared with /api/tasks).
+_summary_refresh_gave_up = SUMMARY_REFRESH_GAVE_UP
 
 
 def _build_job(pattern, name, **fields):
@@ -293,37 +293,11 @@ def _sort_time(value) -> float:
 
 
 def _refreshed_summary(record: dict) -> dict | None:
-    """Return a schema-2 summary for a completed task, upgrading and persisting if needed."""
-    summary = record.get("summary")
-    summary = summary if isinstance(summary, dict) else None
-    uuid = record.get("uuid")
-    if record.get("status") != "COMPLETED":
-        return summary
-    if summary is not None and summary.get("schema", 0) >= SUMMARY_SCHEMA_REQUIRED:
-        return summary
-    if not uuid or uuid in _summary_refresh_gave_up:
-        return summary
-    try:
-        from dara.server.task_summary import runtime_seconds, summarize_stored_result
+    """Return a current-schema summary for a completed task, upgrading and persisting if needed."""
+    from dara.server import task_summary
 
-        fresh = summarize_stored_result(uuid, runtime_seconds(record.get("start_time"), record.get("end_time")))
-    except Exception:
-        logger.info("Could not refresh the summary of task %s", record.get("index"), exc_info=True)
-        _summary_refresh_gave_up.add(uuid)
-        return summary
-    if not isinstance(fresh, dict):
-        return summary
-    if fresh.get("schema", 0) < SUMMARY_SCHEMA_REQUIRED:
-        _summary_refresh_gave_up.add(uuid)
-    try:
-        with get_worker_store() as store:
-            current = store.query_one({"index": record["index"]})
-            if current is not None and current.get("uuid") == uuid:
-                current["summary"] = fresh
-                store.update(current)
-    except Exception:
-        logger.warning("Could not store the refreshed summary", exc_info=True)
-    return fresh
+    # ``get_worker_store`` is resolved here so tests can replace it on this module.
+    return task_summary.refresh_stale_summary(record, lambda: get_worker_store())
 
 
 @router.get("/series/{series_id}")

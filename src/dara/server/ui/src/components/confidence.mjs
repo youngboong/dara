@@ -173,3 +173,61 @@ export const exportHref = (api, taskId, format, selection) =>
 
 const OVERALL_LABEL = { high: 'High confidence', check: 'Check recommended', expert: 'Expert review recommended' };
 export const overallLabel = level => OVERALL_LABEL[level] || null;
+
+// --- unexplained (missing) peaks, classified by size and signal-to-noise ratio ---------------
+const classCount = (counts, key) => (finite(counts?.[key]) ? Number(counts[key]) : 0);
+
+/** Tag summary of the classified unexplained peaks, or ``null`` for payloads without classes. */
+export function unexplainedSummary(diagnostics) {
+  const counts = diagnostics?.counts_by_class;
+  if (!counts || typeof counts !== 'object' || Array.isArray(counts)) return null;
+  const significant = classCount(counts, 'significant');
+  const minor = classCount(counts, 'minor');
+  const instrument = classCount(counts, 'instrument');
+  const noise = classCount(counts, 'noise');
+  const total = finite(counts.total) ? Number(counts.total) : significant + minor + instrument + noise;
+  const text = `Unexplained ${[
+    `${significant} significant`,
+    minor ? `${minor} minor` : null,
+    instrument ? `${instrument} instrument` : null,
+  ].filter(Boolean).join(' · ')}`;
+  return { significant, minor, instrument, noise, total, text, color: significant ? 'volcano' : minor ? 'gold' : 'default' };
+}
+
+/** Tooltip lines (one per non-noise peak, by 2θ) plus a noise summary; ``[]`` for old payloads. */
+export function unexplainedTooltipLines(diagnostics) {
+  const summary = unexplainedSummary(diagnostics);
+  if (!summary) return [];
+  const entries = Array.isArray(diagnostics.missing_classified) ? diagnostics.missing_classified : [];
+  const lines = entries
+    .filter(entry => entry && entry.class !== 'noise' && finite(entry.two_theta))
+    .sort((a, b) => Number(a.two_theta) - Number(b.two_theta))
+    .map(entry => {
+      let line = `${fixed(entry.two_theta, 2)}° · ${fixed(Number(entry.rel_height) * 100, 1)}% · S/N ${fixed(entry.snr, 1)} · ${entry.class}`;
+      const hint = entry.hint;
+      if (hint && hint.formula) {
+        line += ` · consistent with trace ${hint.formula}${hint.spacegroup_symbol ? ` (${hint.spacegroup_symbol})` : ''}`;
+      }
+      const attribution = entry.attribution;
+      if (attribution && finite(attribution.parent_two_theta)) {
+        line += ` · ${attribution.type === 'kbeta' ? 'Kβ' : 'W Lα1'} line of ${fixed(attribution.parent_two_theta, 2)}°`;
+      }
+      return line;
+    });
+  if (summary.noise > 0) lines.push(`${summary.noise} weak feature${summary.noise === 1 ? '' : 's'} within noise`);
+  return lines;
+}
+
+/** Candidate-table cell for the "Missing" column: classified counts, or the legacy count. */
+export function missingCell(diagnostics) {
+  const summary = unexplainedSummary(diagnostics);
+  if (summary) {
+    return {
+      text: `${summary.significant}${summary.minor ? ` (+${summary.minor} minor)` : ''}`,
+      sortValue: summary.significant * 1000 + summary.minor,
+    };
+  }
+  const missing = diagnostics?.counts?.missing;
+  const known = finite(missing);
+  return { text: String(known ? missing : '—'), sortValue: (known ? Number(missing) : Infinity) * 1000 };
+}

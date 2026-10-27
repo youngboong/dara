@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   EXPORT_FORMATS, displacementTag, evidenceLines, exportHref, figureHref, selectionQuery, levelRank, overallAlertType, overallColor, reasonsText,
-  screeningTags, verdictColor,
+  missingCell, screeningTags, unexplainedSummary, unexplainedTooltipLines, verdictColor,
 } from '../src/dara/server/ui/src/components/confidence.mjs';
 
 // --- levels ------------------------------------------------------------------
@@ -131,5 +131,50 @@ assert.equal(figureHref('/api', 7, 'png'), '/api/task/7/figure.png');
 assert.equal(figureHref('/api', 7, 'svg', 2), '/api/task/7/figure.svg?idx=2');
 assert.equal(exportHref('/api', 7, 'topas', 'best'), '/api/task/7/export/topas?best=true');
 assert.deepEqual(EXPORT_FORMATS.map(item => item.key), ['profex', 'topas', 'gsas2', 'highscore']);
+
+// --- unexplained peaks ---------------------------------------------------------------------------
+assert.equal(unexplainedSummary({ counts: { missing: 2 } }), null);
+assert.equal(unexplainedSummary(undefined), null);
+assert.equal(unexplainedSummary({ counts_by_class: 'x' }), null);
+assert.deepEqual(unexplainedTooltipLines({ counts: { missing: 2 } }), []);
+const classified = {
+  counts: { missing: 6 },
+  counts_by_class: { noise: 2, minor: 2, significant: 1, instrument: 1, total: 6 },
+  missing_classified: [
+    { two_theta: 46.58, rel_height: 0.0270, snr: 15.3, class: 'significant', attribution: null, hint: null },
+    { two_theta: 33.44, rel_height: 0.0375, snr: 5.4, class: 'minor', attribution: null,
+      hint: { formula: 'Fe2O3', spacegroup_symbol: 'R-3c' } },
+    { two_theta: 32.43, rel_height: 0.008, snr: 6.1, class: 'instrument',
+      attribution: { type: 'kbeta', parent_two_theta: 36.0 }, hint: null },
+    { two_theta: 37.65, rel_height: 0.0084, snr: 11.4, class: 'instrument',
+      attribution: { type: 'w_lalpha', parent_two_theta: 39.24 }, hint: null },
+    { two_theta: 50.0, rel_height: 0.001, snr: 1.2, class: 'noise', attribution: null, hint: null },
+    { two_theta: 51.0, rel_height: 0.001, snr: 1.2, class: 'noise', attribution: null, hint: null },
+  ],
+};
+const summary = unexplainedSummary(classified);
+assert.equal(summary.significant, 1);
+assert.equal(summary.noise, 2);
+assert.equal(summary.total, 6);
+assert.equal(summary.text, 'Unexplained 1 significant · 2 minor · 1 instrument');
+assert.equal(summary.color, 'volcano');
+assert.equal(unexplainedSummary({ counts_by_class: { noise: 3, minor: 1, significant: 0, instrument: 0, total: 4 } }).color, 'gold');
+assert.equal(unexplainedSummary({ counts_by_class: { noise: 3, minor: 0, significant: 0, instrument: 0 } }).text, 'Unexplained 0 significant');
+assert.equal(unexplainedSummary({ counts_by_class: { noise: 3, minor: 0, significant: 0, instrument: 0 } }).color, 'default');
+assert.deepEqual(unexplainedTooltipLines(classified), [
+  '32.43° · 0.8% · S/N 6.1 · instrument · Kβ line of 36.00°',
+  '33.44° · 3.8% · S/N 5.4 · minor · consistent with trace Fe2O3 (R-3c)',
+  '37.65° · 0.8% · S/N 11.4 · instrument · W Lα1 line of 39.24°',
+  '46.58° · 2.7% · S/N 15.3 · significant',
+  '2 weak features within noise',
+]);
+assert.deepEqual(unexplainedTooltipLines({ counts_by_class: { noise: 1, minor: 0, significant: 0, instrument: 0 } }),
+  ['1 weak feature within noise']);
+assert.deepEqual(missingCell(classified), { text: '1 (+2 minor)', sortValue: 1002 });
+assert.deepEqual(missingCell({ counts_by_class: { noise: 2, minor: 0, significant: 0, instrument: 0 } }),
+  { text: '0', sortValue: 0 });
+assert.deepEqual(missingCell({ counts: { missing: 4 } }), { text: '4', sortValue: 4000 });
+assert.deepEqual(missingCell(undefined), { text: '—', sortValue: Infinity });
+assert.ok(missingCell({ counts_by_class: { significant: 2, minor: 0 } }).sortValue > missingCell({ counts_by_class: { significant: 1, minor: 9 } }).sortValue);
 
 console.log('confidence UI tests passed');

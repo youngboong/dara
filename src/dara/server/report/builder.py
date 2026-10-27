@@ -383,6 +383,73 @@ def _alternative_cell(evidence: dict) -> str:
     )
 
 
+def _interpretation(entry: dict, anode) -> str:
+    """Plain-text interpretation of one classified unexplained peak."""
+    attribution = entry.get("attribution")
+    if isinstance(attribution, dict):
+        parent = attribution.get("parent_two_theta")
+        hkl = attribution.get("parent_hkl") or []
+        line = (
+            f"{str(anode).capitalize()} Kβ" if attribution.get("type") == "kbeta" and anode
+            else "Kβ" if attribution.get("type") == "kbeta"
+            else "W Lα1"
+        )
+        label = _plain_label(str(attribution.get("parent_phase") or ""))
+        position = f" at {parent:.2f}°" if isinstance(parent, (int, float)) else ""
+        return f"{line} line of {label} ({' '.join(str(v) for v in hkl)}){position}"
+    hint = entry.get("hint")
+    if isinstance(hint, dict) and hint.get("formula"):
+        symbol = hint.get("spacegroup_symbol")
+        return f"Consistent with trace {hint['formula']}" + (f" ({symbol})" if symbol else "")
+    return "—"
+
+
+def _unexplained_peaks_section(diagnostics) -> list[str]:
+    """Table of the classified unexplained observed peaks (empty without classification)."""
+    try:
+        from dara.server import peak_significance as ps
+
+        entries = [
+            e for e in (diagnostics or {}).get("missing_classified") or [] if isinstance(e, dict)
+        ]
+        if not entries:
+            return []
+        shown = [e for e in entries if e.get("class") != "noise"]
+        noise = len(entries) - len(shown)
+        if not shown:
+            return []
+        anode = ((diagnostics.get("missing_significance") or {}).get("anode")) or None
+        rows = [
+            [
+                escape(f"{float(e['two_theta']):.2f}"),
+                escape(f"{100 * float(e['rel_height']):.1f}"),
+                escape(f"{float(e['snr']):.1f}"),
+                escape(str(e.get("class", ""))),
+                escape(_interpretation(e, anode)),
+            ]
+            for e in shown
+        ]
+        intro = (
+            "Observed peaks not explained by the fitted phases were classified by their height "
+            "relative to the strongest peak and by their signal-to-noise ratio. Only significant "
+            f"peaks (at least {ps.SIGNIFICANT_REL * 100:.0f}% of the strongest peak and "
+            f"S/N ≥ {ps.SIGNIFICANT_SNR:.0f}) lower the overall assessment."
+        )
+        out = [
+            "<h3>Unexplained observed peaks</h3>",
+            f"<p>{escape(intro)}</p>",
+            H.table(["2θ (°)", "% of strongest peak", "S/N", "Class", "Interpretation"], rows),
+        ]
+        if noise:
+            out.append(
+                f"<p>{escape(f'{noise} further weak feature(s) are within the noise and are not listed.')}</p>"
+            )
+        return out
+    except Exception:
+        logger.debug("Unexplained-peak table failed", exc_info=True)
+        return []
+
+
 def build_report_html(task_id: int, task: dict, document, selection, review: dict) -> str:
     """Return the complete report as one standalone HTML document."""
     from dara.plot import phase_display_name
@@ -421,11 +488,16 @@ def build_report_html(task_id: int, task: dict, document, selection, review: dic
         except Exception:
             lattice_flags = []
     confidence = confidence_for_selection(
-        document, None if is_final else selection, lattice_flags=lattice_flags
+        document, None if is_final else selection, lattice_flags=lattice_flags,
+        hint_mode="background",
     )
+    diagnostics: dict = {}
     try:
+        diagnostics = api_router._classified_peak_diagnostics(
+            document, refinement, hint_mode="background"
+        )
         cautions = fit_cautions(
-            quality, stored_details, api_router._peak_diagnostics(refinement),
+            quality, stored_details, diagnostics,
             counts_like=counts_like, lattice_flags=lattice_flags,
         )
     except Exception:
@@ -651,6 +723,7 @@ def build_report_html(task_id: int, task: dict, document, selection, review: dic
             parts.append(f"<p>{escape(displacement['message'])}</p>")
     else:
         parts.append("<p>The confidence assessment could not be computed for this result.</p>")
+    parts.extend(_unexplained_peaks_section(diagnostics))
     if cautions:
         parts.append(
             H.table(

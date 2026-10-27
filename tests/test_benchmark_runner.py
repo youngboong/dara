@@ -272,3 +272,80 @@ def test_real_pairwise_sample(tmp_path):
     assert cli.main(["run", "--set", "pairwise", "--ids", "^CoO-ZnO", "--limit", "1", "--out", str(out)]) == 0
     score = json.loads((out / "samples" / SAMPLE_A / "score.json").read_text(encoding="utf-8"))
     assert score["status"] == "scored"
+
+
+def test_resummarize_run_writes_summaries_to_out_and_scoring_reads_them(tmp_path, pairwise, monkeypatch):
+    import gzip
+
+    source = tmp_path / "source"
+    out = tmp_path / "out"
+    seen = []
+    for sample_id in (SAMPLE_A, SAMPLE_B):
+        folder = source / "samples" / sample_id
+        folder.mkdir(parents=True)
+        (folder / "document.json.gz").write_bytes(gzip.compress(b"{}"))
+        (folder / "score.json").write_text(json.dumps({"runtime_s": 12.5}), encoding="utf-8")
+        (folder / "summary.json").write_text('{"old": true}', encoding="utf-8")
+    broken = source / "samples" / "Broken-Sample"
+    broken.mkdir()
+    (broken / "document.json.gz").write_bytes(b"x")
+    (source / "samples" / "no-document").mkdir()
+    before = {path: path.read_bytes() for path in source.rglob("*") if path.is_file()}
+
+    import monty.serialization
+
+    def fake_loadfn(path):
+        if "Broken" in str(path):
+            raise ValueError("corrupt document")
+        return {"sample": Path(path).parent.name}
+
+    def fake_summarize(record, document, *, persist_summary=True):
+        assert persist_summary is False
+        assert record["status"] == "COMPLETED" and record["uuid"] == f"bench-{document['sample']}"
+        assert (record["end_time"] - record["start_time"]).total_seconds() == 12.5
+        assert record["job"]["name"].endswith(".xrdml") or record["job"]["name"].endswith(".xy")
+        seen.append(document["sample"])
+        return fixture_summary(document["sample"])
+
+    monkeypatch.setattr(monty.serialization, "loadfn", fake_loadfn)
+    monkeypatch.setattr(runner, "_load_api", lambda: (None, fake_summarize))
+    monkeypatch.delenv("DARA_TRACE_HINTS", raising=False)
+    try:
+        assert runner.resummarize_run(source, out) == 2
+        assert os.environ["DARA_TRACE_HINTS"] == "off"
+    finally:
+        os.environ.pop("DARA_TRACE_HINTS", None)
+    assert sorted(seen) == sorted([SAMPLE_A, SAMPLE_B])
+    for sample_id in (SAMPLE_A, SAMPLE_B):
+        written = json.loads((out / "samples" / sample_id / "summary.json").read_text(encoding="utf-8"))
+        assert written["final_result"] == fixture_summary(sample_id)["final_result"]
+        assert json.loads((out / "samples" / sample_id / "score.json").read_text(encoding="utf-8")) == {
+            "runtime_s": 12.5}
+    assert not (out / "samples" / "Broken-Sample" / "summary.json").exists()
+    after = {path: path.read_bytes() for path in source.rglob("*") if path.is_file()}
+    assert after == before  # the source run is untouched when --out is given
+
+    result = runner.score_from_run(out, gt_sets=[pairwise])
+    assert {score["id"] for score in result["scores"]} == {SAMPLE_A, SAMPLE_B}
+    assert all(score["runtime_s"] == 12.5 for score in result["scores"])
+
+
+def test_resummarize_in_place_and_cli_flag(tmp_path, pairwise, monkeypatch, capsys):
+    import monty.serialization
+
+    folder = tmp_path / "samples" / SAMPLE_A
+    folder.mkdir(parents=True)
+    (folder / "document.json.gz").write_bytes(b"{}")
+    monkeypatch.setattr(monty.serialization, "loadfn", lambda path: {"sample": SAMPLE_A})
+    monkeypatch.setattr(
+        runner, "_load_api",
+        lambda: (None, lambda record, document, *, persist_summary=True: fixture_summary(document["sample"])),
+    )
+    monkeypatch.setenv("DARA_TRACE_HINTS", "off")
+    assert runner.resummarize_run(tmp_path) == 1
+    assert (folder / "summary.json").is_file()
+
+    assert cli.main(["score", "--from-tasks", "1", "--resummarize"]) == 2
+    assert "--resummarize needs --from-run" in capsys.readouterr().err
+    assert cli.main(["score", "--from-run", str(tmp_path), "--resummarize"]) == 0
+    assert "Re-summarized 1 sample(s)" in capsys.readouterr().out

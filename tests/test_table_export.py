@@ -223,3 +223,22 @@ def test_archive_contains_lst_and_results_table():
     with zipfile.ZipFile(single) as bundle:
         assert "refinement.lst" in bundle.namelist()
         assert "results_table.csv" not in bundle.namelist()
+
+
+def test_classified_missing_counts_fill_the_new_columns():
+    assert TABLE_COLUMNS.index("missing_peaks_significant") == TABLE_COLUMNS.index("missing_peaks") + 1
+    assert TABLE_COLUMNS.index("missing_peaks_minor") == TABLE_COLUMNS.index("missing_peaks") + 2
+    summary = _summary()
+    summary["final_result"]["peak_diagnostics"]["counts_by_class"] = {
+        "noise": 2, "minor": 3, "significant": 1, "instrument": 0, "total": 6,
+    }
+    rows = task_table_rows(5, {}, summary)
+    assert (rows[0]["missing_peaks_significant"], rows[0]["missing_peaks_minor"]) == (1, 3)
+    assert rows[0]["missing_peaks"] == 1  # the legacy count is untouched
+    # old payloads have no classes: the cells stay empty
+    assert rows[1]["missing_peaks_significant"] is None and rows[1]["missing_peaks_minor"] is None
+    parsed = list(csv.reader(io.StringIO(rows_to_csv(rows, TABLE_COLUMNS).decode("utf-8-sig"))))
+    first = dict(zip(parsed[0], parsed[1]))
+    second = dict(zip(parsed[0], parsed[2]))
+    assert (first["missing_peaks_significant"], first["missing_peaks_minor"]) == ("1", "3")
+    assert (second["missing_peaks_significant"], second["missing_peaks_minor"]) == ("", "")

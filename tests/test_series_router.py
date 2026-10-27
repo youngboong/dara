@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from maggma.stores import MontyStore
 
 from dara.server import series_router
+from dara.server.task_summary import SUMMARY_SCHEMA
 
 
 class ASGIClient:
@@ -222,7 +223,7 @@ def _series(series_id, name, order, size, value):
 @pytest.fixture
 def populated(tmp_path, monkeypatch):
     base = datetime(2026, 5, 1, 12, tzinfo=timezone.utc)
-    schema2 = {"schema": 2, "best_rwp": 5.0, "gof": 1.5, "phases": [], "confidence_overall": "high"}
+    schema2 = {"schema": SUMMARY_SCHEMA, "best_rwp": 5.0, "gof": 1.5, "phases": [], "confidence_overall": "high"}
     records = [
         {"uuid": "u1", "index": 1, "status": "COMPLETED", "submitted_time": base,
          "start_time": base, "end_time": base.replace(minute=5),
@@ -264,7 +265,7 @@ def test_detail_sorted_by_order_and_stale_summary_refreshed(populated, client, m
 
     def fake_summarize(uuid, runtime_s):
         calls.append((uuid, runtime_s))
-        return {"schema": 2, "best_rwp": 4.0, "gof": 1.2, "phases": [], "confidence_overall": "check"}
+        return {"schema": SUMMARY_SCHEMA, "best_rwp": 4.0, "gof": 1.2, "phases": [], "confidence_overall": "check"}
 
     monkeypatch.setattr("dara.server.task_summary.summarize_stored_result", fake_summarize)
     body = client.get("/api/series/s1").json()
@@ -275,12 +276,12 @@ def test_detail_sorted_by_order_and_stale_summary_refreshed(populated, client, m
     # Only the completed task with a schema-1 summary was refreshed (300 s runtime from the record).
     assert calls == [("u2", 420.0)]
     assert body["items"][0]["summary"]["confidence_overall"] == "check"
-    assert body["items"][1]["summary"]["schema"] == 2
+    assert body["items"][1]["summary"]["schema"] == SUMMARY_SCHEMA
     assert body["items"][2]["state"] == "RUNNING" and body["items"][2]["summary"] is None
     # Persisted: a second call neither recomputes nor loses the new summary.
     again = client.get("/api/series/s1").json()
     assert calls == [("u2", 420.0)]
-    assert again["items"][0]["summary"]["schema"] == 2
+    assert again["items"][0]["summary"]["schema"] == SUMMARY_SCHEMA
     with _store(populated) as store:
         assert store.query_one({"index": 2})["summary"]["best_rwp"] == 4.0
 

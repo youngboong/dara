@@ -19,8 +19,8 @@ TABLE_COLUMNS: list[str] = [
     "c_angstrom", "c_esd", "alpha_deg", "alpha_esd", "beta_deg", "beta_esd",
     "gamma_deg", "gamma_esd", "crystallite_size_nm", "crystallite_size_esd_nm",
     "rwp", "rexp", "gof", "chi_squared", "durbin_watson", "missing_peaks",
-    "extra_peaks", "two_theta_min", "two_theta_max", "cautions", "provenance",
-    "verdict", "overall_confidence",
+    "missing_peaks_significant", "missing_peaks_minor", "extra_peaks", "two_theta_min",
+    "two_theta_max", "cautions", "provenance", "verdict", "overall_confidence",
 ]
 MULTI_TASK_EXTRA_COLUMNS = ["user", "submitted_on"]
 RHOMBOHEDRAL_GROUPS = {146, 148, 155, 160, 161, 166, 167}
@@ -134,7 +134,10 @@ def _rows_for_result(
     quality = result.get("fit_quality") or {}
     details = result.get("phase_details") or {}
     metadata = result.get("phase_metadata") or {}
-    counts = (result.get("peak_diagnostics") or {}).get("counts") or {}
+    diagnostics = result.get("peak_diagnostics") or {}
+    counts = diagnostics.get("counts") or {}
+    by_class = diagnostics.get("counts_by_class")
+    by_class = by_class if isinstance(by_class, dict) else {}
     cautions = ";".join(c.get("code", "") for c in result.get("cautions") or [])
     confidence = result.get("confidence") if isinstance(result.get("confidence"), dict) else {}
     overall_level = ((confidence.get("overall") or {}).get("level")) or ""
@@ -169,6 +172,8 @@ def _rows_for_result(
             "chi_squared": quality.get("chi_squared"),
             "durbin_watson": quality.get("durbin_watson"),
             "missing_peaks": counts.get("missing"),
+            "missing_peaks_significant": by_class.get("significant"),
+            "missing_peaks_minor": by_class.get("minor"),
             "extra_peaks": counts.get("extra"),
             "two_theta_min": quality.get("two_theta_min"),
             "two_theta_max": quality.get("two_theta_max"),

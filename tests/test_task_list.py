@@ -6,7 +6,12 @@ import pytest
 from maggma.stores import MontyStore
 
 from dara.server import api_router
-from dara.server.task_summary import SUMMARY_SCHEMA, compact_summary, runtime_seconds
+from dara.server.task_summary import (
+    SUMMARY_REFRESH_GAVE_UP,
+    SUMMARY_SCHEMA,
+    compact_summary,
+    runtime_seconds,
+)
 
 
 def _store(path):
@@ -36,6 +41,12 @@ def populated(tmp_path, monkeypatch):
             store.update(record)
     # A fresh store object per call, as in production.
     monkeypatch.setattr(api_router, "get_worker_store", lambda: _store(tmp_path))
+    # Never touch the real result store: refreshing a stale summary fails unless a test says otherwise.
+    def no_result(uuid, runtime_s):
+        raise LookupError("no stored result")
+
+    monkeypatch.setattr("dara.server.task_summary.summarize_stored_result", no_result)
+    SUMMARY_REFRESH_GAVE_UP.clear()
     return tmp_path
 
 
@@ -58,6 +69,63 @@ def test_no_filter_returns_all_with_new_fields(populated):
     assert "-1" in by_id[2]["error_summary"]["title"]
     assert by_id[3]["adopted"] == 2 and by_id[3]["error_summary"] is None
     assert {"fw_id", "name", "state", "created_on", "user"} <= set(by_id[1])
+
+
+def test_series_and_list_share_the_summary_schema_constant():
+    from dara.server import series_router
+
+    assert not hasattr(series_router, "SUMMARY_SCHEMA_REQUIRED")
+    assert SUMMARY_SCHEMA >= 3
+
+
+def test_list_refreshes_stale_summaries_and_persists_them(populated, monkeypatch):
+    calls = []
+
+    def fresh(uuid, runtime_s):
+        calls.append(uuid)
+        return {"schema": SUMMARY_SCHEMA, "best_rwp": 1.5, "gof": 1.1, "phases": [],
+                "confidence_overall": "check"}
+
+    monkeypatch.setattr("dara.server.task_summary.summarize_stored_result", fresh)
+    by_id = {task["fw_id"]: task for task in _list()["tasks"]}
+    assert sorted(calls) == ["u1", "u3"]  # completed, stale or missing; the fizzled one is skipped
+    assert by_id[1]["summary"]["best_rwp"] == 1.5 and by_id[3]["summary"]["schema"] == SUMMARY_SCHEMA
+    assert by_id[2]["summary"] is None
+    with _store(populated) as store:
+        assert store.query_one({"index": 1})["summary"]["confidence_overall"] == "check"
+    _list()
+    assert sorted(calls) == ["u1", "u3"]  # current summaries are not recomputed
+
+
+def test_list_refresh_is_bounded_per_request(populated, monkeypatch):
+    calls = []
+
+    def fresh(uuid, runtime_s):
+        calls.append(uuid)
+        return {"schema": SUMMARY_SCHEMA, "best_rwp": 1.5}
+
+    monkeypatch.setattr("dara.server.task_summary.summarize_stored_result", fresh)
+    monkeypatch.setattr(api_router, "LIST_SUMMARY_REFRESH_MAX", 1)
+    first = {task["fw_id"]: task for task in _list()["tasks"]}
+    assert len(calls) == 1
+    assert sum(1 for t in first.values() if (t["summary"] or {}).get("schema") == SUMMARY_SCHEMA) == 1
+    _list()
+    assert len(calls) == 2  # the next request continues with the remaining stale task
+
+
+def test_list_refresh_failure_keeps_the_old_summary_and_is_not_retried(populated, monkeypatch):
+    calls = []
+
+    def boom(uuid, runtime_s):
+        calls.append(uuid)
+        raise LookupError("gone")
+
+    monkeypatch.setattr("dara.server.task_summary.summarize_stored_result", boom)
+    by_id = {task["fw_id"]: task for task in _list()["tasks"]}
+    assert by_id[1]["summary"]["best_rwp"] == 6.3 and by_id[3]["summary"] is None
+    n = len(calls)
+    _list()
+    assert len(calls) == n
 
 
 def test_name_filter_is_case_insensitive_substring(populated):

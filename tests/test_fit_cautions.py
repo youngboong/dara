@@ -300,3 +300,75 @@ def test_final_lattice_flags_honour_additional_cif_params(monkeypatch):
     # Without a per-phase override the global 2% range applies.
     assert flags(0.4 * 1.019, {"additional_cifs": [cif]}, "u-c") == [{"phase": "X", "parameter": "a"}]
     fc.clear_lattice_flag_cache()
+
+
+# --- classified unexplained peaks ----------------------------------------------------------
+
+def _classified(significant=0, minor=0, instrument=0, noise=0, rel=0.05, hints=None, anode="cu"):
+    entries = (
+        [{"class": "significant", "rel_height": rel}] * significant
+        + [{"class": "minor", "rel_height": rel / 2}] * minor
+        + [{"class": "instrument", "rel_height": 0.008}] * instrument
+        + [{"class": "noise", "rel_height": 0.001}] * noise
+    )
+    return {
+        "counts": {"missing": len(entries), "extra": 0, "intensity_mismatch": 0},
+        "counts_by_class": {"significant": significant, "minor": minor, "instrument": instrument,
+                            "noise": noise, "total": len(entries)},
+        "missing_classified": entries, "trace_hints": hints or [],
+        "missing_significance": {"anode": anode},
+    }
+
+
+def _caution_map(diagnostics):
+    return {c["code"]: c for c in fit_cautions(_quality(), {}, diagnostics)}
+
+
+def test_classified_peaks_produce_class_specific_cautions():
+    result = _caution_map(_classified(significant=2, minor=3, instrument=1, noise=4, rel=0.062))
+    assert result["missing_peaks_remain"]["level"] == "info"
+    assert result["missing_peaks_remain"]["message"] == (
+        "2 significant unexplained peak(s), up to 6.2% of the strongest peak, are not explained "
+        "by the fitted phases."
+    )
+    assert result["minor_unexplained_peaks"]["level"] == "info"
+    assert result["minor_unexplained_peaks"]["message"] == (
+        "3 minor unexplained peak(s), up to 3.1% of the strongest peak, remain; they do not "
+        "affect the overall assessment."
+    )
+    assert result["instrument_lines"]["level"] == "info"
+    assert result["instrument_lines"]["message"] == (
+        "1 weak peak(s) match Cu Kβ or W Lα1 lines of strong reflections and are not counted "
+        "as unexplained."
+    )
+    assert _caution_map(_classified(significant=3))["missing_peaks_remain"]["level"] == "warning"
+
+
+def test_classified_noise_only_adds_no_caution_and_hint_is_named():
+    assert fit_cautions(_quality(), {}, _classified(noise=5)) == []
+    hinted = _caution_map(_classified(minor=1, hints=[
+        {"formula": "Fe2O3", "spacegroup_symbol": "R-3c"}]))
+    assert hinted["minor_unexplained_peaks"]["message"].endswith(
+        " Positions are consistent with trace Fe2O3 (R-3c).")
+    assert "missing_peaks_remain" not in hinted
+    unknown_anode = _caution_map(_classified(instrument=2, anode=None))
+    assert "match Kβ or W Lα1 lines" in unknown_anode["instrument_lines"]["message"]
+    named = _classified(instrument=2)
+    named["missing_classified"] = [
+        {"class": "instrument", "rel_height": 0.008, "attribution": {"type": "kbeta"}},
+        {"class": "instrument", "rel_height": 0.008, "attribution": {"type": "kbeta"}},
+    ]
+    assert "match Cu Kβ lines" in _caution_map(named)["instrument_lines"]["message"]
+    named["missing_classified"][1]["attribution"] = {"type": "w_lalpha"}
+    assert "match Cu Kβ or W Lα1 lines" in _caution_map(named)["instrument_lines"]["message"]
+    named["missing_classified"] = [
+        {"class": "instrument", "rel_height": 0.008, "attribution": {"type": "w_lalpha"}}
+    ] * 2
+    assert "match W Lα1 lines" in _caution_map(named)["instrument_lines"]["message"]
+
+
+def test_legacy_diagnostics_keep_the_count_based_caution():
+    legacy = _caution_map({"counts": {"missing": 4}})
+    assert legacy["missing_peaks_remain"]["level"] == "warning"
+    assert legacy["missing_peaks_remain"]["message"] == "4 observed peak(s) are not explained by the fitted phases."
+    assert _caution_map({"counts": {"missing": 1}, "counts_by_class": "bad"})["missing_peaks_remain"]["level"] == "info"

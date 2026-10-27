@@ -13,7 +13,7 @@ import { TaskProgress } from '../components/PracticalControls';
 import CandidateComparison from '../components/CandidateComparison';
 import FitCautions from '../components/FitCautionsPanel';
 import { cautionSortValue, cautionTagColor, cautionTooltip, countCautions } from '../components/fitCautions.mjs';
-import { levelRank } from '../components/confidence.mjs';
+import { levelRank, missingCell, unexplainedSummary, unexplainedTooltipLines } from '../components/confidence.mjs';
 import { ConfidenceBanner, DisplacementTag, FigureExportActions, OverallTag, ScreeningTags, VerdictTag } from '../components/ConfidenceViews';
 
 const { Text } = Typography;
@@ -407,9 +407,16 @@ function PhaseList({ phases, highlighted_phases, grouped_phases, show_alternativ
 function PeakDiagnosticTags({ diagnostics }) {
   if (!diagnostics) return <Text type="secondary">Diagnostics unavailable</Text>;
   const counts = diagnostics?.counts || {};
+  const unexplained = unexplainedSummary(diagnostics);
   return (
     <Space size="small" wrap>
-      <Tag color={counts.missing ? 'volcano' : 'default'}>{`Missing ${counts.missing || 0}`}</Tag>
+      {unexplained ? (
+        <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{unexplainedTooltipLines(diagnostics).join('\n') || 'No unexplained peaks.'}</div>}>
+          <Tag color={unexplained.color}>{unexplained.text}</Tag>
+        </Tooltip>
+      ) : (
+        <Tag color={counts.missing ? 'volcano' : 'default'}>{`Missing ${counts.missing || 0}`}</Tag>
+      )}
       <Tag color={counts.extra ? 'geekblue' : 'default'}>{`Extra ${counts.extra || 0}`}</Tag>
       <Tag color={counts.intensity_mismatch ? 'gold' : 'default'}>{`Intensity mismatch ${counts.intensity_mismatch || 0}`}</Tag>
     </Space>
@@ -629,7 +636,8 @@ function TaskDetail({ data, task_id }) {
           { title: 'Phases / wt%', render: (_, row) => <Space direction="vertical">{row.highlighted_phases.map(phase => <span key={phase}><PhaseIdentity reference={phase} compact /> {row.weight_percent?.[phase] != null ? `${Number(row.weight_percent[phase]).toFixed(2)} wt%` : ''}</span>)}</Space> },
           { title: 'Rwp (%)', dataIndex: 'rwp', sorter: (a,b) => a.rwp-b.rwp, defaultSortOrder: 'ascend', render: (value,row) => <>{value} <Text type="secondary">{row.is_final_refined ? 'Final' : 'Screening'}</Text></> },
           { title: 'GOF', sorter: (a,b) => (a.fit_quality?.gof ?? Infinity)-(b.fit_quality?.gof ?? Infinity), render: (_,row) => formatMetric(row.fit_quality?.gof) },
-          ...[['missing','Missing'],['extra','Extra'],['intensity_mismatch','Intensity mismatch']].map(([key,title]) => ({ title, sorter: (a,b) => (a.peak_diagnostics?.counts?.[key] ?? Infinity)-(b.peak_diagnostics?.counts?.[key] ?? Infinity), render: (_,row) => row.peak_diagnostics?.counts?.[key] ?? '—' })),
+          { title: 'Missing', sorter: (a,b) => missingCell(a.peak_diagnostics).sortValue-missingCell(b.peak_diagnostics).sortValue, render: (_,row) => missingCell(row.peak_diagnostics).text },
+          ...[['extra','Extra'],['intensity_mismatch','Intensity mismatch']].map(([key,title]) => ({ title, sorter: (a,b) => (a.peak_diagnostics?.counts?.[key] ?? Infinity)-(b.peak_diagnostics?.counts?.[key] ?? Infinity), render: (_,row) => row.peak_diagnostics?.counts?.[key] ?? '—' })),
           { title: <Tooltip title="Automated review flags for this candidate; hover a count to read them. These are not a verdict.">Cautions</Tooltip>,
             sorter: (a,b) => cautionSortValue(a.cautions)-cautionSortValue(b.cautions),
             render: (_,row) => {

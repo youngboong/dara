@@ -1,6 +1,7 @@
 import importlib
 import logging
 import multiprocessing
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -62,8 +63,18 @@ async def launch_worker_process(app: FastAPI):
     try:
         yield
     finally:
-        stop_event.set()
-        _worker_process.join(timeout=15)
+        try:
+            from dara.server import peak_significance
+
+            peak_significance.shutdown()  # abort a running trace-hint simulation
+        except Exception:
+            logging.getLogger("dara.server.app").debug("Hint worker shutdown failed", exc_info=True)
+        # A console Ctrl+C also reaches the worker process; Event.set() then blocks forever
+        # waiting for the dead process to wake up, so it must not run on the shutdown thread.
+        setter = threading.Thread(target=stop_event.set, daemon=True)
+        setter.start()
+        setter.join(timeout=2)
+        _worker_process.join(timeout=1 if setter.is_alive() else 15)
         if _worker_process.is_alive():
             print("Terminating worker process...")
             _worker_process.terminate()
