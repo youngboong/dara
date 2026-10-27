@@ -412,7 +412,7 @@ function Submission() {
     <Layout hasSider={false} title="Submit">
       <Container>
         {msg ? <Alert message={msg} type="error" showIcon closable style={{ width: '70%' }} /> : null}
-        <h1>Dara practical phase analysis</h1>
+        <h1>DARA practical phase analysis</h1>
         <Form
           labelCol={{ span: 9 }} wrapperCol={{ span: 15 }} style={{ width: '70%' }} form={form}
           initialValues={{

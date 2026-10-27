@@ -27,7 +27,7 @@ function Header({ current }) {
           <h1 className='page-title-text' 
             style={{ marginBottom: 0, fontSize: '1.5rem', fontWeight: 600 }}
           >
-            Dara
+            DARA
           </h1>
         </Link>
         <HeaderMenu current={current}></HeaderMenu>
@@ -151,7 +151,7 @@ function Layout({ children, hasSider, title }) {
   return (
       <LayoutContainer className="layout-container">
         <Halmet>
-          <title>{title ? `${title} | `: ""}Dara | Data-driven automated Rietveld analysis for phase search and refinement</title>
+          <title>{title ? `${title} | `: ""}DARA | Data-driven automated Rietveld analysis for phase search and refinement</title>
         </Halmet>
         <Halmet>
           <link rel="icon" href={favicon} />

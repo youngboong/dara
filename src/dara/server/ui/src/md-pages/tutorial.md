@@ -5,18 +5,18 @@ hasSider: false
 title: "Tutorial"
 ---
 
-# Dara Server Tutorial
+# DARA Server Tutorial
 
 <p align="center">
-<img src="images/dara_explained.png" alt="Dara Explained" width="70%">
+<img src="images/dara_explained.png" alt="DARA Explained" width="70%">
 </p>
 <p align="center" style="font-size:1.05em; color: #3a3a3a">
-Dara is designed for <strong>automated phase identification and refinement</strong> for powder XRD data.
+DARA is designed for <strong>automated phase identification and refinement</strong> for powder XRD data.
 </p>
 
 ## Overview
 
-The Dara server provides a web-based interface for automated phase identification from powder X-ray diffraction (XRD) data.
+The DARA server provides a web-based interface for automated phase identification from powder X-ray diffraction (XRD) data.
 
 ## Getting Started
 You'll see the main interface with navigation options:
@@ -25,7 +25,7 @@ You'll see the main interface with navigation options:
 - **Results**: Browse all submitted analyses
 - **Series**: Analyse several patterns (for example a temperature series) together and plot trends
 - **Tutorial**: A short tutorial as you are reading.
-- **Documentation**: The documentation for the Dara package.
+- **Documentation**: The documentation for the DARA package.
 
 ## Submitting an Analysis
 
@@ -56,7 +56,7 @@ or you can write the target phase formula in the text box, like
 CaTiO3
 ```
 
-Dara only needs to know what elements are needed to include for the search.
+DARA only needs to know what elements are needed to include for the search.
 
 ### Step 4: Configure Analysis Parameters
 

@@ -6,92 +6,98 @@
 [![Pytest](https://github.com/CederGroupHub/dara/actions/workflows/pytest.yaml/badge.svg?branch=main)](https://github.com/CederGroupHub/dara/actions/workflows/pytest.yaml)
 [![Ruff Check](https://github.com/CederGroupHub/dara/actions/workflows/ruff.yaml/badge.svg?branch=main)](https://github.com/CederGroupHub/dara/actions/workflows/ruff.yaml)
 
-Automated phase search with BGMN.
+**한글 사용설명서: [manual-ko.pdf](manual-ko.pdf)** (source: [`docs/user-guide/manual_ko.md`](docs/user-guide/manual_ko.md))
 
-**Windows: run [`START.cmd`](START.cmd) to install DARA if needed, start the server, and open the web app automatically.** Python does not need to be installed; the first launch downloads about 1 GB.
+Automated phase search and Rietveld refinement of powder XRD patterns with BGMN, in a browser.
+This fork of [CederGroupHub/dara](https://github.com/CederGroupHub/dara) adds a zero-install Windows
+launcher and a web interface built for reviewing results, not only producing them.
 
-**한글 사용법:** [DARA 사용 설명서 PDF](DARA_사용설명서_한글.pdf) — 새 Windows PC의 Python 설치부터 DARA 다운로드·실행까지 설명합니다. 필수/Optional(선택) 준비물, GEQ·CIF 확보 방법, 분석 조건, 결과 해석과 보고서 저장을 실제 UI 이미지와 함께 안내합니다.
+**Windows: double-click [`START.cmd`](START.cmd).** No Python installation is needed.
 
-Windows 실행 파일은 **`START.cmd` 하나**입니다. 최초 API 키 입력도 여기에 포함됩니다. `src/`, `scripts/`, `pyproject.toml`은 실행에 필요한 구성요소이므로 함께 보관하세요. 시험 출력물은 Git에서 제외되는 `artifacts/`에 보관합니다.
+## Features
 
-## Installation
-```bash
-pip install dara-xrd
-```
+- **Input**: .xrdml (metadata-aware: instrument profile and wavelength are suggested from the file), .xy, .xye, .txt, .csv, .dat, .asc, .scn, .ras, .rasx, .brml, .raw (Bruker RAW v2). Text readers tolerate headers and delimiters and report the failing line.
+- **Upload pre-check**: data quality advice (normalised counts, S/N, step, range) and elements suggested from the file name.
+- **Analysis modes**: Phase identification (element system), Known-phase refinement (given phases only), Reaction check (products predicted from precursors, temperature and atmosphere).
+- **Speed controls**: candidate pre-filter (kept every ground-truth phase on 60 benchmark samples), per-reference screening time limit, maximum analysis time with best-so-far results, run-time estimate before submission.
+- **References**: COD and Materials Project (with MP key status), a server-side reference CIF library and per-task CIF uploads; wavelength mismatch check against XRDML metadata; user-registered instrument profiles (GEQ/GER).
+- **Series**: submit 2 to 50 patterns with identical settings; the series page plots phase fractions, lattice parameters and fit quality against the variable parsed from the file names.
+- **Results**: list with best Rwp, GOF, final phases, adopted flag, series and file-name search; overall confidence banner (High confidence / Check recommended / Expert review recommended) and per-phase verdicts (Confident / Ambiguous / Weak evidence) with their reasons, see [`docs/user-guide/results-confidence.md`](docs/user-guide/results-confidence.md).
+- **Diagnostics**: unexplained peaks graded significant / minor / instrument / noise with trace-phase hints, review cautions, specimen displacement in mm, candidate comparison, re-refinement of selected phases, pattern comparison of several tasks.
+- **Output**: paper-style English HTML report, 600 dpi PNG and SVG figures, CSV tables, export bundles for Profex/BGMN, TOPAS, GSAS-II and HighScore, full result archive.
 
-For more details about installation, please refer to [installation guide](https://CederGroupHub.github.io/dara/install.html).
+## Windows one-click launch
 
-## Web Server
-Dara ships with a browser-based web server for an out-of-box experience of Dara. To launch the webserver, run
-```bash
-dara server
-```
+Run **`START.cmd`** in the repository folder. It installs what is missing, starts the server and opens
+http://localhost:8898.
 
-Then you can open http://localhost:8898 to see an application that can submit, manage, and view jobs.
+The first launch needs internet access to `github.com` and `pypi.org` (Windows proxy settings are honoured).
+It downloads several hundred MB (up to about 1 GB) and takes roughly 5 to 15 minutes. Everything is installed inside the DARA folder:
 
-### Windows one-click launch
+1. a pinned [uv](https://docs.astral.sh/uv/) release, SHA-256 verified, into `tools\uv\`;
+2. CPython 3.12 into `tools\python\` (no system-wide Python, PATH, registry or user-profile changes);
+3. the environment `.venv\` with this checkout in editable mode, versions pinned by `scripts\constraints-py312-win.txt`;
+4. the BGMN refinement programs, downloaded only if `src\dara\bgmn\BGMNwin` lacks them (checked on every launch).
 
-Run **`START.cmd`** in the top-level repository folder. **Python does not need to be installed.** Installation, server startup, and opening the browser happen in that single launch; no manual pip command or second launch is needed.
+Requirements: Windows 10/11 (64-bit) and about 3 GB of free disk space. Use a short path outside OneDrive
+(for example `C:\DARA`). Later launches start in about a second and work offline; structure database
+searches (COD, Materials Project) still need the internet.
 
-On the first launch START downloads about **1 GB** (this takes roughly 5-15 minutes) and installs everything *inside the DARA folder*:
+- **Materials Project key**: on first launch an optional dialog offers **Save and continue** or **Skip for now**. The key is stored as the `MP_API_KEY` user environment variable, never in the repository. Without a key, switch **MP** off under **Reference databases** and use COD. The Submit page shows the key status.
+- **Several windows**: run START again to open another window on the same server; no duplicate server is started.
+- **Auto-stop**: the server stops about 20 seconds after the last DARA window is closed (within about 3 minutes if a window vanished without closing cleanly). A queued or running analysis keeps it alive until it finishes. `Ctrl+C` in the START window stops it at once.
+- **Logs**: startup logs in `artifacts\launcher\`, setup logs in `artifacts\launcher\setup-YYYYMMDD-HHMMSS.log` (newest 10 kept).
 
-1. a pinned [uv](https://docs.astral.sh/uv/) release (SHA-256 verified) into `tools\uv\`;
-2. CPython 3.12.15 into `tools\python\` (no Python is installed system-wide, no PATH, registry or user-profile changes);
-3. the project environment `.venv\`, with this checkout installed in editable mode and package versions pinned by `scripts\constraints-py312-win.txt`;
-4. the BGMN refinement programs, only if `src\dara\bgmn\BGMNwin` is missing them (checked on every launch).
-
-Requirements: Windows 10/11 (64-bit), internet access to `github.com` and `pypi.org` on the first launch (proxy settings of Windows are honoured), and about **3 GB** of free disk space. Keep the folder path short (for example `C:\DARA`) and outside OneDrive-synced folders: the environment contains tens of thousands of small files, and very long paths can break the installation.
-
-Later launches skip the installation (about a second) and start the server immediately. START also:
-
-- on first launch, shows an optional Materials Project API key dialog with **Save and continue** and **Skip for now**;
-- opens a startup page immediately before loading the scientific libraries, showing progress and any startup errors;
-- automatically switches to http://localhost:8898 when the server is ready; and
-- opens the existing server without starting a duplicate if DARA is already running.
-
-You can open several DARA browser windows at once (run START again to open another). The server stops automatically about 20 seconds after the last DARA window is closed, or within about 3 minutes if a window disappears without closing cleanly; a queued or running analysis keeps it alive until it finishes. Press `Ctrl+C` in the START window to stop it immediately. Startup logs are saved under `artifacts/launcher/`, and every setup step is logged to `artifacts\launcher\setup-YYYYMMDD-HHMMSS.log` (the newest 10 are kept). The launcher bypasses HTTP proxy settings for local readiness checks and tries installed Edge or Chrome if the default browser cannot be opened.
-
-The API key is saved as the `MP_API_KEY` environment variable for your Windows account and reused automatically. It is not saved in this repository. Existing keys are detected without prompting. If you skip setup, turn **MP** off under **Reference databases** and use COD. The skip choice is remembered. There is no separate key-change launcher. The dialog saves the key without contacting Materials Project to validate it.
-
-Supported pattern files: .xrdml, .xy, .xye, .txt, .csv, .dat, .asc, .scn, .ras, .rasx, .brml, .raw (Bruker RAW v2 only).
-
-#### START switches
-
-Pass switches after `START.cmd`, for example `START.cmd -Reinstall`.
+Switches go after `START.cmd`, for example `START.cmd -Reinstall`:
 
 | Switch | Effect |
 | --- | --- |
-| `-Reinstall` | Recreate `.venv` and reinstall the packages. `tools\` and the download cache are kept, so this also works offline. |
-| `-SetupOnly` | Install/verify everything, then exit without starting the server. |
+| `-Reinstall` | Recreate `.venv`; `tools\` and the download cache are kept, so this also works offline. |
+| `-SetupOnly` | Install and verify, then exit without starting the server. |
 | `-Offline` | Never use the network; fail with a clear message if something is missing. |
-| `-PythonExe <path>` | Expert option: use this interpreter as-is and skip all setup (the environment variable `DARA_PYTHON` does the same). It must already have DARA's dependencies. |
+| `-PythonExe <path>` | Expert option: use this interpreter as-is and skip setup (same as `DARA_PYTHON`). |
 | `-NoBrowser` | Do not open a browser window. |
 | `-SkipApiKeySetup` | Do not show the Materials Project key dialog. |
 | `-StartupTimeoutSeconds <n>` | How long to wait for the server (default 180). |
 
-#### Exit codes
+Exit codes: 0 normal, 1 unexpected error or another START is installing, 2 no internet and no usable
+environment, 3 BGMN missing and not downloadable, 4 uv download or checksum failed, 5 Python 3.12 not
+installable, 6 package installation failed, 7 import check failed.
 
-| Code | Meaning |
-| --- | --- |
-| 0 | Started/stopped normally, or `-SetupOnly` finished |
-| 1 | Unexpected error, server failed to start, or another START window is already installing |
-| 2 | No internet connection and no usable environment |
-| 3 | BGMN programs are missing and could not be downloaded |
-| 4 | uv download failed or its SHA-256 check failed |
-| 5 | Python 3.12 could not be installed or found |
-| 6 | Package installation failed |
-| 7 | The installed environment failed the import check |
+If setup is interrupted, run START again; it resumes. If the folder is moved, START rebuilds the
+environment (offline as long as `tools\uv-cache` is intact). To reset, delete `.venv` or run
+`START.cmd -Reinstall`; delete `tools\` too to download everything again.
 
-#### Troubleshooting and resetting
+## Other platforms and development
 
-- If setup is interrupted (window closed, power loss, network failure), just run START again: it resumes and reuses everything already downloaded.
-- With no internet connection, an already installed DARA starts without checking for updates. A first-time installation needs the internet.
-- If you move or copy the DARA folder, START detects it and rebuilds the environment automatically (this works offline as long as `tools\uv-cache` is intact; use `START.cmd -Offline` when there is no connection).
-- To reset the environment, delete the `.venv` folder or run `START.cmd -Reinstall`. Delete `tools\` as well to download everything again.
-- Developers: `uv pip install -e . -c scripts\constraints-py312-win.txt` (or a plain `pip install -e .`) in your own environment works too; START never uses it.
+```bash
+pip install dara-xrd   # upstream release
+dara server            # web server on http://localhost:8898
+```
 
-## Documentation
-For more details about usage, please refer to the [documentation](https://CederGroupHub.github.io/dara/).
+For this fork, install the checkout in your own environment (`pip install -e .`). Front-end development
+notes are in [`src/dara/server/ui/README.md`](src/dara/server/ui/README.md); the upstream documentation is at
+https://CederGroupHub.github.io/dara/.
+
+## Benchmark tools
+
+`scripts/run_benchmark.py` runs the accuracy benchmark against curated ground truth in
+`dataset/ground_truth/` (`validate-gt`, `run`, `score`, `compare` with regression gates; results in
+`benchmarks/<run>/`). `scripts/check_prefilter_retention.py` checks that the candidate pre-filter keeps
+every ground-truth phase. See [`scripts/README.md`](scripts/README.md).
+
+## 한국어 요약
+
+- DARA: 분말 XRD 패턴의 상 탐색과 BGMN Rietveld 정밀화를 브라우저에서 수행하는 프로그램. 원본(CederGroupHub/dara)에 설치 도구와 결과 검토 기능을 더한 맞춤판임.
+- 실행: Windows에서 `START.cmd` 더블클릭. Python 사전 설치 불필요.
+- 첫 실행: 인터넷 필요. uv, Python 3.12, 패키지, BGMN을 DARA 폴더 안에 설치(수백 MB~약 1 GB, 5~15분). 이후 실행은 오프라인 가능, 단 COD/MP 검색에는 인터넷 필요.
+- MP API 키: 첫 실행 대화상자에서 입력(Save and continue) 또는 건너뛰기(Skip for now). 키 없이 쓰려면 Reference databases에서 MP를 끄고 COD 사용.
+- 종료: 마지막 DARA 창을 닫으면 약 20초 뒤 서버 자동 종료. 분석 중에는 유지. START를 다시 실행하면 같은 서버에 창 추가.
+- 입력 형식: .xrdml(권장), .xy, .xye, .txt, .csv, .dat, .asc, .scn, .ras, .rasx, .brml, .raw.
+- 분석 모드: Phase identification, Known-phase refinement, Reaction check. 후보 사전 필터, 선별 시간 제한, 최대 분석 시간, 예상 시간 표시 지원.
+- 결과: 신뢰도 배너와 상별 판정, 미설명 피크 등급과 미량상 힌트, 시료 변위, 후보 비교, 선택 상 재정밀화, 시리즈 추세 그래프.
+- 출력: 논문형 영문 보고서, PNG/SVG 그림, CSV, Profex·TOPAS·GSAS-II·HighScore용 파일.
+- 자세한 사용법: [manual-ko.pdf](manual-ko.pdf). 원문은 `docs/user-guide/manual_ko.md`, PDF 생성은 `python docs/user-guide/build_manual.py`(reportlab 필요).
 
 ## Citation
 If you use DARA in your research, please consider citing the following paper:

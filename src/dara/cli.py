@@ -5,7 +5,7 @@ from dara.server.setting import DaraServerSettings
 
 
 class Server(DaraServerSettings):
-    """Run the Dara server in a Web UI."""
+    """Run the DARA server in a Web UI."""
 
     def cli_cmd(self) -> None:
         from dara.server.app import launch_app

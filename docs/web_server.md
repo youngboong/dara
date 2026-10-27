@@ -1,7 +1,7 @@
 # Using the web server
 
 For installation and screen-by-screen operation see the
-[Korean user manual PDF](../DARA_사용설명서_한글.pdf); for how the advanced features
+[Korean user manual PDF](../manual-ko.pdf); for how the advanced features
 behave and where their limits are see [Practical analysis workflows](practical-workflows.md).
 For the meaning of the confidence verdicts shown on result pages see
 [Interpreting result confidence](user-guide/results-confidence.md).

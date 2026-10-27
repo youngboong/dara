@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class DaraServerSettings(BaseSettings):
     """
-    Settings for the Dara server.
+    Settings for the DARA server.
 
     Attributes:
         host (str): The host address for the server.
@@ -94,5 +94,5 @@ class DaraServerSettings(BaseSettings):
 
 
 def get_dara_server_settings() -> DaraServerSettings:
-    """Get the settings for the Dara server."""
+    """Get the settings for the DARA server."""
     return DaraServerSettings()  # type: ignore[return-value]

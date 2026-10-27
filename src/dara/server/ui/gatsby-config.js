@@ -3,7 +3,7 @@ const pathPrefix = process.env.PATH_PREFIX ? process.env.PATH_PREFIX : "/";
 module.exports = {
   pathPrefix: pathPrefix,
   siteMetadata: {
-    title: 'Amesp - www.amesp.xyz',
+    title: 'DARA',
   },
   plugins: [
     {
