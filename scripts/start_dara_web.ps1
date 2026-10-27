@@ -620,7 +620,7 @@ function Invoke-DaraStart {
 
         Write-Log "Starting DARA with $daraPython"
         Write-Log 'Opening the startup page, then DARA automatically.'
-        Write-Log 'Keep this START window open while using DARA.'
+        Write-Log 'DARA stops automatically when all DARA browser windows are closed.'
         Write-Host ''
         $launchArguments = @('-u', (Join-Path $PSScriptRoot 'launch_dara_web.py'), '--timeout', "$StartupTimeoutSeconds")
         if ($NoBrowser) {

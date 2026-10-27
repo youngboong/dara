@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Layout as LayoutAntd, BackTop } from 'antd';
 import styled from 'styled-components';
 import HeaderMenu from './HeaderMenu';
 import { Link } from 'gatsby';
 import Halmet from 'react-helmet';
 import favicon from '../images/favicon.ico';
+import { startPresence } from './presence.mjs';
 
 import 'antd/dist/antd.css';
 import './layout.css';
@@ -146,6 +147,7 @@ const ContentContainer = styled(LayoutAntd)`
 `;
 
 function Layout({ children, hasSider, title }) {
+  useEffect(() => { startPresence(); }, []);
   return (
       <LayoutContainer className="layout-container">
         <Halmet>

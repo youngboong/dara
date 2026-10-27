@@ -12,7 +12,7 @@ Run `START.cmd` in the repository root. It walks through the first-time API key
 prompt, installs the required packages, starts the server and opens the browser.
 The default address is <http://localhost:8898>. API keys are optional: without a
 key, switch MP off and COD on in Submit.
-Keep the START window open while you work and press `Ctrl+C` in it to stop the server.
+Several DARA browser windows can be open at once (run START again for another). The server stops by itself when every DARA window has been closed and no analysis is queued or running; press `Ctrl+C` in the START window to stop it immediately.
 Start-up logs are written to `artifacts/launcher/`.
 
 ## Direct launch for developers (optional)

@@ -49,7 +49,7 @@ Later launches skip the installation (about a second) and start the server immed
 - automatically switches to http://localhost:8898 when the server is ready; and
 - opens the existing server without starting a duplicate if DARA is already running.
 
-Keep the START window open while using DARA. Press `Ctrl+C` there to stop the server started by START. Startup logs are saved under `artifacts/launcher/`, and every setup step is logged to `artifacts\launcher\setup-YYYYMMDD-HHMMSS.log` (the newest 10 are kept). The launcher bypasses HTTP proxy settings for local readiness checks and tries installed Edge or Chrome if the default browser cannot be opened.
+You can open several DARA browser windows at once (run START again to open another). The server stops automatically about 20 seconds after the last DARA window is closed, or within about 3 minutes if a window disappears without closing cleanly; a queued or running analysis keeps it alive until it finishes. Press `Ctrl+C` in the START window to stop it immediately. Startup logs are saved under `artifacts/launcher/`, and every setup step is logged to `artifacts\launcher\setup-YYYYMMDD-HHMMSS.log` (the newest 10 are kept). The launcher bypasses HTTP proxy settings for local readiness checks and tries installed Edge or Chrome if the default browser cannot be opened.
 
 The API key is saved as the `MP_API_KEY` environment variable for your Windows account and reused automatically. It is not saved in this repository. Existing keys are detected without prompting. If you skip setup, turn **MP** off under **Reference databases** and use COD. The skip choice is remembered. There is no separate key-change launcher. The dialog saves the key without contacting Materials Project to validate it.
 

@@ -103,7 +103,7 @@ def launch(port=8898, timeout=180, no_browser=False, command=None):
     """Keep startup failures visible and supervise the owned server process."""
     url = f"http://127.0.0.1:{port}/"
     if server_ready(url):
-        print(f"DARA is already running. Opening {url}", flush=True)
+        print(f"DARA is already running. Opening another window: {url}", flush=True)
         if not no_browser:
             open_browser(url)
         return 0
@@ -123,7 +123,9 @@ def launch(port=8898, timeout=180, no_browser=False, command=None):
             state["ready"] = True
         else:
             environment = {**os.environ, "DARA_SERVER_HOST": "127.0.0.1", "DARA_SERVER_PORT": str(port),
-                           "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
+                           "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8",
+                           # Stop the server once every DARA browser window is closed.
+                           "DARA_IDLE_SHUTDOWN": os.environ.get("DARA_IDLE_SHUTDOWN", "1")}
             with log_path.open("wb") as log:
                 process = subprocess.Popen(
                     command or [sys.executable, "-u", str(Path(__file__).resolve()), "--server"],
@@ -142,7 +144,9 @@ def launch(port=8898, timeout=180, no_browser=False, command=None):
                     last_progress = time.monotonic()
                 time.sleep(0.3)
             state["ready"] = True
-        print(f"DARA is ready: {url}\nKeep this START window open. Press Ctrl+C to stop DARA.", flush=True)
+        print(f"DARA is ready: {url}\nYou can open several DARA windows; run START again for another one.\n"
+              "DARA stops automatically when every DARA browser window is closed and no analysis is running.\n"
+              "Press Ctrl+C here to stop it immediately.", flush=True)
         # Remain available for the browser's polling/redirect and own server's
         # lifetime. No detached dara.exe black console is created.
         while process is not None and process.poll() is None:

@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import logging
 import multiprocessing
@@ -8,6 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from dara.server import presence
 from dara.server.api_router import router
 from dara.server.comparison_router import router as comparison_router
 from dara.server.review_router import router as review_router
@@ -24,6 +26,13 @@ except RuntimeError:
     pass
 
 _worker_process = None
+_uvicorn_server = None
+
+
+def _request_exit():
+    """Ask uvicorn to shut down gracefully (runs the lifespan cleanup)."""
+    if _uvicorn_server is not None:
+        _uvicorn_server.should_exit = True
 
 
 def _must_revalidate_frontend(path: str, content_type: str) -> bool:
@@ -60,9 +69,14 @@ async def launch_worker_process(app: FastAPI):
     _worker_process = multiprocessing.Process(target=worker_process, daemon=True,
         args=(stop_event, get_dara_server_settings().model_dump()))
     _worker_process.start()
+    idle_watch = None
+    if presence.idle_shutdown_enabled():
+        idle_watch = asyncio.create_task(presence.watchdog(_request_exit))
     try:
         yield
     finally:
+        if idle_watch is not None:
+            idle_watch.cancel()
         try:
             from dara.server import peak_significance
 
@@ -91,6 +105,7 @@ app.include_router(selected_refinement_router)
 app.include_router(task_control_router)
 app.include_router(instrument_router)
 app.include_router(candidate_comparison_router)
+app.include_router(presence.router)
 
 _OPTIONAL_ROUTERS = (
     "dara.server.export_router",             # W2
@@ -117,11 +132,14 @@ def launch_app():
     """Main function to run the FastAPI application."""
     import uvicorn
 
+    global _uvicorn_server  # noqa: PLW0603
     setting = get_dara_server_settings()
-    uvicorn.run(
+    config = uvicorn.Config(
         app,
         host=setting.host,
         port=setting.port,
         workers=1,
         timeout_graceful_shutdown=1,
     )
+    _uvicorn_server = uvicorn.Server(config)
+    _uvicorn_server.run()
