@@ -13,6 +13,9 @@ from urllib.error import URLError
 from urllib.request import ProxyHandler, build_opener
 import webbrowser
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from windows_ca_bundle import apply_ca_bundle  # noqa: E402
+
 
 PAGE = """<!doctype html><html><meta charset="utf-8"><title>Starting DARA</title>
 <style>body{font:18px system-ui;max-width:850px;margin:70px auto;padding:24px;
@@ -126,6 +129,10 @@ def launch(port=8898, timeout=180, no_browser=False, command=None):
                            "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8",
                            # Stop the server once every DARA browser window is closed.
                            "DARA_IDLE_SHUTDOWN": os.environ.get("DARA_IDLE_SHUTDOWN", "1")}
+            # HTTPS-inspecting networks re-sign traffic with a root only Windows trusts.
+            bundle = apply_ca_bundle(environment, Path(__file__).resolve().parents[1])
+            if bundle is not None:
+                print(f"Using CA certificates from Windows and certifi: {bundle}", flush=True)
             with log_path.open("wb") as log:
                 process = subprocess.Popen(
                     command or [sys.executable, "-u", str(Path(__file__).resolve()), "--server"],

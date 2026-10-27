@@ -542,6 +542,23 @@ function Invoke-DaraSetup {
     }
 }
 
+function Set-WindowsCaBundle {
+    # HTTPS-inspecting networks re-sign traffic with a root certificate only Windows trusts;
+    # give Python (requests, urllib) a bundle that includes the Windows certificate store.
+    param([string]$Python, [string]$RepoRoot = $script:RepoRoot)
+    $result = Invoke-Native -Quiet -FilePath $Python -Arguments @('-I', (Join-Path (Join-Path $RepoRoot 'scripts') 'windows_ca_bundle.py'), '--repo-root', $RepoRoot)
+    $bundle = @($result.Lines | Where-Object { $_ -match '\.pem\s*$' })[-1]
+    if ($result.ExitCode -eq 0 -and $bundle -and (Test-Path -LiteralPath $bundle.Trim() -PathType Leaf)) {
+        foreach ($name in @('SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE')) {
+            Set-Item -LiteralPath "Env:$name" -Value $bundle.Trim()
+        }
+        Write-LogOnly "CA bundle (certifi + Windows certificate store): $($bundle.Trim())"
+    }
+    else {
+        Write-LogOnly 'Windows CA bundle not created; Python default certificates are used.'
+    }
+}
+
 function Invoke-BgmnCheck {
     param([string]$Python, [string]$RepoRoot = $script:RepoRoot)
     $arguments = @('-I', (Join-Path (Join-Path $RepoRoot 'scripts') 'ensure_bgmn.py'))
@@ -606,6 +623,8 @@ function Invoke-DaraStart {
             }
             $daraPython = $script:VenvPython
         }
+
+        Set-WindowsCaBundle -Python $daraPython -RepoRoot $repoRoot
 
         if (-not $script:Step7Shown) {
             Write-Step 7 'Checking the BGMN programs' 'BGMN 프로그램 확인'

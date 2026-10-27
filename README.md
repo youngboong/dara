@@ -31,7 +31,7 @@ launcher and a web interface built for reviewing results, not only producing the
 Run **`START.cmd`** in the repository folder. It installs what is missing, starts the server and opens
 http://localhost:8898.
 
-The first launch needs internet access to `github.com` and `pypi.org` (Windows proxy settings are honoured).
+The first launch needs internet access to `github.com` and `pypi.org` (Windows proxy settings are honoured). On networks that inspect HTTPS, START builds a CA bundle from certifi plus the Windows certificate store (`tools\certs\dara-ca-bundle.pem`) and passes it to the server via `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE`, so COD and Materials Project downloads do not fail with `CERTIFICATE_VERIFY_FAILED`; set `DARA_CA_BUNDLE=off` to disable.
 It downloads several hundred MB (up to about 1 GB) and takes roughly 5 to 15 minutes. Everything is installed inside the DARA folder:
 
 1. a pinned [uv](https://docs.astral.sh/uv/) release, SHA-256 verified, into `tools\uv\`;
