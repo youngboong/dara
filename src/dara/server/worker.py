@@ -121,6 +121,14 @@ def execute_job(uuid):
             job["status"] = "COMPLETED"
             job["end_time"] = datetime.now(tz=timezone.utc)
             job["result"] = result
+            try:
+                from dara.server.task_summary import runtime_seconds, summarize_stored_result
+
+                job["summary"] = summarize_stored_result(
+                    uuid, runtime_seconds(job.get("start_time"), job["end_time"])
+                )
+            except Exception:
+                logger.exception("Could not build the result summary for job %s", uuid)
             worker_store.update(job)
             return result
         except Exception:

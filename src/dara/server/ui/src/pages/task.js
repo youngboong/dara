@@ -2,7 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import Layout from '../components/Layout';
 import { Alert, Button, Descriptions, Divider, message, Modal, Spin, Tag, List, Space, Switch, Tooltip, Typography, Table, Select } from 'antd';
-import { DeleteOutlined, DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownloadOutlined, InfoCircleOutlined, TableOutlined } from '@ant-design/icons';
 import Loadable from 'react-loadable'
 import parse from 'html-react-parser';
 import {STATE_COLOR} from './results';
@@ -11,6 +11,10 @@ import { formatParameterWithEsd, latticeParameterRows } from '../components/latt
 import { AdoptButton, RefineSelectionButton, ReportDownloadButton, ReviewPanel, useTaskReview } from '../components/ResultWorkflows';
 import { TaskProgress } from '../components/PracticalControls';
 import CandidateComparison from '../components/CandidateComparison';
+import FitCautions from '../components/FitCautionsPanel';
+import { cautionSortValue, cautionTagColor, cautionTooltip, countCautions } from '../components/fitCautions.mjs';
+import { levelRank } from '../components/confidence.mjs';
+import { ConfidenceBanner, DisplacementTag, FigureExportActions, OverallTag, ScreeningTags, VerdictTag } from '../components/ConfidenceViews';
 
 const { Text } = Typography;
 
@@ -432,6 +436,8 @@ function FitQualitySummary({ quality }) {
   </Space>;
 }
 
+const STOP_STAGE_LABEL = { screening: 'reference screening', search: 'phase search', final_refinement: 'final refinement' };
+
 function SearchSummary({ summary = {} }) {
   if (!Object.keys(summary).length) return <Text type="secondary">Detailed search counts were not stored for this older result.</Text>;
   return <Space size="small" wrap>
@@ -441,6 +447,8 @@ function SearchSummary({ summary = {} }) {
     <Tag>{`${summary.equivalent_combinations_merged ?? 0} equivalent combinations merged`}</Tag>
     <Tag color="green">{`${summary.displayed_hypotheses ?? 0} displayed`}</Tag>
     {summary.final_refinement_failed ? <Tag color="volcano">{`${summary.final_refinement_failed} final refinement failed`}</Tag> : null}
+    {summary.stopped_early ? <Tag color="red">{`Stopped at time limit (${STOP_STAGE_LABEL[summary.stopped_at_stage] || 'search'})`}</Tag> : null}
+    {summary.final_refinement_skipped ? <Tag color="orange">{`${summary.final_refinement_skipped} final refinement(s) skipped (time limit)`}</Tag> : null}
   </Space>;
 }
 
@@ -449,12 +457,18 @@ function parameterText(name, parameter) {
   return value ? `${name} = ${value}` : null;
 }
 
-function PhaseRefinementTable({ phases = [], metadata = {}, details = {} }) {
+function PhaseRefinementTable({ phases = [], metadata = {}, details = {}, confidence = null }) {
   const dataSource = phases.map(phase => ({ phase, ...(details?.[phase] || {}) }));
+  const verdictColumn = confidence?.phases ? [{
+    title: <Tooltip title="Evidence-based assessment of whether each phase is supported by the data. Hover a tag for the reasons."><span>Verdict</span></Tooltip>,
+    key: 'verdict', width: 150,
+    sorter: (a, b) => levelRank(confidence.phases[a.phase]?.level) - levelRank(confidence.phases[b.phase]?.level),
+    render: (_, row) => <VerdictTag verdict={confidence.phases[row.phase]} /> }] : [];
   return <Table size="small" pagination={false} rowKey="phase" scroll={{ x: 1000 }} dataSource={dataSource}
     columns={[
       { title: 'Phase', dataIndex: 'phase', width: 260,
         render: phase => <PhaseIdentity reference={phase} metadata={metadata?.[phase]} /> },
+      ...verdictColumn,
       { title: <Tooltip title="Normalized over modeled crystalline phases; amorphous and unidentified material are excluded."><span>Quantity</span></Tooltip>,
         render: (_, row) => row.weight_percent == null ? 'Unavailable' : <span>{Number(row.weight_percent).toFixed(2)} wt%{row.weight_esd_percent == null ? '' : ` ± ${Number(row.weight_esd_percent).toFixed(2)}`}</span> },
       { title: <Tooltip title="± values are BGMN estimated standard deviations. Equalities and fixed angles are imposed by the reported space group, not independently refined."><span>Lattice parameters</span></Tooltip>, width: 420,
@@ -506,11 +520,16 @@ function TaskDetail({ data, task_id }) {
     <>
       <TitleContriner>
         <h3>Task details (<a onMouseEnter={() => preloadPlot(task_id, null)} onFocus={() => preloadPlot(task_id, null)} onClick={() => setPlotId(null)}>Visualize final result</a>)</h3>
-        <DownloadButton taskId={task_id} type="primary" icon={<DownloadOutlined />}>
-          Download all results
-        </DownloadButton>
+        <Space wrap>
+          <DownloadButton taskId={task_id} type="primary" icon={<DownloadOutlined />}>
+            Download all results
+          </DownloadButton>
+          <Button icon={<TableOutlined />} href={`${URL}/task/${task_id}/table.csv`}>Table (CSV)</Button>
+          <FigureExportActions taskId={task_id} />
+        </Space>
       </TitleContriner>
       <Divider />
+      <ConfidenceBanner confidence={data.final_result?.confidence} />
       <ReviewPanel taskId={task_id} data={data} review={review} onView={setPlotId} />
       <Descriptions bordered column={2} size='small'>
         <Descriptions.Item label="Pattern file name" span={2}>{data.task_label}</Descriptions.Item>
@@ -525,7 +544,9 @@ function TaskDetail({ data, task_id }) {
         <Descriptions.Item label="Use reaction network?" span={2}>{data.use_rxn_predictor ? "Yes" : "No"}</Descriptions.Item>
         <Descriptions.Item label="Included elements" span={2}>{(data.elements || []).join(', ') || "None"}</Descriptions.Item>
         <Descriptions.Item label="Reference databases" span={2}>{(data.candidate_sources || []).map(source => source.toUpperCase()).join(' + ') || "Uploaded CIFs"}</Descriptions.Item>
-        <Descriptions.Item label="Candidate CIFs" span={2}>{data.candidate_summary?.after ?? "Unknown"} retained ({data.candidate_summary?.removed_duplicates ?? 0} duplicates removed)</Descriptions.Item>
+        <Descriptions.Item label="Candidate CIFs" span={2}>{data.candidate_summary?.after ?? "Unknown"} retained ({data.candidate_summary?.removed_duplicates ?? 0} duplicates removed)
+          <ScreeningTags candidateSummary={data.candidate_summary} />
+        </Descriptions.Item>
         <Descriptions.Item label="Hypothesis search" span={2}><SearchSummary summary={data.search_summary} /></Descriptions.Item>
         <Descriptions.Item label="Additional search options" span={2}><code style={{backgroundColor: 'transparent'}}>{JSON.stringify(data.additional_search_options)}</code></Descriptions.Item>
         {data.additional_search_options?.refinement_params?.excluded_ranges?.length ? <Descriptions.Item label="Excluded 2θ intervals" span={2}>
@@ -545,6 +566,8 @@ function TaskDetail({ data, task_id }) {
         </Descriptions.Item>
         <Descriptions.Item label="Refinement quality" span={2}>
           <FitQualitySummary quality={data.final_result.fit_quality} />
+          <div style={{ marginTop: 4 }}><DisplacementTag confidence={data.final_result.confidence} /></div>
+          <FitCautions cautions={data.final_result.cautions} />
         </Descriptions.Item>
         <Descriptions.Item label={<span>
           Quantitative phase analysis
@@ -578,7 +601,7 @@ function TaskDetail({ data, task_id }) {
       </Space>
       <Text type="secondary">Uncertainties are BGMN estimated standard deviations where reported. Weight uncertainty is propagated after normalization and is omitted when unavailable.</Text>
       <div style={{ marginTop: 10 }}>
-        <PhaseRefinementTable phases={data.final_result.phases} metadata={data.final_result.phase_metadata} details={data.final_result.phase_details} />
+        <PhaseRefinementTable phases={data.final_result.phases} metadata={data.final_result.phase_metadata} details={data.final_result.phase_details} confidence={data.final_result.confidence} />
       </div>
       <ResultTitleContainer>
         <h3 style={{ marginTop: "16px" }}>{`Distinct candidate phase sets (${data.all_results.length} shown, up to 5)`}</h3>
@@ -607,6 +630,18 @@ function TaskDetail({ data, task_id }) {
           { title: 'Rwp (%)', dataIndex: 'rwp', sorter: (a,b) => a.rwp-b.rwp, defaultSortOrder: 'ascend', render: (value,row) => <>{value} <Text type="secondary">{row.is_final_refined ? 'Final' : 'Screening'}</Text></> },
           { title: 'GOF', sorter: (a,b) => (a.fit_quality?.gof ?? Infinity)-(b.fit_quality?.gof ?? Infinity), render: (_,row) => formatMetric(row.fit_quality?.gof) },
           ...[['missing','Missing'],['extra','Extra'],['intensity_mismatch','Intensity mismatch']].map(([key,title]) => ({ title, sorter: (a,b) => (a.peak_diagnostics?.counts?.[key] ?? Infinity)-(b.peak_diagnostics?.counts?.[key] ?? Infinity), render: (_,row) => row.peak_diagnostics?.counts?.[key] ?? '—' })),
+          { title: <Tooltip title="Automated review flags for this candidate; hover a count to read them. These are not a verdict.">Cautions</Tooltip>,
+            sorter: (a,b) => cautionSortValue(a.cautions)-cautionSortValue(b.cautions),
+            render: (_,row) => {
+              const counts = countCautions(row.cautions);
+              if (!counts) return '—';
+              return <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{counts.total ? cautionTooltip(row.cautions) : 'No automated cautions.'}</div>}>
+                <Tag color={cautionTagColor(row.cautions)}>{counts.total}</Tag>
+              </Tooltip>;
+            } },
+          { title: <Tooltip title="Overall evidence assessment for this candidate. Hover for the reasons.">Confidence</Tooltip>,
+            sorter: (a,b) => levelRank(a.confidence?.overall?.level)-levelRank(b.confidence?.overall?.level),
+            render: (_,row) => <OverallTag confidence={row.confidence} /> },
           { title: 'No. of phases', sorter: (a,b) => a.highlighted_phases.length-b.highlighted_phases.length, render: (_,row) => row.highlighted_phases.length },
           { title: 'Actions', render: (_,row) => <Space wrap><Button size="small" onMouseEnter={() => preloadPlot(task_id, row.source_index)} onFocus={() => preloadPlot(task_id, row.source_index)} onClick={() => setPlotId(row.source_index)}>View fit</Button><DownloadButton taskId={task_id} resultIndex={row.source_index} size="small" icon={<DownloadOutlined />} aria-label={`Download candidate ${row.candidate_number}`} /><AdoptButton size="small" review={review} selection={row.source_index} /></Space> },
         ]} />
@@ -673,10 +708,18 @@ function TaskDetail({ data, task_id }) {
             <RefineSelectionButton taskId={task_id} selection={plot_id === null ? 'best' : plot_id}
               phases={displayedResult.highlighted_phases || displayedResult.phases || []} renderPhase={renderReference} />
             <ReportDownloadButton taskId={task_id} selection={plot_id === null ? 'best' : plot_id} disabled={review.loading || review.saving || review.dirty || !!review.error}>This fit's report</ReportDownloadButton>
+            <FigureExportActions taskId={task_id} selection={plot_id === null ? 'best' : plot_id} />
           </Space>
-          <div style={{ marginBottom: 12 }}><FitQualitySummary quality={displayedResult.fit_quality} /></div>
+          <div style={{ marginBottom: 12 }}>
+            <FitQualitySummary quality={displayedResult.fit_quality} />
+            <div style={{ marginTop: 4 }}>
+              <OverallTag confidence={displayedResult.confidence} />
+              <DisplacementTag confidence={displayedResult.confidence} />
+            </div>
+            <FitCautions cautions={displayedResult.cautions} />
+          </div>
           <PhaseRefinementTable phases={displayedResult.highlighted_phases || displayedResult.phases || []}
-            metadata={displayedResult.phase_metadata} details={displayedResult.phase_details} />
+            metadata={displayedResult.phase_metadata} details={displayedResult.phase_details} confidence={displayedResult.confidence} />
           <Divider />
         </> : null}
         <RefinementPlot task_id={task_id} plot_id={plot_id} excludedRanges={data.additional_search_options?.refinement_params?.excluded_ranges || []} />
@@ -686,15 +729,24 @@ function TaskDetail({ data, task_id }) {
 }
 
 function TaskDetailedUnfinished({ data }) {
-  const { status, submitted_on, start_time, end_time, error_tb } = data;
-  return (<Descriptions bordered column={1} size='small'>
+  const { status, submitted_on, start_time, end_time, error_tb, error_summary } = data;
+  return (<>
+    {error_summary ? <Alert type="error" showIcon style={{ marginBottom: 12 }}
+      message={error_summary.title} description={error_summary.hint} /> : null}
+    <Descriptions bordered column={1} size='small'>
     <Descriptions.Item label="Name" span={1}>{data.task_label}</Descriptions.Item>
     <Descriptions.Item label="Status" span={1}><Tag color={STATE_COLOR[status]}>{status}</Tag></Descriptions.Item>
     <Descriptions.Item label="Submitted on" span={1}>{submitted_on}</Descriptions.Item>
     {start_time ? <Descriptions.Item label="Start time" span={1}>{start_time}</Descriptions.Item> : <></>}
     {end_time ? <Descriptions.Item label="End time" span={1}>{end_time}</Descriptions.Item> : <></>}
-    {error_tb ? <Descriptions.Item label="Error Traceback" span={1}><div class="error-code"><pre style={{ whiteSpace: "break-spaces", fontSize: "0.9em" }}>{error_tb}</pre></div></Descriptions.Item> : <></>}
-  </Descriptions>)
+    {error_tb ? <Descriptions.Item label="Error details" span={1}>
+      <details>
+        <summary>Technical details (traceback)</summary>
+        <div className="error-code"><pre style={{ whiteSpace: "break-spaces", fontSize: "0.9em" }}>{error_tb}</pre></div>
+      </details>
+    </Descriptions.Item> : <></>}
+  </Descriptions>
+  </>)
 }
 
 

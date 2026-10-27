@@ -1,0 +1,48 @@
+{
+ "id": "Fe3O4-3ZnO_1000C_60min",
+ "set": "pairwise_reactions",
+ "group": "pairwise",
+ "status": "scored",
+ "error": null,
+ "n_required_phases": 2,
+ "tp": 1,
+ "fp": 0,
+ "fn": 1,
+ "sg_mismatch": 0,
+ "precision": 1.0,
+ "recall": 0.5,
+ "exact_set": false,
+ "strict_exact": false,
+ "allowed_extra_found": [],
+ "matches": [
+  {
+   "gt": "ZnO",
+   "pred": "ZnO_186_(cod_2300453)-0",
+   "pred_spacegroup": 186,
+   "sg_ok": true,
+   "wt_gt": 100.0,
+   "wt_pred": 100.0,
+   "wt_gt_raw": 31.052,
+   "wt_pred_raw": 100.0,
+   "wt_abs_error": 0.0,
+   "lattice_rel_error_pct": 0.1096,
+   "lattice_note": null,
+   "verdict": "ambiguous"
+  }
+ ],
+ "false_positives": [],
+ "false_negatives": [
+  "ZnFe2O4"
+ ],
+ "wt_mae": 0.0,
+ "wt_max_abs": 0.0,
+ "rwp": 12.0,
+ "gof": 2.1,
+ "runtime_s": 300.0,
+ "top5_contains_truth": true,
+ "confidence_overall": "expert",
+ "displacement_mm_pred": null,
+ "displacement_mm_ref": -0.4864855,
+ "displacement_ratio": null,
+ "displacement_diff_mm": null
+}

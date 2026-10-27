@@ -1,3 +1,5 @@
+import importlib
+import logging
 import multiprocessing
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -78,6 +80,22 @@ app.include_router(selected_refinement_router)
 app.include_router(task_control_router)
 app.include_router(instrument_router)
 app.include_router(candidate_comparison_router)
+
+_OPTIONAL_ROUTERS = (
+    "dara.server.export_router",             # W2
+    "dara.server.reference_library_router",  # W1
+    "dara.server.mp_router",                 # W1
+    "dara.server.series_router",             # W3
+)
+for _module_name in _OPTIONAL_ROUTERS:
+    try:
+        app.include_router(importlib.import_module(_module_name).router)
+    except ModuleNotFoundError as exc:
+        if exc.name != _module_name:
+            raise
+        logging.getLogger("dara.server.app").warning(
+            "Optional router %s is not available", _module_name
+        )
 
 app.mount(
     "", FrontendStaticFiles(directory=frontend_dir.as_posix(), html=True), name="frontend"

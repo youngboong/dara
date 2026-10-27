@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import itertools
 import os
+import re
 import tempfile
+import threading
 import time
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
@@ -28,6 +30,72 @@ DARA_SETTINGS = DaraSettings()
 PATH_TO_COD = DARA_SETTINGS.PATH_TO_COD
 PATH_TO_ICSD = DARA_SETTINGS.PATH_TO_ICSD
 
+COD_CACHE_ENV_VAR = "DARA_COD_CACHE_DIR"
+_DEFAULT_COD_CACHE_NAME = "dara_downloaded_cifs"
+
+
+class CODDownloadError(RuntimeError):
+    """None of the requested COD reference structures could be obtained."""
+
+
+def cod_cache_dir() -> Path:
+    """Absolute folder where COD CIFs downloaded from the web are cached as ``<id>.cif``.
+
+    Resolution order:
+
+    1. ``$DARA_COD_CACHE_DIR`` when set.
+    2. ``<project root>/dara_downloaded_cifs`` for a source checkout (the folder that
+       holds ``pyproject.toml``). This is where earlier DARA versions wrote their
+       downloads when started from the project folder, so existing downloads are reused,
+       and it no longer depends on the current working directory.
+    3. ``~/.dara/dara_downloaded_cifs`` for an installed package.
+    """
+    configured = os.environ.get(COD_CACHE_ENV_VAR, "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    project_root = Path(__file__).resolve().parents[2]
+    if (project_root / "pyproject.toml").is_file():
+        return project_root / _DEFAULT_COD_CACHE_NAME
+    return Path.home() / ".dara" / _DEFAULT_COD_CACHE_NAME
+
+
+def is_valid_cif_file(path: Path | str) -> bool:
+    """True if ``path`` is a non-empty text file with a CIF ``data_`` header and a cell."""
+    try:
+        path = Path(path)
+        if not path.is_file() or path.stat().st_size == 0:
+            return False
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            text = handle.read(262144)
+    except OSError:
+        return False
+    return bool(re.search(r"^data_\S*", text, re.M)) and "_cell_length_a" in text
+
+
+def atomic_write_text(path: Path | str, text: str) -> None:
+    """Write ``text`` to ``path`` via a temporary file and an atomic rename.
+
+    A crash or error mid-write never leaves a truncated file at ``path``.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+def _is_not_found_error(exc: BaseException) -> bool:
+    response = getattr(exc, "response", None)
+    return getattr(response, "status_code", None) in (404, 410)
+
+
 
 class StructureDatabase(MSONable, metaclass=ABCMeta):
     """Base class to interact with CIF files from an experimental database of
@@ -44,6 +112,8 @@ class StructureDatabase(MSONable, metaclass=ABCMeta):
         """
         self._path_to_cifs = path_to_cifs
         self._preparsed_info: dict = {}
+        # IDs of reference structures that could not be downloaded (cumulative per object).
+        self.last_unavailable: list[str] = []
 
     def get_cifs_by_formulas(
         self,
@@ -64,15 +134,17 @@ class StructureDatabase(MSONable, metaclass=ABCMeta):
             dest_dir: Destination folder for copied CIF files.
             exclude_gases: Whether to exclude common gases (e.g., O2) from the results.
         """
-        file_map = {}
         all_data = []
         for formula in formulas:
             all_data.extend(self.get_formula_data(formula))
 
-        file_map = self._generate_file_map(all_data, e_hull_filter, exclude_gases)
-
         if copy_files:
+            file_map = self._generate_file_map(all_data, e_hull_filter, exclude_gases)
             copy_and_rename_files(file_map, dest_dir)
+        elif not self.local_copy_found:
+            # Nothing to copy, so nothing is downloaded; still fail early for databases
+            # that can neither be read locally nor downloaded (e.g. the ICSD).
+            self._ensure_cached([], self.download_cache_dir)
 
         return [data[1] for data in all_data]
 
@@ -107,10 +179,13 @@ class StructureDatabase(MSONable, metaclass=ABCMeta):
                 if sub_chemsys in self.preparsed_info:
                     all_data.extend(self.preparsed_info[sub_chemsys])
 
-        file_map = self._generate_file_map(all_data, e_hull_filter, exclude_gases)
-
         if copy_files:
+            file_map = self._generate_file_map(all_data, e_hull_filter, exclude_gases)
             copy_and_rename_files(file_map, dest_dir)
+        elif not self.local_copy_found:
+            # Nothing to copy, so nothing is downloaded; still fail early for databases
+            # that can neither be read locally nor downloaded (e.g. the ICSD).
+            self._ensure_cached([], self.download_cache_dir)
 
         return [data[1] for data in all_data]
 
@@ -141,20 +216,14 @@ class StructureDatabase(MSONable, metaclass=ABCMeta):
         all_data,
         e_hull_filter,
         exclude_gases,
-        download_folder="dara_downloaded_cifs",
+        download_folder=None,
     ):
-        """A mapping of database file paths to new file names with structure metadata included."""
-        if not self.local_copy_found:
-            logger.warning(
-                "Local copy of database not found. Attempting to download structures..."
-            )
-            _ = self.download_structures(
-                [data[1] for data in all_data],
-                save=True,
-                default_folder=download_folder,
-            )
+        """A mapping of database file paths to new file names with structure metadata included.
 
-        file_map = {}
+        Only structures that pass the gas and energy-above-hull filters are fetched, and
+        downloaded files that do not exist (failed downloads) are left out of the mapping.
+        """
+        selected = []
         for formula, code, sg, e_hull in all_data:
             if exclude_gases and formula in COMMON_GASES:
                 logger.info("Skipping common gas: %s", formula)
@@ -165,17 +234,41 @@ class StructureDatabase(MSONable, metaclass=ABCMeta):
                     f"Skipping high-energy phase: {code} ({formula}, {sg}): e_hull = {e_hull}"
                 )
                 continue
+            selected.append((formula, code, sg, e_hull))
 
-            e_hull_value = round(1000 * e_hull) if e_hull is not None else None
-
-            fp = (
-                f"{self.get_file_path(code)}"
-                if self.local_copy_found
-                else f"{download_folder}/{code}.cif"
+        folder = None
+        if not self.local_copy_found:
+            folder = Path(download_folder) if download_folder else self.download_cache_dir
+            logger.warning(
+                "Local copy of database not found. Using downloaded structures in %s...",
+                folder,
             )
-            file_map[fp] = f"{formula}_{sg}_({self.name}_{code})-{e_hull_value}.cif"
+            self._ensure_cached(list(dict.fromkeys(str(row[1]) for row in selected)), folder)
+
+        file_map = {}
+        for formula, code, sg, e_hull in selected:
+            e_hull_value = round(1000 * e_hull) if e_hull is not None else None
+            fp = self.get_file_path(code) if folder is None else folder / f"{code}.cif"
+            if folder is not None and not Path(fp).is_file():
+                continue  # download failed; skip instead of mapping a missing file
+            file_map[str(fp)] = f"{formula}_{sg}_({self.name}_{code})-{e_hull_value}.cif"
 
         return file_map
+
+    @property
+    def download_cache_dir(self) -> Path:
+        """Folder for structures downloaded because no local copy of the database exists."""
+        return Path(_DEFAULT_COD_CACHE_NAME)
+
+    def _ensure_cached(self, ids: list[str], folder: Path) -> None:
+        """Make sure the CIFs for ``ids`` are present in ``folder`` (download the missing ones)."""
+        self.download_structures(ids, save=True, default_folder=folder)
+
+    def _record_unavailable(self, ids) -> None:
+        """Remember (without duplicates) structure IDs that could not be obtained."""
+        for cif_id in ids:
+            if str(cif_id) not in self.last_unavailable:
+                self.last_unavailable.append(str(cif_id))
 
     @property
     def path(self) -> Path:
@@ -247,6 +340,18 @@ class CODDatabase(StructureDatabase):
             Path(__file__).parent / "data/cod_filtered_info_2024.json.gz"
         )
 
+    #: Concurrent connections to crystallography.net; kept small to be polite.
+    MAX_WORKERS = 4
+    #: Pause (seconds) a worker makes before each request.
+    REQUEST_DELAY_S = 0.2
+    #: Stop downloading after this many consecutive failed (non-404) downloads.
+    MAX_CONSECUTIVE_FAILURES = 12
+
+    @property
+    def download_cache_dir(self) -> Path:
+        """Persistent, working-directory independent cache (see :func:`cod_cache_dir`)."""
+        return cod_cache_dir()
+
     def download_structures(
         self,
         ids: list[str] | None = None,
@@ -256,26 +361,110 @@ class CODDatabase(StructureDatabase):
         """Download structures from the COD database. Note that this downloads directly
         from the COD website, so it may be slow. Please do not abuse this feature.
 
+        IDs that cannot be downloaded are skipped with a warning and recorded in
+        ``self.last_unavailable``. A ``CODDownloadError`` is raised only if none of the
+        requested structures could be downloaded.
+
         Args:
             ids: List of COD IDs to download.
+            save: Also write the downloaded CIFs (atomically) to ``default_folder``.
+            default_folder: Destination folder when ``save`` is set.
+
+        Returns:
+            The CIFs that were downloaded, in request order.
         """
-        cifs = thread_map(
-            self._download_cod,
+        ids = list(dict.fromkeys(str(i) for i in (ids or [])))
+        folder = Path(default_folder) if save else None
+        if folder is not None:
+            logger.info(f"Saving downloaded CIFs to {folder}")
+        cifs, failed = self._fetch_many(ids, folder)
+        self._record_unavailable(failed)
+        if ids and not cifs:
+            raise CODDownloadError(
+                f"None of the {len(ids)} requested COD structures could be downloaded "
+                "from www.crystallography.net. Check the internet connection or try again later."
+            )
+        return list(cifs.values())
+
+    def _ensure_cached(self, ids: list[str], folder: Path) -> None:
+        """Reuse valid cached ``<id>.cif`` files in ``folder``; download only the missing ones."""
+        folder = Path(folder)
+        ids = list(dict.fromkeys(str(i) for i in ids))
+        missing = [i for i in ids if not is_valid_cif_file(folder / f"{i}.cif")]
+        logger.info(
+            "COD reference cache %s: %d cached, %d to download.",
+            folder,
+            len(ids) - len(missing),
+            len(missing),
+        )
+        if not missing:
+            return
+        folder.mkdir(parents=True, exist_ok=True)
+        cifs, failed = self._fetch_many(missing, folder)
+        self._record_unavailable(failed)
+        if failed:
+            logger.warning(
+                "%d of %d COD reference structures could not be downloaded and were skipped: %s",
+                len(failed),
+                len(ids),
+                ", ".join(failed[:10]) + (", ..." if len(failed) > 10 else ""),
+            )
+        if ids and len(failed) == len(ids):
+            raise CODDownloadError(
+                f"None of the {len(ids)} requested COD structures are cached or could be "
+                "downloaded from www.crystallography.net. Check the internet connection, "
+                f"try again later, or seed the cache ({folder}) with scripts/seed_cod_cache.py."
+            )
+
+    def _fetch_many(
+        self, ids: list[str], folder: Path | None
+    ) -> tuple[dict[str, Cif], list[str]]:
+        """Download ``ids`` politely; returns ``({id: Cif}, [failed ids])``.
+
+        With ``folder`` the CIFs are also saved there as ``<id>.cif`` (atomic write).
+        """
+        if not ids:
+            return {}, []
+        lock = threading.Lock()
+        state = {"streak": 0, "aborted": False}
+
+        def fetch(cod_id: str):
+            with lock:
+                if state["aborted"]:
+                    return cod_id, None
+            if self.REQUEST_DELAY_S:
+                time.sleep(self.REQUEST_DELAY_S)
+            try:
+                cif = self._download_cod(cod_id)
+                if folder is not None:
+                    atomic_write_text(folder / f"{cod_id}.cif", str(cif))
+            except Exception as exc:  # noqa: BLE001 - any failure just skips this structure
+                logger.warning("Skipping COD %s: %s", cod_id, exc)
+                with lock:
+                    if not _is_not_found_error(exc):
+                        state["streak"] += 1
+                        if state["streak"] >= self.MAX_CONSECUTIVE_FAILURES:
+                            state["aborted"] = True
+                return cod_id, None
+            with lock:
+                state["streak"] = 0
+            return cod_id, cif
+
+        results = thread_map(
+            fetch,
             ids,
             chunksize=1,
-            max_workers=12,
+            max_workers=max(1, int(self.MAX_WORKERS)),
             desc="Downloading CIFs from COD...",
         )
-        if save:
-            logger.info(f"Saving downloaded CIFs to {default_folder}")
-            default_folder = Path(default_folder)
-            if not default_folder.exists():
-                default_folder.mkdir()
-
-            for cif in cifs:
-                cif.to_file((default_folder / cif.filename).with_suffix(".cif"))
-
-        return cifs
+        if state["aborted"]:
+            logger.error(
+                "COD (www.crystallography.net) appears to be unreachable or rate limiting; "
+                "remaining downloads were skipped."
+            )
+        cifs = {cod_id: cif for cod_id, cif in results if cif is not None}
+        failed = [cod_id for cod_id, cif in results if cif is None]
+        return cifs, failed
 
     def get_file_path(self, cif_id: str | int):
         """Get the path to a CIF file in the COD database."""
@@ -320,6 +509,9 @@ class CODDatabase(StructureDatabase):
                 cif.filename = str(cod_id)
                 return cif
             except Exception as exc:
+                if _is_not_found_error(exc):
+                    logger.error("COD %s does not exist on the server: %s", cod_id, exc)
+                    raise
                 if attempt < max_attempts:
                     delay = 0.5 * (2 ** (attempt - 1))
                     logger.warning(
@@ -518,6 +710,85 @@ class MaterialsProjectDatabase(StructureDatabase):
         self._query_cache[cache_key] = docs
         return docs
 
+    def count_by_chemsys(
+        self,
+        elements: list[str] | set[str] | str,
+        e_hull_filter: float | None = None,
+        limit: int | None = None,
+        timeout_s: float = 15,
+    ) -> list[dict]:
+        """Lightweight MP query for run-time estimates (no ``structure`` field).
+
+        Uses the same filter as :meth:`_query` for a chemical-system request, but
+        only downloads scalar metadata (formula, space group, volume, e-hull), so
+        it is much faster than a real reference download.
+
+        Raises:
+            RuntimeError: ``MP_API_KEY`` is not set.
+        """
+        api_key = os.environ.get("MP_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "MP_API_KEY is not set; Materials Project structures cannot be queried."
+            )
+        names = sorted(set(elements.split("-") if isinstance(elements, str) else elements))
+        systems = [
+            "-".join(combo)
+            for size in range(1, len(names) + 1)
+            for combo in itertools.combinations(names, size)
+        ]
+        cutoff = self.e_hull_filter if e_hull_filter is None else e_hull_filter
+        limit = self.max_structures if limit is None else limit
+
+        from mp_api.client import MPRester
+
+        with MPRester(api_key=api_key, mute_progress_bars=True, timeout=timeout_s) as mpr:
+            docs = mpr.materials.summary.search(
+                deprecated=False,
+                chemsys=systems,
+                energy_above_hull=(0, cutoff),
+                num_chunks=1,
+                chunk_size=limit,
+                _sort_fields="energy_above_hull",
+                fields=[
+                    "material_id",
+                    "formula_pretty",
+                    "symmetry",
+                    "energy_above_hull",
+                    "volume",
+                    "nsites",
+                    "theoretical",
+                ],
+            )
+
+        rows = []
+        for doc in docs:
+            formula = self._doc_value(doc, "formula_pretty")
+            try:
+                reduced = Composition(formula).reduced_formula
+            except Exception:
+                reduced = str(formula)
+            if reduced in COMMON_GASES:
+                continue
+            symmetry = self._doc_value(doc, "symmetry")
+            spacegroup = (
+                symmetry.get("number")
+                if isinstance(symmetry, dict)
+                else getattr(symmetry, "number", None)
+            )
+            rows.append(
+                {
+                    "material_id": str(self._doc_value(doc, "material_id")),
+                    "formula": formula,
+                    "spacegroup": spacegroup,
+                    "volume": self._doc_value(doc, "volume"),
+                    "nsites": self._doc_value(doc, "nsites"),
+                    "e_above_hull": self._doc_value(doc, "energy_above_hull"),
+                    "theoretical": self._doc_value(doc, "theoretical"),
+                }
+            )
+        return rows
+
     @staticmethod
     def _doc_value(doc, name, default=None):
         return doc.get(name, default) if isinstance(doc, dict) else getattr(doc, name, default)
@@ -592,6 +863,66 @@ class MaterialsProjectDatabase(StructureDatabase):
             for cif in cifs:
                 cif.to_file(destination / f"{cif.filename}.cif")
         return [str(self._doc_value(doc, "material_id")) for doc in docs]
+
+
+_COD_LOCK = threading.Lock()
+_COD_INSTANCE: CODDatabase | None = None
+
+
+def shared_cod_database() -> CODDatabase:
+    """One lazily created ``CODDatabase`` (loading its index takes several seconds)."""
+    global _COD_INSTANCE
+    with _COD_LOCK:
+        if _COD_INSTANCE is None:
+            _COD_INSTANCE = CODDatabase()
+        return _COD_INSTANCE
+
+
+def cod_candidate_rows(
+    elements: list[str],
+    precursors: list[str],
+    e_hull_filter: float,
+    *,
+    database: StructureDatabase | None = None,
+    formulas_only: bool = False,
+) -> list[tuple]:
+    """COD index rows ``(formula, cod_id, sg, e_hull)`` a job would copy, without copying.
+
+    Mirrors ``get_cifs_by_chemsys`` (every sub-system of ``elements``) plus
+    ``get_cifs_by_formulas`` (reduced-formula match of ``precursors``) followed by the
+    gas and energy-above-hull filters of ``_generate_file_map``. Rows are unique by
+    COD id. With ``formulas_only`` the element query is skipped (known-mixture mode).
+    """
+    db = database if database is not None else shared_cod_database()
+    info = db.preparsed_info
+    data: list[tuple] = []
+    if not formulas_only:
+        names = sorted(set(elements or []))
+        for size in range(1, len(names) + 1):
+            for combo in itertools.combinations(names, size):
+                data.extend(info.get("-".join(combo), []))
+    for formula in precursors or []:
+        try:
+            composition = Composition(formula)
+        except Exception:
+            continue
+        reduced = composition.reduced_formula
+        data.extend(
+            row for row in info.get(composition.chemical_system, []) if row[0] == reduced
+        )
+
+    rows: list[tuple] = []
+    seen: set = set()
+    for formula, code, sg, e_hull in data:
+        if formula in COMMON_GASES:
+            continue
+        if e_hull is not None and e_hull > e_hull_filter:
+            continue
+        if code in seen:
+            continue
+        seen.add(code)
+        rows.append((formula, code, sg, e_hull))
+    return rows
 
 
 def deduplicate_cif_paths(cif_paths: list[Path]) -> tuple[list[Path], dict]:

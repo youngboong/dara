@@ -1,4 +1,9 @@
-"""Load and process XRD data files (.xrdml, .xy, .rasx)."""
+"""Load and process XRD data files.
+
+Supported formats (see ``SUPPORTED_PATTERN_EXTENSIONS``): ASCII patterns
+(.xy, .xye, .txt, .scn, .csv, .dat, .asc, .ras), PANalytical/Malvern .xrdml,
+Bruker .raw (RAW2) and .brml, and Rigaku .rasx.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ import re
 import struct
 import zipfile
 from pathlib import Path
+from xml.parsers.expat import ExpatError
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,6 +23,11 @@ from monty.json import MSONable
 from dara.utils import get_logger
 
 logger = get_logger(__name__)
+
+
+class PatternFormatError(ValueError):
+    """Unreadable/invalid pattern file; message is user-facing and names the line when relevant."""
+
 
 class XRDData(MSONable):
     """General XRD data class; this is the base class for XRDMLFile, XYFile and other
@@ -33,6 +44,20 @@ class XRDData(MSONable):
         self._angles = np.array(angles)
         self._intensities = np.array(intensities)
         self._errors = np.array(errors) if errors is not None else None
+        # Set by ``from_file`` after construction; deliberately not constructor
+        # arguments so that stored (serialized) patterns keep decoding.
+        self._load_warnings: list[str] = []
+        self._intensity_unit: str | None = None
+
+    @property
+    def load_warnings(self) -> list[str]:
+        """Short English notes about how the file was interpreted (may be empty)."""
+        return list(getattr(self, "_load_warnings", []) or [])
+
+    @property
+    def intensity_unit(self) -> str | None:
+        """``"counts"``, ``"cps"``, or ``None`` when the file does not say."""
+        return getattr(self, "_intensity_unit", None)
 
     @property
     def angles(self) -> np.ndarray:
@@ -153,9 +178,16 @@ class XRDMLFile(XRDData):
     @classmethod
     def from_file(cls, path: str | Path) -> XRDMLFile:
         """Load data from an XRDML file."""
-        xrdml_dict = load_xrdml(Path(path))
-        angles, intensities = get_xrdml_data(xrdml_dict)
-        return cls(angles=angles, intensities=intensities, xrdml_dict=xrdml_dict)
+        path = Path(path)
+        xrdml_dict = load_xrdml(path)
+        try:
+            angles, intensities, unit, warnings = _xrdml_extract(xrdml_dict)
+        except PatternFormatError as exc:
+            raise PatternFormatError(f"{path.name}: {exc}") from None
+        obj = cls(angles=angles, intensities=intensities, xrdml_dict=xrdml_dict)
+        obj._load_warnings = warnings
+        obj._intensity_unit = unit
+        return obj
 
     def to_xrdml_file(self, fn: str | Path = "xrd_data.xrdml") -> None:
         """Save as an XRDML file.
@@ -175,19 +207,33 @@ class XYFile(XRDData):
 
     @classmethod
     def from_file(cls, path: str | Path) -> XYFile:
-        """Load data from a .xy file."""
+        """Load data from a text pattern (.xy, .xye, .txt, .scn, .csv, .dat, .asc, .ras).
+
+        Header lines, ``;``/tab/comma/whitespace delimiters, decimal commas and
+        non-UTF-8 text are tolerated; see :func:`read_ascii_pattern`.
+        """
         path = Path(path)
-        try:
-            data = np.loadtxt(path, unpack=True)
-        except ValueError:
-            # Try to load the file with a comma delimiter
-            data = np.loadtxt(path, unpack=True, delimiter=",")
-        if len(data) == 2:
-            angles, intensities = data
-            errors = None
-        else:
-            angles, intensities, errors = data  # if it is xye data
-        return cls(angles, intensities, errors)
+        angles, intensities, errors, warnings = read_ascii_pattern(path)
+        obj = cls(angles, intensities, errors)
+        obj._load_warnings = warnings
+        obj._intensity_unit = None
+        return obj
+
+
+class BRMLFile(XRDData):
+    """Load Bruker .brml (ZIP of XML) data. No binary payload is stored."""
+
+    def __init__(self, angles, intensities):
+        super().__init__(angles, intensities)
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> BRMLFile:
+        """Load data from a BRML file."""
+        angles, intensities, warnings = load_brml(path)
+        obj = cls(angles, intensities)
+        obj._load_warnings = warnings
+        obj._intensity_unit = None
+        return obj
 
 
 class RASXFile(XRDData):
@@ -201,8 +247,11 @@ class RASXFile(XRDData):
     def from_file(cls, path: str | Path) -> RASXFile:
         """Load data from a RASX file."""
         path = Path(path)
-        (angles, intensities), binary_data = load_rasx(path)
-        return cls(angles, intensities, binary_data)
+        angles, intensities, binary_data, warnings = _load_rasx(path)
+        obj = cls(angles, intensities, binary_data)
+        obj._load_warnings = warnings
+        obj._intensity_unit = None
+        return obj
 
     @property
     def binary_data(self) -> bytes | None:
@@ -219,40 +268,426 @@ class RASXFile(XRDData):
             f.write(self.binary_data)
 
 
+# ---------------------------------------------------------------------------
+# Shared cleaning / validation
+# ---------------------------------------------------------------------------
+
+
+def _line_span_text(span: tuple[int, int] | None) -> str:
+    if span is None:
+        return ""
+    first, last = span
+    if first == last:
+        return f" (line {first})"
+    return f" (lines {first}–{last})"
+
+
+def _clean_pattern(
+    angles,
+    intensities,
+    errors,
+    name: str,
+    line_numbers: np.ndarray | None = None,
+    line_span: tuple[int, int] | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, list[str]]:
+    """Drop bad rows, order by 2θ, de-duplicate and validate a pattern.
+
+    Returns ``(angles, intensities, errors, warnings)`` or raises
+    :class:`PatternFormatError`. ``line_numbers`` (1-based source line of every
+    input row) and ``line_span`` only improve the error messages.
+    """
+    angles = np.asarray(angles, dtype=float)
+    intensities = np.asarray(intensities, dtype=float)
+    errors = None if errors is None else np.asarray(errors, dtype=float)
+    src = np.arange(len(angles))
+    warnings: list[str] = []
+
+    def select(index) -> None:
+        nonlocal angles, intensities, errors, src
+        angles = angles[index]
+        intensities = intensities[index]
+        if errors is not None:
+            errors = errors[index]
+        src = src[index]
+
+    finite = np.isfinite(angles) & np.isfinite(intensities)
+    if not finite.all():
+        warnings.append(
+            f"Dropped {int((~finite).sum())} row(s) with missing or non-finite values."
+        )
+        select(finite)
+
+    if len(angles) > 1:
+        steps = np.diff(angles)
+        if (steps < 0).all():
+            select(slice(None, None, -1))
+            warnings.append("2θ values were in descending order and have been reversed.")
+        elif (steps < 0).any():
+            select(np.argsort(angles, kind="stable"))
+            warnings.append("2θ values were not sorted; rows were sorted by 2θ.")
+
+    if len(angles) > 1:
+        keep = np.concatenate(([True], np.diff(angles) > 0))
+        if not keep.all():
+            warnings.append(f"Removed {int((~keep).sum())} duplicate 2θ row(s).")
+            select(keep)
+
+    if len(angles) < 3:
+        raise PatternFormatError(
+            f"{name}: only {len(angles)} data row(s) found{_line_span_text(line_span)}; "
+            "at least 3 are required."
+        )
+
+    out_of_range = (angles <= 0) | (angles > 180)
+    if out_of_range.any():
+        where = ""
+        if line_numbers is not None:
+            first_bad = int(np.argmax(out_of_range))
+            where = f", line {int(line_numbers[src[first_bad]])}"
+        raise PatternFormatError(
+            f"{name}: 2θ values must be between 0 and 180° "
+            f"(found {angles.min():g}–{angles.max():g}{where}). Check the column order."
+        )
+
+    return angles, intensities, errors, warnings
+
+
+# ---------------------------------------------------------------------------
+# Tolerant ASCII reader
+# ---------------------------------------------------------------------------
+
+_FLOAT_RE = re.compile(
+    r"^[+-]?(?:(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|nan|inf|infinity)$", re.IGNORECASE
+)
+_DECIMAL_COMMA_RE = re.compile(r"^[+-]?\d+,\d+(?:[eE][+-]?\d+)?$")
+
+
+def _decode_text(raw: bytes) -> str:
+    """Decode pattern text; only the digits matter, so this never fails."""
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw.decode("utf-8-sig", errors="replace")
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16", errors="replace")
+    for encoding in ("utf-8", "cp949"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("latin-1")
+
+
+def _to_float(token: str, *, decimal_comma: bool) -> float | None:
+    token = token.strip().strip("\"'").strip()
+    if not token:
+        return None
+    if _FLOAT_RE.match(token):
+        return float(token)
+    if decimal_comma and _DECIMAL_COMMA_RE.match(token):
+        return float(token.replace(",", "."))
+    return None
+
+
+def _leading_floats(tokens: list[str], *, decimal_comma: bool) -> list[float]:
+    values: list[float] = []
+    for token in tokens:
+        value = _to_float(token, decimal_comma=decimal_comma)
+        if value is None:
+            break
+        values.append(value)
+    return values
+
+
+def _numeric_tokens(line: str) -> list[float]:
+    """Return the leading numbers of ``line`` (>= 2 means a numeric data line)."""
+    values: list[float] = []
+    if ";" in line:
+        values = _leading_floats(line.split(";"), decimal_comma=True)
+    elif "\t" in line:
+        values = _leading_floats(
+            [part for part in line.split("\t") if part.strip()], decimal_comma=True
+        )
+    elif "," in line:
+        values = _leading_floats(line.split(","), decimal_comma=False)
+    if len(values) < 2:
+        values = _leading_floats(line.split(), decimal_comma=True)
+    return values
+
+
+def read_ascii_pattern(
+    path: str | Path, *, fmt: str | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, list[str]]:
+    """Read a text powder pattern, tolerating headers, delimiters and encodings.
+
+    Args:
+        path: the text file.
+        fmt: the format extension (e.g. ``".xye"``); defaults to the file suffix.
+
+    Returns
+    -------
+        ``(angles, intensities, errors, warnings)``; ``errors`` is ``None`` unless
+        the format carries a usable third column. ``warnings`` are short English
+        sentences describing how the file was interpreted.
+
+    Raises
+    ------
+        PatternFormatError: if no valid pattern can be read.
+    """
+    path = Path(path)
+    name = path.name
+    fmt = (fmt or path.suffix).lower()
+    text = _decode_text(path.read_bytes())
+
+    entries = [
+        (number, line.strip())
+        for number, line in enumerate(re.split(r"\r\n|\r|\n", text), start=1)
+        if line.strip()
+    ]
+    if not entries:
+        raise PatternFormatError(f"{name}: the file is empty.")
+    first_number, first_line = entries[0]
+    warnings: list[str] = []
+
+    if fmt == ".ras":
+        starts = [i for i, (_, line) in enumerate(entries) if "*RAS_INT_START" in line]
+        if starts:
+            end = next(
+                (
+                    i
+                    for i in range(starts[0] + 1, len(entries))
+                    if "*RAS_INT_END" in entries[i][1]
+                ),
+                len(entries),
+            )
+            entries = entries[starts[0] + 1 : end]
+            if len(starts) > 1:
+                warnings.append(f"RAS file contains {len(starts)} scans; using scan 1.")
+
+    blocks: list[list[tuple[int, list[float]]]] = []
+    current: list[tuple[int, list[float]]] | None = None
+    numeric_total = 0
+    for number, line in entries:
+        values = _numeric_tokens(line)
+        if len(values) >= 2:
+            numeric_total += 1
+            if current is None:
+                current = []
+                blocks.append(current)
+            current.append((number, values))
+        else:
+            current = None
+
+    if not blocks:
+        raise PatternFormatError(
+            f"{name}: no numeric 2θ/intensity data found. Expected lines with at least "
+            f"two numbers (2θ and intensity); line {first_number} reads "
+            f"'{first_line[:60]}'."
+        )
+
+    block = max(blocks, key=len)  # max() keeps the first of equally long blocks
+    line_span = (block[0][0], block[-1][0])
+    if numeric_total > len(block):
+        warnings.append(
+            f"Ignored {numeric_total - len(block)} numeric line(s) outside the main "
+            f"data block (lines {line_span[0]}–{line_span[1]} used)."
+        )
+
+    n_columns = min(len(values) for _, values in block)
+    table = np.array([values[: min(n_columns, 3)] for _, values in block], dtype=float)
+    line_numbers = np.array([number for number, _ in block])
+    angles = table[:, 0]
+    intensities = table[:, 1]
+    errors = None
+
+    if n_columns >= 3:
+        third = table[:, 2]
+        if fmt == ".ras":
+            # Rigaku .ras: third column is the attenuator coefficient, not an error.
+            if np.all(np.isfinite(third) & (third > 0)) and np.any(third != 1):
+                intensities = intensities * third
+                warnings.append(
+                    "Applied Rigaku attenuator coefficients to "
+                    f"{int(np.count_nonzero(third != 1))} point(s)."
+                )
+        else:
+            if fmt in (".xy", ".xye"):
+                valid = bool(np.all(np.isfinite(third)))
+                if fmt == ".xy":
+                    valid = valid and bool(np.all(third > 0))
+                if valid:
+                    errors = third
+            if errors is None:
+                warnings.append(f"Using columns 1–2 of {n_columns} (2θ, intensity).")
+
+    angles, intensities, errors, clean_warnings = _clean_pattern(
+        angles, intensities, errors, name, line_numbers, line_span
+    )
+    return angles, intensities, errors, warnings + clean_warnings
+
+
+# ---------------------------------------------------------------------------
+# XRDML
+# ---------------------------------------------------------------------------
+
+
 def load_xrdml(file: Path) -> dict:
     """Load an XRDML file and returns a dictionary using xmltodict."""
-    with file.open("r", encoding="utf-8") as f:
-        return xmltodict.parse(f.read())
+    file = Path(file)
+    # Parse bytes so expat honours the XML declaration's encoding and any BOM.
+    try:
+        return xmltodict.parse(file.read_bytes())
+    except ExpatError as exc:
+        raise PatternFormatError(
+            f"{file.name}: not a valid XRDML/XML file ({exc})."
+        ) from None
 
 
-def get_xrdml_data(xrd_dict: dict) -> tuple[np.ndarray, np.ndarray]:
-    """Get angles and intensities from an XRDML dictionary."""
-    data_points = xrd_dict["xrdMeasurements"]["xrdMeasurement"]["scan"][
-        "dataPoints"
-    ]
-    min_angle = float(
-        data_points["positions"][0]["startPosition"]
-    )
-    max_angle = float(
-        data_points["positions"][0]["endPosition"]
-    )
+def _as_list(value) -> list:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def _xrdml_points(data_points: dict) -> tuple[np.ndarray, np.ndarray, str | None]:
+    """Extract (angles, intensities, unit) from one ``dataPoints`` mapping."""
+    positions = [node for node in _as_list(data_points.get("positions")) if isinstance(node, dict)]
+    if not positions:
+        raise PatternFormatError("XRDML dataPoints has no positions element")
+
+    def axis_of(node: dict) -> str:
+        return str(node.get("@axis") or "").strip().lower()
+
+    node = next((p for p in positions if axis_of(p) == "2theta"), None)
+    if node is None:
+        node = next((p for p in positions if "2theta" in axis_of(p)), positions[0])
 
     # XRDML producers use either <counts> (newer Data Collector exports) or
     # <intensities> (including older X'Pert Data Collector files). Both contain
     # the same whitespace-separated observed intensity series.
-    intensity_data = data_points.get("counts", data_points.get("intensities"))
+    tag = "counts" if data_points.get("counts") is not None else "intensities"
+    intensity_data = data_points.get(tag)
     if intensity_data is None:
-        raise ValueError("XRDML dataPoints contains neither counts nor intensities")
-    intensity_text = (
-        intensity_data.get("#text")
-        if isinstance(intensity_data, dict)
-        else intensity_data
-    )
+        raise PatternFormatError("XRDML dataPoints contains neither counts nor intensities")
+    intensity_text = _xml_text(intensity_data)
     if not intensity_text:
-        raise ValueError("XRDML intensity data is empty")
-    intensities = np.array([float(val) for val in intensity_text.split()])
-    angles = np.linspace(min_angle, max_angle, len(intensities))
+        raise PatternFormatError("XRDML intensity data is empty")
+    try:
+        intensities = np.array([float(val) for val in intensity_text.split()])
+    except ValueError:
+        raise PatternFormatError("XRDML intensity data contains a non-numeric value") from None
+
+    list_text = _xml_text(node.get("listPositions"))
+    if list_text:
+        try:
+            angles = np.array([float(val) for val in list_text.split()])
+        except ValueError:
+            raise PatternFormatError("XRDML listPositions contains a non-numeric value") from None
+        if len(angles) != len(intensities):
+            raise PatternFormatError(
+                f"XRDML lists {len(angles)} positions but {len(intensities)} intensity values"
+            )
+    else:
+        start = _xml_float(node.get("startPosition"))
+        end = _xml_float(node.get("endPosition"))
+        if start is None or end is None:
+            raise PatternFormatError(
+                "XRDML 2Theta positions have no startPosition/endPosition or listPositions"
+            )
+        angles = np.linspace(start, end, len(intensities))
+
+    unit_text = ""
+    if isinstance(intensity_data, dict):
+        unit_text = str(intensity_data.get("@unit") or "").strip().lower()
+    if unit_text == "counts":
+        unit = "counts"
+    elif unit_text == "cps" or "second" in unit_text:
+        unit = "cps"
+    elif not unit_text and tag == "counts":
+        unit = "counts"
+    else:
+        unit = None
+    return angles, intensities, unit
+
+
+def _xrdml_scan(xrd_dict: dict) -> tuple[dict, list[str]]:
+    """Pick the measurement/scan to read; returns ``(scan, warnings)``."""
+    root = xrd_dict.get("xrdMeasurements") if isinstance(xrd_dict, dict) else None
+    if not isinstance(root, dict):
+        raise PatternFormatError("XRDML has no xrdMeasurements element")
+    warnings: list[str] = []
+
+    measurements = _as_list(root.get("xrdMeasurement"))
+    chosen = next(
+        (
+            (i, m)
+            for i, m in enumerate(measurements, start=1)
+            if isinstance(m, dict) and m.get("scan") is not None
+        ),
+        None,
+    )
+    if chosen is None:
+        raise PatternFormatError("XRDML has no xrdMeasurement with a scan")
+    measurement_number, measurement = chosen
+    if len(measurements) > 1:
+        warnings.append(
+            f"XRDML contains {len(measurements)} measurements; "
+            f"using measurement {measurement_number}."
+        )
+
+    scans = _as_list(measurement.get("scan"))
+    candidates = [
+        (i, s)
+        for i, s in enumerate(scans, start=1)
+        if isinstance(s, dict) and isinstance(s.get("dataPoints"), dict)
+    ]
+    if not candidates:
+        raise PatternFormatError("XRDML scan has no dataPoints")
+    scan_number, scan = next(
+        ((i, s) for i, s in candidates if s.get("@status") == "Completed"), candidates[0]
+    )
+    if len(scans) > 1:
+        detail = ""
+        try:
+            angles, _, _ = _xrdml_points(scan["dataPoints"])
+            detail = f" (2Theta {angles.min():.2f}–{angles.max():.2f}°)"
+        except (PatternFormatError, ValueError):
+            pass
+        warnings.append(f"XRDML contains {len(scans)} scans; using scan {scan_number}{detail}.")
+    return scan, warnings
+
+
+def _xrdml_extract(
+    xrd_dict: dict,
+) -> tuple[np.ndarray, np.ndarray, str | None, list[str]]:
+    """Return ``(angles, intensities, unit, warnings)`` for an XRDML dictionary."""
+    try:
+        scan, warnings = _xrdml_scan(xrd_dict)
+        data_points = scan["dataPoints"]
+        angles, intensities, unit = _xrdml_points(data_points)
+    except (KeyError, TypeError, AttributeError):
+        raise PatternFormatError("unexpected XRDML structure") from None
+
+    attenuation = _xml_text(data_points.get("beamAttenuationFactors"))
+    if attenuation:
+        try:
+            factors = [float(val) for val in attenuation.split()]
+        except ValueError:
+            factors = []
+        if any(factor != 1.0 for factor in factors):
+            warnings.append(
+                "XRDML lists beam attenuation factors; intensities are used as recorded."
+            )
+    return angles, intensities, unit, warnings
+
+
+def get_xrdml_data(xrd_dict: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Get angles and intensities from an XRDML dictionary."""
+    angles, intensities, _, _ = _xrdml_extract(xrd_dict)
     return angles, intensities
+
+
+def _xrdml_intensity_unit(xrd_dict: dict) -> str | None:
+    """Return ``"counts"``, ``"cps"`` or ``None`` for an XRDML dictionary."""
+    return _xrdml_extract(xrd_dict)[2]
 
 
 def _first_xml_mapping(value) -> dict:
@@ -500,20 +935,24 @@ def _load_bruker_raw_v2(content: bytes) -> tuple[np.ndarray, np.ndarray]:
 
 def load_raw(file: Path | str) -> tuple[tuple[np.ndarray, np.ndarray], bytes]:
     """Convert raw file to xy data."""
+    name = Path(file).name
     with open(file, "rb") as f:
         content = f.read()
 
     if content.startswith(b"RAW2"):
-        return _load_bruker_raw_v2(content), content
+        try:
+            return _load_bruker_raw_v2(content), content
+        except ValueError as exc:
+            raise PatternFormatError(f"{name}: {exc}") from None
     if content.startswith((b"RAW1", b"RAW4", b"RAW ")):
         signature = content[:7].decode("ascii", errors="replace").rstrip("\x00")
-        raise ValueError(
-            f"Bruker {signature} is recognized but not yet supported; "
+        raise PatternFormatError(
+            f"{name}: Bruker {signature} is recognized but not yet supported; "
             "export the scan as XY or XYE"
         )
 
     if len(content) < 3158:
-        raise ValueError("Unsupported or truncated RAW diffraction file")
+        raise PatternFormatError(f"{name}: unsupported or truncated RAW diffraction file")
     size_float = 4  # Assuming 4 bytes for a float
     size_int = 4  # Assuming 4 bytes for an int
 
@@ -547,38 +986,32 @@ def raw2xy(fn: str | Path, target_folder: Path = None) -> Path:
     return target_path
 
 
-def load_rasx(file: Path | str) -> tuple[tuple[np.ndarray, np.ndarray], bytes]:
-    """Convert RASX file to xy data.
-
-    RASX files are ZIP archives containing:
-    - root.xml file
-    - Data*/ folders with Profile*.txt files (scan_angle, intensity, attenuation)
-    - MesurementConditions*.xml files (note: typo in original format)
-
-    This function extracts the first scan's data from the first Profile file found.
-
-    Returns:
-        Tuple of ((angles, intensities), content) where content is the raw ZIP bytes.
-        The content is kept for potential round-trip saving, though it's rarely used.
-    """
+def _load_rasx(file: Path | str) -> tuple[np.ndarray, np.ndarray, bytes, list[str]]:
+    """Read a RASX archive; returns ``(angles, intensities, content, warnings)``."""
     file = Path(file)
+    name = file.name
     with open(file, "rb") as f:
         content = f.read()
 
-    with zipfile.ZipFile(io.BytesIO(content), "r") as zip_ref:
+    try:
+        zip_ref = zipfile.ZipFile(io.BytesIO(content), "r")
+    except zipfile.BadZipFile:
+        raise PatternFormatError(f"{name}: not a valid RASX (ZIP) file.") from None
+
+    with zip_ref:
         namelist = zip_ref.namelist()
 
         if "root.xml" not in namelist:
-            raise ValueError("No XML file found in the RASX archive.")
+            raise PatternFormatError(f"{name}: no root.xml found in the RASX archive.")
 
         # Find Data folders
         data_folders: dict[str, list[str]] = {}
-        for name in namelist:
-            if name.startswith("Data") and "/" in name:
-                folder = name.split("/")[0]
+        for entry in namelist:
+            if entry.startswith("Data") and "/" in entry:
+                folder = entry.split("/")[0]
                 if folder not in data_folders:
                     data_folders[folder] = []
-                data_folders[folder].append(name)
+                data_folders[folder].append(entry)
 
         # Get the first Profile file from the first Data folder
         profile_path = None
@@ -594,7 +1027,7 @@ def load_rasx(file: Path | str) -> tuple[tuple[np.ndarray, np.ndarray], bytes]:
                 break
 
         if profile_path is None:
-            raise ValueError("No Profile file found in the RASX archive.")
+            raise PatternFormatError(f"{name}: no Profile file found in the RASX archive.")
 
         # Read profile data (three columns: scan_angle, intensity, attenuation)
         # Using numpy.loadtxt to handle whitespace-separated values
@@ -603,18 +1036,40 @@ def load_rasx(file: Path | str) -> tuple[tuple[np.ndarray, np.ndarray], bytes]:
             # Read as text and decode with utf-8-sig to remove BOM if present
             text_content = profile_file.read().decode("utf-8-sig")
             # Use StringIO to create a file-like object for np.loadtxt
-            profile_data = np.loadtxt(io.StringIO(text_content), unpack=False)
+            try:
+                profile_data = np.loadtxt(io.StringIO(text_content), unpack=False, ndmin=2)
+            except ValueError as exc:
+                raise PatternFormatError(
+                    f"{name}: {profile_path} is not numeric ({exc})."
+                ) from None
 
-        # Extract angles (first column) and intensities (second column)
-        # Third column is attenuation, which we don't need for now
-        if profile_data.ndim == 1:
-            # Single row case
-            angles = np.array([profile_data[0]])
-            intensities = np.array([profile_data[1]])
-        else:
-            angles = profile_data[:, 0]
-            intensities = profile_data[:, 1]
+    if profile_data.shape[1] < 2:
+        raise PatternFormatError(f"{name}: {profile_path} has fewer than two columns.")
 
+    # Extract angles (first column) and intensities (second column)
+    # Third column is attenuation, which we don't need for now
+    angles, intensities, _, warnings = _clean_pattern(
+        profile_data[:, 0], profile_data[:, 1], None, name
+    )
+    return angles, intensities, content, warnings
+
+
+def load_rasx(file: Path | str) -> tuple[tuple[np.ndarray, np.ndarray], bytes]:
+    """Convert RASX file to xy data.
+
+    RASX files are ZIP archives containing:
+    - root.xml file
+    - Data*/ folders with Profile*.txt files (scan_angle, intensity, attenuation)
+    - MesurementConditions*.xml files (note: typo in original format)
+
+    This function extracts the first scan's data from the first Profile file found.
+    Rows are cleaned like the other formats (non-finite rows dropped, 2θ sorted).
+
+    Returns:
+        Tuple of ((angles, intensities), content) where content is the raw ZIP bytes.
+        The content is kept for potential round-trip saving, though it's rarely used.
+    """
+    angles, intensities, content, _ = _load_rasx(file)
     return (angles, intensities), content
 
 
@@ -629,6 +1084,145 @@ def rasx2xy(fn: str | Path, target_folder: Path = None) -> Path:
     return target_path
 
 
+_BRML_RAWDATA_RE = re.compile(r"^Experiment\d+/RawData\d+\.xml$", re.IGNORECASE)
+
+
+def _strictly_monotonic(values: np.ndarray) -> bool:
+    if not np.all(np.isfinite(values)):
+        return False
+    steps = np.diff(values)
+    return bool(np.all(steps > 0) or np.all(steps < 0))
+
+
+def _valid_two_theta(values: np.ndarray) -> bool:
+    return (
+        _strictly_monotonic(values)
+        and bool(np.all(values > 0))
+        and bool(np.all(values <= 180))
+    )
+
+
+def load_brml(file: Path | str) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """Read the first scan of a Bruker .brml archive (ZIP of XML files).
+
+    Returns:
+        ``(angles, intensities, warnings)``.
+
+    Raises:
+        PatternFormatError: if the archive is not a readable BRML scan.
+    """
+    file = Path(file)
+    name = file.name
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(file.read_bytes()), "r")
+    except zipfile.BadZipFile:
+        raise PatternFormatError(f"{name}: not a valid BRML (ZIP) file.") from None
+
+    warnings: list[str] = []
+    with archive:
+        members = sorted(n for n in archive.namelist() if _BRML_RAWDATA_RE.match(n))
+        if "Experiment0/RawData0.xml" in archive.namelist():
+            member = "Experiment0/RawData0.xml"
+        elif members:
+            member = members[0]
+        else:
+            raise PatternFormatError(
+                f"{name}: no Experiment*/RawData*.xml found in the BRML archive."
+            )
+        if len(members) > 1:
+            warnings.append(f"BRML contains {len(members)} data files; using {member}.")
+        try:
+            document = xmltodict.parse(archive.read(member))
+        except ExpatError as exc:
+            raise PatternFormatError(
+                f"{name}: {member} is not valid XML ({exc})."
+            ) from None
+
+    raw_data = document.get("RawData") if isinstance(document, dict) else None
+    routes_node = raw_data.get("DataRoutes") if isinstance(raw_data, dict) else None
+    routes = [
+        route
+        for route in _as_list(routes_node.get("DataRoute") if isinstance(routes_node, dict) else None)
+        if isinstance(route, dict)
+    ]
+    if not routes:
+        raise PatternFormatError(f"{name}: no DataRoute found in the BRML data.")
+    if len(routes) > 1:
+        warnings.append(f"BRML contains {len(routes)} scan ranges; using range 1.")
+    route = routes[0]
+
+    rows: list[list[float]] = []
+    for datum in _as_list(route.get("Datum")):
+        text = _xml_text(datum)
+        if not text:
+            continue
+        try:
+            rows.append([float(val) for val in text.split(",")])
+        except ValueError:
+            raise PatternFormatError(
+                f"{name}: BRML data row {len(rows) + 1} is not numeric ('{text[:60]}')."
+            ) from None
+    if not rows:
+        raise PatternFormatError(f"{name}: the BRML data contains no Datum rows.")
+    n_columns = min(len(row) for row in rows)
+    table = np.array([row[:n_columns] for row in rows], dtype=float)
+
+    angle_col = intensity_col = None
+
+    # 1. Column names from DataViews, when present.
+    views_node = route.get("DataViews")
+    views = [
+        view
+        for view in _as_list(views_node.get("RawDataView") if isinstance(views_node, dict) else None)
+        if isinstance(view, dict)
+    ]
+    angle_view = intensity_view = None
+    for view in views:
+        logic_name = str(view.get("@LogicName") or "").lower()
+        start = _xml_text(view.get("@Start"))
+        if not logic_name or start is None or not start.lstrip("+").isdigit():
+            continue
+        if angle_view is None and "twotheta" in logic_name:
+            angle_view = int(start)
+        elif intensity_view is None and "count" in logic_name:
+            intensity_view = int(start)
+    if (
+        angle_view is not None
+        and intensity_view is not None
+        and angle_view < n_columns
+        and intensity_view < n_columns
+        and angle_view != intensity_view
+    ):
+        angle_col, intensity_col = angle_view, intensity_view
+
+    # 2. Common Bruker layout: time, ?, 2theta, theta, ..., counts.
+    if angle_col is None and n_columns >= 5:
+        angle_col, intensity_col = 2, n_columns - 1
+
+    # 3. Validate the 2theta column; otherwise search for one.
+    if angle_col is None or not _valid_two_theta(table[:, angle_col]):
+        intensity_col = n_columns - 1
+        angle_col = next(
+            (
+                col
+                for col in range(n_columns - 1)
+                if _strictly_monotonic(table[:, col])
+                and table[0, col] < table[-1, col]
+                and _valid_two_theta(table[:, col])
+            ),
+            None,
+        )
+        if angle_col is None:
+            raise PatternFormatError(
+                f"{name}: could not identify the 2θ column in the BRML data."
+            )
+
+    angles, intensities, _, clean_warnings = _clean_pattern(
+        table[:, angle_col], table[:, intensity_col], None, name
+    )
+    return angles, intensities, warnings + clean_warnings
+
+
 # Extension-to-class mapping for all supported XRD formats.
 # Add new formats here to make them available everywhere automatically.
 _FORMAT_LOADERS: dict[str, type[XRDData]] = {
@@ -636,33 +1230,43 @@ _FORMAT_LOADERS: dict[str, type[XRDData]] = {
     ".xye": XYFile,
     ".txt": XYFile,
     ".scn": XYFile,
+    ".csv": XYFile,
+    ".dat": XYFile,
+    ".asc": XYFile,
+    ".ras": XYFile,
     ".xrdml": XRDMLFile,
     ".raw": RawFile,
     ".rasx": RASXFile,
+    ".brml": BRMLFile,
 }
+
+SUPPORTED_PATTERN_EXTENSIONS: tuple[str, ...] = tuple(sorted(_FORMAT_LOADERS))
 
 
 def load_pattern(path: str | Path) -> XRDData:
     """Load an XRD pattern from any supported file format.
 
-    Supported formats: .xy, .xye, .txt, .scn, .xrdml, .raw, .rasx.
+    Supported formats: .xy, .xye, .txt, .scn, .csv, .dat, .asc, .ras (text),
+    .xrdml, .raw, .rasx, .brml.
 
     Args:
         path: the path to the pattern file.
 
     Returns:
-        an XRDData instance (XYFile, XRDMLFile, RawFile, or RASXFile).
+        an XRDData instance (XYFile, XRDMLFile, RawFile, RASXFile, or BRMLFile).
+        ``load_warnings`` and ``intensity_unit`` describe how the file was read.
 
     Raises:
-        ValueError: if the file extension is not supported.
+        PatternFormatError: (a ValueError) if the extension is not supported or
+            the file cannot be read as a pattern.
     """
     path = Path(path)
     ext = path.suffix.lower()
     loader = _FORMAT_LOADERS.get(ext)
     if loader is None:
-        raise ValueError(
+        raise PatternFormatError(
             f"Unsupported pattern file format: '{ext}'. "
-            f"Supported formats: {', '.join(sorted(_FORMAT_LOADERS.keys()))}"
+            f"Supported formats: {', '.join(SUPPORTED_PATTERN_EXTENSIONS)}"
         )
     return loader.from_file(path)
 
@@ -670,9 +1274,10 @@ def load_pattern(path: str | Path) -> XRDData:
 def convert_pattern_to_xy(
     fn: str | Path, target_folder: Path | None = None
 ) -> Path:
-    """Convert any supported XRD pattern file to .xy format.
+    """Convert any supported XRD pattern file to a clean whitespace-separated .xy file.
 
-    If the file is already in .xy format, it is copied to the target folder.
+    The pattern is always loaded (and normalised) into memory first, so the
+    source and the target may be the same file.
 
     Args:
         fn: the path to the pattern file.
@@ -682,18 +1287,12 @@ def convert_pattern_to_xy(
     Returns:
         the path to the generated .xy file.
     """
-    import shutil
-
     fn = Path(fn)
     if target_folder is None:
         target_folder = fn.parent
-    target_path = target_folder / fn.with_suffix(".xy").name
+    target_path = Path(target_folder) / fn.with_suffix(".xy").name
 
-    ext = fn.suffix.lower()
-    if ext in (".xy", ".xye", ".txt", ".scn"):
-        if fn.resolve() != target_path.resolve():
-            shutil.copy2(fn, target_path)
-    else:
-        load_pattern(fn).to_xy_file(target_path)
+    pattern = load_pattern(fn)
+    pattern.to_xy_file(target_path)
 
     return target_path

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import TYPE_CHECKING
 from html import escape
 import re
@@ -9,6 +10,22 @@ import plotly.graph_objects as go
 
 if TYPE_CHECKING:
     from dara.result import RefinementResult
+
+
+@lru_cache(maxsize=512)
+def cached_spacegroup(number: int):
+    """Memoized ``SpaceGroup.from_int_number`` (building a cubic group takes seconds).
+
+    The returned object is shared: callers must only read it.
+    """
+    from pymatgen.symmetry.groups import SpaceGroup
+
+    return SpaceGroup.from_int_number(number)
+
+
+def spacegroup_symbol(number) -> str:
+    """Hermann-Mauguin symbol of a space-group number (``ValueError`` when invalid)."""
+    return cached_spacegroup(int(number)).symbol
 
 
 def phase_display_name(reference: str) -> str:
@@ -31,9 +48,8 @@ def phase_display_name(reference: str) -> str:
     if common:
         return f"{common} · {formula}"
     # Unknown common names still show formula and crystallographic identity.
-    from pymatgen.symmetry.groups import SpaceGroup
     try:
-        symbol = SpaceGroup.from_int_number(int(group)).symbol
+        symbol = spacegroup_symbol(group)
         symbol = re.sub(r"_(\d)", r"<sub>\1</sub>", escape(symbol))
         return f"{formula} · {symbol}"
     except ValueError:

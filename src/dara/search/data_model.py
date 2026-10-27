@@ -93,6 +93,7 @@ class SearchNodeData(BaseModel):
         "expanded",
         "similar_structure",
         "low_weight_fraction",
+        "stopped",
     ] = "pending"
 
     isolated_missing_peaks: Optional[list[list[float]]] = None

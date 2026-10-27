@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from dataclasses import dataclass, field
 from inspect import signature
 from itertools import product
@@ -18,7 +19,7 @@ from dara.cif import Cif
 from dara.prediction.core import PhasePredictor
 from dara.refine import RefinementPhase, do_refinement, do_refinement_no_saving
 from dara.schema import PhaseSearchDocument, RefinementDocument
-from dara.search import search_phases
+from dara.search import candidate_cost, search_phases
 from dara.search.data_model import SearchResult
 from dara.structure_db import CODDatabase, StructureDatabase, deduplicate_cif_paths
 from dara.utils import get_logger
@@ -263,6 +264,9 @@ class PhaseSearchMaker(Maker):
         final_refinement_params: dict | None = None,
         final_refinement_overrides: dict | None = None,
         computed_entries=None,
+        candidate_prefilter: bool | None = None,
+        screening_timeout_s: float | None = None,
+        max_runtime_s: float | None = None,
     ):
         """Perform phase search.
 
@@ -286,7 +290,25 @@ class PhaseSearchMaker(Maker):
             search_kwargs: Keyword arguments for the search.
             final_refinement_params: Parameters for the final refinement.
             computed_entries: Computed entries to use for phase prediction.
+            candidate_prefilter: Drop candidates that cannot be present in the pattern
+                before screening (None: off unless ``DARA_CANDIDATE_PREFILTER=on``).
+            screening_timeout_s: BGMN time limit per screening candidate in seconds
+                (None: the legacy 1200 s unless ``DARA_SCREENING_TIMEOUT_S`` is set).
+            max_runtime_s: Run-time budget in seconds (minimum 300; None: unlimited
+                unless ``DARA_MAX_RUNTIME_S`` is set). The search stops early and
+                reports the best result found so far.
         """
+        t_start = time.monotonic()
+        budget = candidate_cost.resolve_budget_s(max_runtime_s)
+        if budget:
+            screening_deadline = t_start + 0.55 * budget
+            search_deadline = t_start + 0.80 * budget
+            final_deadline = t_start + budget
+            expansion_bgmn_timeout = min(1200.0, max(120.0, 0.25 * budget))
+        else:
+            screening_deadline = search_deadline = final_deadline = None
+            expansion_bgmn_timeout = None
+
         directory = Path(os.getcwd()).resolve()
 
         if predict_kwargs is None:
@@ -330,6 +352,7 @@ class PhaseSearchMaker(Maker):
         from dara.task_progress import report_progress, checkpoint_candidate
 
         report_progress("Loading reference structures / reaction prediction")
+        cod_unavailable: list[str] = []
         if cifs is not None:
             logger.info("CIFs provided. Skipping CIF download and phase prediction.")
             for cif in cifs + (additional_cifs or []):
@@ -393,6 +416,10 @@ class PhaseSearchMaker(Maker):
                     cp = cifs_path / f"{cif.name}.cif"
                     with open(cp, "w") as f:
                         f.write(str(cif))
+            for db in cif_dbs:
+                cod_unavailable.extend(
+                    str(i) for i in getattr(db, "last_unavailable", []) if str(i) not in cod_unavailable
+                )
 
         cif_paths = list(cifs_path.glob("*.cif"))
         if deduplicate_structures:
@@ -405,6 +432,47 @@ class PhaseSearchMaker(Maker):
             }
         if not cif_paths:
             raise ValueError("No reference CIFs were found for this analysis.")
+
+        from dara.structure_quality import computed_only_phases, screen_candidate_cifs
+
+        repaired: list[dict] = []
+        cif_paths, rejected, validation_warnings = screen_candidate_cifs(
+            cif_paths,
+            allowed_elements=elements if analysis_mode == "elemental" else None,
+            protected_stems={cif.name for cif in (additional_cifs or [])},
+            repaired=repaired,
+        )
+        candidate_summary["cod_unavailable"] = cod_unavailable
+        candidate_summary["rejected"] = rejected
+        candidate_summary["repaired"] = repaired
+        candidate_summary["validation_warnings"] = validation_warnings
+        candidate_summary["computed_only_phases"] = computed_only_phases(cif_paths)
+
+        from dara.search.prefilter import prefilter_candidates, resolve_prefilter_enabled
+
+        enabled, reason = resolve_prefilter_enabled(
+            candidate_prefilter, analysis_mode, explicit_cifs=cifs is not None
+        )
+        if enabled:
+            report_progress("Pre-filtering candidates")
+        range_params = search_kwargs.get("refinement_params") or {}
+        outcome = prefilter_candidates(
+            getattr(xrd_data, "angles", None) if enabled else None,
+            getattr(xrd_data, "intensities", None) if enabled else None,
+            cif_paths,
+            wavelength=search_kwargs.get("wavelength", "Cu"),
+            wmin=range_params.get("wmin"),
+            wmax=range_params.get("wmax"),
+            excluded_ranges=range_params.get("excluded_ranges"),
+            protected_stems={cif.name for cif in (additional_cifs or [])},
+            protected_formulas=precursors,
+            enabled=enabled,
+        )
+        if not enabled:
+            outcome.report["reason_not_applied"] = reason
+        cif_paths = outcome.kept
+        candidate_summary["prefilter"] = outcome.report
+
         if additional_cifs:
             additional_cifs_name_set = {cif.name for cif in additional_cifs}
             for i in range(len(cif_paths)):
@@ -414,9 +482,22 @@ class PhaseSearchMaker(Maker):
                     )
 
         report_progress("Peak detection, reference screening and phase-combination search")
+        screening_timeouts = candidate_cost.resolve_screening_timeouts(screening_timeout_s)
+        runtime_report: dict = {}
         results = search_phases(
-            pattern_path=pattern_path, phases=cif_paths, **search_kwargs
+            pattern_path=pattern_path,
+            phases=cif_paths,
+            **search_kwargs,
+            screening_timeouts=screening_timeouts,
+            screening_deadline=screening_deadline,
+            screening_priority=(outcome.scores or None) if budget else None,
+            search_deadline=search_deadline,
+            expansion_bgmn_timeout=expansion_bgmn_timeout,
+            search_report=runtime_report,
         )
+        screening_report = runtime_report.get("screening") or {}
+        search_loop = runtime_report.get("search") or {}
+        candidate_summary["screening"] = screening_report
         result_limit = self.max_num_results or 10
         results, screening_rwps, search_summary = _expanded_search_results(
             results, result_limit
@@ -424,6 +505,8 @@ class PhaseSearchMaker(Maker):
         self._save_results(results)
 
         best_result = None
+        mp_applied_all: set[str] = set()
+        final_refinement_skipped = 0
         if self.run_final_refinement and results:
             logger.info("Final-refining %d distinct candidate hypotheses...", len(results))
             refinement_kwargs = {
@@ -431,11 +514,21 @@ class PhaseSearchMaker(Maker):
                 for key, value in search_kwargs.items()
                 if key in signature(do_refinement).parameters
             }
+            refinement_kwargs.pop("bgmn_timeout", None)
             refined_candidates = []
             final_refinement_attempted = len(results)
             for candidate_index, (result, screening_rwp) in enumerate(
                 zip(results, screening_rwps), start=1
             ):
+                if (
+                    final_deadline is not None
+                    and candidate_index >= 2
+                    and refined_candidates
+                    and time.monotonic() >= final_deadline
+                ):
+                    final_refinement_skipped = len(results) - candidate_index + 1
+                    final_refinement_attempted = candidate_index - 1
+                    break
                 report_progress("Final candidate refinement", candidate_index - 1, len(results))
                 candidate_dir = directory / f"_final_candidate_{candidate_index}"
                 if candidate_dir.exists():
@@ -443,6 +536,17 @@ class PhaseSearchMaker(Maker):
                 candidate_dir.mkdir()
                 dumpfn(final_refinement_params, candidate_dir / "phase_params.json")
                 selected_phases = [phase_group[0] for phase_group in result.phases]
+                from dara.structure_quality import (
+                    apply_mp_lattice_window,
+                    mp_window_enabled,
+                )
+
+                selected_phases, mp_applied = apply_mp_lattice_window(
+                    selected_phases,
+                    final_refinement_params,
+                    enabled=mp_window_enabled(),
+                )
+                mp_applied_all.update(mp_applied)
                 if final_refinement_overrides:
                     from dara.refinement_controls import override_phase_settings
 
@@ -528,6 +632,30 @@ class PhaseSearchMaker(Maker):
                 }
             )
 
+        stopped_at_stage = None
+        if screening_report.get("not_screened_deadline", 0) > 0:
+            stopped_at_stage = "screening"
+        elif search_loop.get("stopped"):
+            stopped_at_stage = "search"
+        elif final_refinement_skipped > 0:
+            stopped_at_stage = "final_refinement"
+        search_summary.update(
+            {
+                "runtime_budget_s": budget,
+                "elapsed_s": round(time.monotonic() - t_start, 1),
+                "stopped_early": stopped_at_stage is not None,
+                "stopped_at_stage": stopped_at_stage,
+                "unexpanded_nodes": int(search_loop.get("unexpanded_nodes", 0) or 0),
+                "final_refinement_skipped": final_refinement_skipped,
+                "screening_timed_out": int(screening_report.get("timed_out", 0) or 0),
+                "screening_not_screened": int(
+                    screening_report.get("not_screened_deadline", 0) or 0
+                ),
+                "candidates_screened_total": int(screening_report.get("total", 0) or 0),
+                "prefilter_excluded": int(outcome.report.get("excluded", 0) or 0),
+            }
+        )
+
         parsed_results = [
             (
                 [
@@ -564,6 +692,14 @@ class PhaseSearchMaker(Maker):
         all_rwp = [i[1].lst_data.rwp for i in parsed_results]
 
         best_rwp = min(all_rwp, default=None)
+
+        from dara.structure_quality import MP_LATTICE_WINDOW, mp_window_enabled
+
+        candidate_summary["mp_lattice_window"] = {
+            "enabled": mp_window_enabled(),
+            "range": list(MP_LATTICE_WINDOW) if mp_window_enabled() else None,
+            "applied_to": sorted(mp_applied_all),
+        }
 
         return PhaseSearchDocument(
             task_label=self.name,

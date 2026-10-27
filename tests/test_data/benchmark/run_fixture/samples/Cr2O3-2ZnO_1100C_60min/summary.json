@@ -1,0 +1,156 @@
+{
+ "status": "COMPLETED",
+ "final_result": {
+  "phases": [
+   "ZnCr2O4_227_(cod_1)-0",
+   "ZnO_186_(cod_2300453)-0",
+   "Cr2O3_167_(cod_5)-0"
+  ],
+  "highlighted_phases": [
+   "ZnCr2O4_227_(cod_1)-0",
+   "ZnO_186_(cod_2300453)-0",
+   "Cr2O3_167_(cod_5)-0"
+  ],
+  "phase_metadata": {
+   "ZnCr2O4_227_(cod_1)-0": {
+    "spacegroup_number": 227
+   },
+   "ZnO_186_(cod_2300453)-0": {
+    "spacegroup_number": 186
+   },
+   "Cr2O3_167_(cod_5)-0": {
+    "spacegroup_number": 167
+   }
+  },
+  "phase_details": {
+   "ZnCr2O4_227_(cod_1)-0": {
+    "weight_percent": 60.0,
+    "weight_esd_percent": 0.3,
+    "lattice_parameters": {
+     "a": {
+      "value": 8.327,
+      "esd": 0.001
+     }
+    }
+   },
+   "ZnO_186_(cod_2300453)-0": {
+    "weight_percent": 36.0,
+    "weight_esd_percent": 0.3,
+    "lattice_parameters": {
+     "a": {
+      "value": 3.2497,
+      "esd": 0.001
+     },
+     "c": {
+      "value": 5.207,
+      "esd": 0.001
+     }
+    }
+   },
+   "Cr2O3_167_(cod_5)-0": {
+    "weight_percent": 4.0,
+    "weight_esd_percent": 0.3,
+    "lattice_parameters": {
+     "a": {
+      "value": 4.96,
+      "esd": 0.001
+     },
+     "c": {
+      "value": 13.6,
+      "esd": 0.001
+     }
+    }
+   }
+  },
+  "confidence": {
+   "phases": {
+    "ZnCr2O4_227_(cod_1)-0": {
+     "level": "confident"
+    },
+    "ZnO_186_(cod_2300453)-0": {
+     "level": "confident"
+    },
+    "Cr2O3_167_(cod_5)-0": {
+     "level": "weak"
+    }
+   },
+   "overall": {
+    "level": "high"
+   },
+   "sample_displacement": {
+    "displacement_mm": -0.5
+   }
+  },
+  "fit_quality": {
+   "rwp": 8.0,
+   "gof": 2.1
+  },
+  "rwp": 8.0
+ },
+ "all_results": [
+  {
+   "phases": [
+    "ZnCr2O4_227_(cod_1)-0",
+    "ZnO_186_(cod_2300453)-0",
+    "Cr2O3_167_(cod_5)-0"
+   ],
+   "highlighted_phases": [
+    "ZnCr2O4_227_(cod_1)-0",
+    "ZnO_186_(cod_2300453)-0",
+    "Cr2O3_167_(cod_5)-0"
+   ],
+   "phase_metadata": {
+    "ZnCr2O4_227_(cod_1)-0": {
+     "spacegroup_number": 227
+    },
+    "ZnO_186_(cod_2300453)-0": {
+     "spacegroup_number": 186
+    },
+    "Cr2O3_167_(cod_5)-0": {
+     "spacegroup_number": 167
+    }
+   },
+   "phase_details": {
+    "ZnCr2O4_227_(cod_1)-0": {
+     "weight_percent": 60.0,
+     "weight_esd_percent": 0.3,
+     "lattice_parameters": {
+      "a": {
+       "value": 8.327,
+       "esd": 0.001
+      }
+     }
+    },
+    "ZnO_186_(cod_2300453)-0": {
+     "weight_percent": 36.0,
+     "weight_esd_percent": 0.3,
+     "lattice_parameters": {
+      "a": {
+       "value": 3.2497,
+       "esd": 0.001
+      },
+      "c": {
+       "value": 5.207,
+       "esd": 0.001
+      }
+     }
+    },
+    "Cr2O3_167_(cod_5)-0": {
+     "weight_percent": 4.0,
+     "weight_esd_percent": 0.3,
+     "lattice_parameters": {
+      "a": {
+       "value": 4.96,
+       "esd": 0.001
+      },
+      "c": {
+       "value": 13.6,
+       "esd": 0.001
+      }
+     }
+    }
+   }
+  }
+ ],
+ "runtime": 240.0
+}

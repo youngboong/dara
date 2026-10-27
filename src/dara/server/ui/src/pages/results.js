@@ -1,9 +1,11 @@
 import React from 'react';
 import styled from 'styled-components';
 import Layout from '../components/Layout';
-import { Button, Input, Popconfirm, Space, Table, Tag, message } from 'antd';
-import { DeleteOutlined, DownloadOutlined, LineChartOutlined } from '@ant-design/icons';
+import { Button, Input, Popconfirm, Space, Table, Tag, Tooltip, message } from 'antd';
+import { DeleteOutlined, DownloadOutlined, LineChartOutlined, TableOutlined } from '@ant-design/icons';
 import { parseComparisonTaskIds } from '../components/patternComparison.mjs';
+import { runAfterSuccess } from '../components/submitHelpers.mjs';
+import { adoptedLabel, formatFixed, phasesLabel, phasesTooltip, tasksQuery } from '../components/resultsList.mjs';
 
 const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 
@@ -27,36 +29,45 @@ function ResultsPage({ location }) {
   const page = Number((queryParameters.get('page')) || "1")
   const limit = Number(queryParameters.get('limit') || "10")
   const [ user, setUser ] = React.useState(queryParameters.get('user') || null)
+  const [ name, setName ] = React.useState(queryParameters.get('name') || null)
 
   const [data, setData] = React.useState({})
   const [selectedTaskIds, setSelectedTaskIds] = React.useState(() => parseComparisonTaskIds(queryParameters.get('selected')));
-  const [messageApi, contextHolder] = message.useMessage();
 
   const onSearch = (value) => {
     setUser(value)
-    window.location.href = `/results?page=1&limit=${limit}` + (value ? `&user=${encodeURIComponent(value)}` : "") + (selectedTaskIds.length ? `&selected=${selectedTaskIds.join(',')}` : "")
+    window.location.href = `/results?` + tasksQuery({ page: 1, limit, user: value, name, selected: selectedTaskIds })
+  }
+
+  const onNameSearch = (value) => {
+    const trimmed = (value || '').trim()
+    setName(trimmed || null)
+    window.location.href = `/results?` + tasksQuery({ page: 1, limit, user, name: trimmed, selected: selectedTaskIds })
   }
 
   React.useEffect(() => {
-    fetch(`${URL}/tasks?page=${page}&limit=${limit}` + (user ? `&user=${user}` : ""))
+    fetch(`${URL}/tasks?page=${page}&limit=${limit}` + (user ? `&user=${encodeURIComponent(user)}` : "") + (name ? `&name=${encodeURIComponent(name)}` : ""))
       .then(response => response.json())
       .then(data => setData(data));
-  }, [page, limit, user]);
+  }, [page, limit, user, name]);
 
   const deleteTask = async (taskId) => {
     const response = await fetch(`${URL}/task/${taskId}`, { method: 'DELETE' });
     if (!response.ok) {
       const error = await response.json();
-      messageApi.error(error.detail || 'Could not delete the result.');
+      message.error(error.detail || 'Could not delete the result.');
       return;
     }
-    setData(previous => ({
-      ...previous,
-      tasks: (previous.tasks || []).filter(task => task.fw_id !== taskId),
-      total_tasks: Math.max((previous.total_tasks || 1) - 1, 0),
-    }));
-    setSelectedTaskIds(previous => previous.filter(id => id !== taskId));
-    messageApi.success(`Task ${taskId} deleted.`);
+    // The result is already deleted on the server; UI follow-up problems must not look like a failed delete.
+    runAfterSuccess([
+      () => setData(previous => ({
+        ...previous,
+        tasks: (previous.tasks || []).filter(task => task.fw_id !== taskId),
+        total_tasks: Math.max((previous.total_tasks || 1) - 1, 0),
+      })),
+      () => setSelectedTaskIds(previous => previous.filter(id => id !== taskId)),
+      () => message.success(`Task ${taskId} deleted.`),
+    ]);
   };
 
   const columns = [
@@ -69,16 +80,60 @@ function ResultsPage({ location }) {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-      render: (text, entry) => <a href={`/task?id=${entry.fw_id}`}>{text}</a>
+      render: (text, entry) => (
+        <>
+          <a href={`/task?id=${entry.fw_id}`}>{text}</a>
+          {entry.series?.id ? (
+            <div>
+              <Tag color="geekblue" style={{ marginTop: 4 }}>
+                <a href={`/series/?id=${encodeURIComponent(entry.series.id)}`}>{`Series: ${entry.series.name} #${(entry.series.order ?? 0) + 1}`}</a>
+              </Tag>
+            </div>
+          ) : null}
+        </>
+      )
     },
     {
       title: 'Status',
       dataIndex: 'state',
       key: 'state',
-      render: (text) => {
+      render: (text, entry) => {
+        const tag = <Tag color={STATE_COLOR[text] ? STATE_COLOR[text] : 'grey'} key={text}>{text}</Tag>
+        return text === 'FIZZLED' && entry.error_summary?.title
+          ? <Tooltip title={entry.error_summary.title}>{tag}</Tooltip>
+          : tag
+      }
+    },
+    {
+      title: 'Best Rwp (%)',
+      key: 'best_rwp',
+      render: (_, entry) => formatFixed(entry.summary?.best_rwp),
+    },
+    {
+      title: <Tooltip title="Goodness of fit = Rwp / Rexp of the final refinement">GOF</Tooltip>,
+      key: 'gof',
+      render: (_, entry) => formatFixed(entry.summary?.gof),
+    },
+    {
+      title: 'Final phases',
+      key: 'final_phases',
+      width: 240,
+      render: (_, entry) => {
+        const label = phasesLabel(entry.summary)
+        if (!label) return '—'
         return (
-          <Tag color={STATE_COLOR[text] ? STATE_COLOR[text] : 'grey'} key={text}>{text}</Tag>
+          <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{phasesTooltip(entry.summary)}</div>}>
+            <span style={{ display: 'inline-block', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'bottom' }}>{label}</span>
+          </Tooltip>
         )
+      }
+    },
+    {
+      title: <Tooltip title="Result marked as adopted in the task review">Adopted</Tooltip>,
+      key: 'adopted',
+      render: (_, entry) => {
+        const label = adoptedLabel(entry.adopted)
+        return label ? <Tag color={label.color}>{label.text}</Tag> : '—'
       }
     },
     {
@@ -128,8 +183,7 @@ function ResultsPage({ location }) {
   return (
     <Layout hasSider={false} title="">
       <Container>
-        {contextHolder}
-        <div style={{ display: "flex", flexDirection: "row-reverse" }}>
+        <div style={{ display: "flex", flexDirection: "row-reverse", gap: 12, flexWrap: "wrap" }}>
           <Search
             placeholder="Filter username"
             allowClear
@@ -139,6 +193,15 @@ function ResultsPage({ location }) {
             defaultValue={user}
             style={{ width: 400, marginBottom: "24px" }}
           />
+          <Search
+            placeholder="Filter file name"
+            allowClear
+            enterButton
+            size="middle"
+            onSearch={onNameSearch}
+            defaultValue={name}
+            style={{ width: 400, marginBottom: "24px" }}
+          />
         </div>
         <Space wrap style={{ marginBottom: 16 }}>
           <Button
@@ -146,20 +209,26 @@ function ResultsPage({ location }) {
             disabled={selectedTaskIds.length < 2}
             href={selectedTaskIds.length >= 2 ? `/compare?tasks=${selectedTaskIds.join(',')}` : undefined}
           >Compare selected ({selectedTaskIds.length})</Button>
-          <span>Select 2–20 completed tasks to overlay measured patterns.</span>
+          <Button
+            icon={<TableOutlined />}
+            disabled={!selectedTaskIds.length}
+            href={selectedTaskIds.length ? `${URL}/tasks/table.csv?ids=${selectedTaskIds.join(',')}` : undefined}
+          >Export table ({selectedTaskIds.length})</Button>
+          <span>Select completed tasks to overlay patterns (2–20) or export their final results as CSV.</span>
           {selectedTaskIds.length > 0 && <Button type="link" onClick={() => setSelectedTaskIds([])}>Clear selection</Button>}
         </Space>
         {
           data.tasks ? (
             <Table 
               rowKey="fw_id"
+              scroll={{ x: 'max-content' }}
               dataSource={data.tasks}
               columns={columns} 
               rowSelection={{
                 selectedRowKeys: selectedTaskIds,
                 preserveSelectedRowKeys: true,
                 onChange: keys => {
-                  if (keys.length > 20) messageApi.warning('Compare up to 20 patterns at a time.');
+                  if (keys.length > 20) message.warning('Compare up to 20 patterns at a time.');
                   setSelectedTaskIds(keys.slice(0, 20));
                 },
                 getCheckboxProps: record => ({ disabled: record.state !== 'COMPLETED' }),
@@ -169,7 +238,7 @@ function ResultsPage({ location }) {
                 pageSize: limit,
                 current: page,
                 onChange: (page, pageSize) => {
-                  window.location.href = `/results?page=${page}&limit=${pageSize}` + (user ? `&user=${encodeURIComponent(user)}` : "") + (selectedTaskIds.length ? `&selected=${selectedTaskIds.join(',')}` : "")
+                  window.location.href = `/results?` + tasksQuery({ page, limit: pageSize, user, name, selected: selectedTaskIds })
                 }
             }}/>
           ) : (

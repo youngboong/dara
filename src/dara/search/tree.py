@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import time
 import warnings
+from collections.abc import Callable
 from itertools import zip_longest
 from numbers import Number
 from pathlib import Path
@@ -19,6 +21,11 @@ from dara.analysis_range import analysis_mask
 from dara.cif2str import CIF2StrError
 from dara.peak_detection import detect_peaks
 from dara.refine import RefinementPhase
+from dara.search.candidate_cost import (
+    LEGACY_SCREENING_TIMEOUT_S,
+    classify_weight,
+    estimate_reflections,
+)
 from dara.search.data_model import PeakMatchingStrategy, SearchNodeData, SearchResult
 from dara.search.peak_matcher import PeakMatcher
 from dara.settings import DaraSettings
@@ -57,6 +64,7 @@ def remote_do_refinement_no_saving(
     instrument_profile: str | Path,
     phase_params: dict[str, ...] | None,
     refinement_params: dict[str, float] | None,
+    bgmn_timeout: float | None = None,
 ) -> RefinementResult | None:
     """
     Perform the actual refinement in the remote process.
@@ -65,6 +73,7 @@ def remote_do_refinement_no_saving(
     """
     if len(cif_paths) == 0:
         return None
+    extra = {} if bgmn_timeout is None else {"bgmn_timeout": bgmn_timeout}
     try:
         result = do_refinement_no_saving(
             pattern_path,
@@ -73,6 +82,7 @@ def remote_do_refinement_no_saving(
             instrument_profile=instrument_profile,
             phase_params=phase_params,
             refinement_params=refinement_params,
+            **extra,
         )
     except (RuntimeError, TimeoutExpired, CIF2StrError, ValueError) as e:
         logger.debug(f"Refinement failed for {cif_paths}, the reason is {e}")
@@ -81,6 +91,55 @@ def remote_do_refinement_no_saving(
         logger.debug(f"Refinement failed for {cif_paths}, the reason is RPB = 100.")
         return None
     return result
+
+
+@ray.remote
+def remote_screen_refinement(
+    pattern_path: Path,
+    cif_paths: list[Path],
+    wavelength: Literal["Cu", "Co", "Cr", "Fe", "Mo"] | float,
+    instrument_profile: str | Path,
+    phase_params: dict[str, ...] | None,
+    refinement_params: dict[str, float] | None,
+    bgmn_timeout: float | None = None,
+) -> tuple:
+    """
+    Screening refinement of one candidate with an explicit BGMN time limit.
+
+    Returns ``(result | None, outcome, duration_s, reason)`` where ``outcome`` is
+    ``"ok"``, ``"timeout"`` or ``"error"``. Failures that the legacy screening
+    tolerated (``None`` results) are reported instead of being swallowed;
+    any other exception propagates exactly as before.
+    """
+    started = time.perf_counter()
+    if len(cif_paths) == 0:
+        return None, "error", 0.0, "empty_phase_list"
+    try:
+        result = do_refinement_no_saving(
+            pattern_path,
+            cif_paths,
+            wavelength=wavelength,
+            instrument_profile=instrument_profile,
+            phase_params=phase_params,
+            refinement_params=refinement_params,
+            bgmn_timeout=bgmn_timeout,
+        )
+    except TimeoutExpired as e:
+        logger.debug(f"Refinement timed out for {cif_paths}: {e}")
+        return None, "timeout", time.perf_counter() - started, f"TimeoutExpired: {str(e)[:200]}"
+    except (RuntimeError, CIF2StrError, ValueError) as e:
+        logger.debug(f"Refinement failed for {cif_paths}, the reason is {e}")
+        return (
+            None,
+            "error",
+            time.perf_counter() - started,
+            f"{type(e).__name__}: {str(e)[:200]}",
+        )
+    duration = time.perf_counter() - started
+    if result.lst_data.rpb == 100:
+        logger.debug(f"Refinement failed for {cif_paths}, the reason is RPB = 100.")
+        return None, "error", duration, "rpb_100"
+    return result, "ok", duration, None
 
 
 @ray.remote(num_cpus=1)
@@ -137,6 +196,7 @@ def batch_refinement(
     instrument_profile: str | Path = "Aeris-fds-Pixcel1d-Medipix3",
     phase_params: dict[str, ...] | None = None,
     refinement_params: dict[str, float] | None = None,
+    bgmn_timeout: float | None = None,
 ) -> list[RefinementResult]:
     handles = [
         remote_do_refinement_no_saving.options(num_cpus=BGMN_N_THREADS).remote(
@@ -146,10 +206,168 @@ def batch_refinement(
             instrument_profile=instrument_profile,
             phase_params=phase_params,
             refinement_params=refinement_params,
+            bgmn_timeout=bgmn_timeout,
         )
         for cif_paths in cif_paths
     ]
     return ray.get(handles)
+
+
+def _json_seconds(value: float | None, digits: int = 1) -> float | None:
+    return None if value is None else round(float(value), digits)
+
+
+def run_screening(
+    phases: list[RefinementPhase],
+    make_args: Callable[[RefinementPhase, float], tuple],
+    *,
+    timeouts: dict,
+    weights: dict[RefinementPhase, tuple[int | None, str]],
+    priority: dict[str, float] | None,
+    deadline: float | None,
+    submit: Callable,
+    wait: Callable,
+    get: Callable,
+    cancel: Callable,
+    now: Callable[[], float] = time.monotonic,
+    progress: Callable | None = None,
+    stage: str = "Screening reference phases",
+) -> tuple[dict, dict]:
+    """Driver-side scheduler of the screening refinements.
+
+    Submits every candidate at once (heaviest first, or by pre-filter priority
+    when a deadline is active), gives each its own BGMN time limit, collects the
+    outcomes and, once ``deadline`` has passed and at least one candidate was
+    screened successfully, cancels what is still queued. The Ray calls are
+    injected so the scheduler can be tested without a cluster.
+
+    Returns ``(results_by_phase, screening_report)``; ``results_by_phase`` has
+    the keys of ``phases`` in their original order and ``None`` for every
+    candidate without a usable result.
+    """
+    started = now()
+    total = len(phases)
+    default_timeout = float(timeouts.get("default", LEGACY_SCREENING_TIMEOUT_S))
+    heavy_timeout = float(timeouts.get("very_heavy", default_timeout))
+
+    def reflections(i: int) -> int | None:
+        return weights.get(phases[i], (None, "unknown"))[0]
+
+    def weight_class(i: int) -> str:
+        return weights.get(phases[i], (None, "unknown"))[1]
+
+    by_priority = deadline is not None and priority is not None
+    if by_priority:
+        def sort_key(i):
+            score = priority.get(phases[i].path.stem)
+            n = reflections(i)
+            return (score is None, -(score if score is not None else 0.0), n is None, -(n or 0), i)
+    else:
+        def sort_key(i):
+            n = reflections(i)
+            return (n is None, -(n or 0), i)
+    order = sorted(range(total), key=sort_key)
+
+    used_timeout: dict[int, float] = {}
+    ref_index: dict = {}
+    pending: list = []
+    for i in order:
+        t = heavy_timeout if weight_class(i) == "very_heavy" else default_timeout
+        if deadline is not None:
+            t = min(t, max(60.0, deadline - now()))
+        used_timeout[i] = t
+        ref = submit(make_args(phases[i], t), t)
+        ref_index[ref] = i
+        pending.append(ref)
+
+    results: list = [None] * total
+    outcomes: dict[int, tuple[str, float, str | None]] = {}
+    not_screened: list[int] = []
+    completed = 0
+
+    def cancel_pending(refs):
+        for ref in refs:
+            try:
+                cancel(ref)
+            except Exception:  # noqa: BLE001 - cancelling is best effort
+                logger.debug("Could not cancel a screening task.", exc_info=True)
+
+    try:
+        while pending:
+            ready, pending = wait(pending)
+            ready = list(ready)
+            pending = list(pending)
+            for position, ref in enumerate(ready):
+                try:
+                    result, outcome, duration, reason = get(ref)
+                except BaseException:
+                    cancel_pending(ready[position + 1 :])
+                    raise
+                i = ref_index[ref]
+                results[i] = result if outcome == "ok" else None
+                outcomes[i] = (outcome, float(duration or 0.0), reason)
+                completed += 1
+            if ready and progress is not None:
+                progress(stage, completed, total)
+            if (
+                pending
+                and deadline is not None
+                and now() >= deadline
+                and any(o[0] == "ok" for o in outcomes.values())
+            ):
+                cancel_pending(pending)
+                not_screened = [ref_index[ref] for ref in pending]
+                pending = []
+                break
+    except BaseException:
+        cancel_pending(pending)
+        raise
+
+    ok = sum(1 for o in outcomes.values() if o[0] == "ok")
+    timed_out = sorted(i for i, o in outcomes.items() if o[0] == "timeout")
+    failed = sorted(i for i, o in outcomes.items() if o[0] == "error")
+    durations = [o[1] for o in outcomes.values()]
+    if durations:
+        duration_summary = {
+            "median": _json_seconds(float(np.median(durations))),
+            "p90": _json_seconds(float(np.percentile(durations, 90))),
+            "max": _json_seconds(max(durations)),
+            "total_cpu": _json_seconds(sum(durations)),
+        }
+    else:
+        duration_summary = {"median": None, "p90": None, "max": None, "total_cpu": None}
+    histogram = {"light": 0, "heavy": 0, "very_heavy": 0, "unknown": 0}
+    for i in range(total):
+        histogram[weight_class(i) if weight_class(i) in histogram else "unknown"] += 1
+
+    report = {
+        "order": "priority" if by_priority else "heaviest_first",
+        "timeout_s": {"default": default_timeout, "very_heavy": heavy_timeout},
+        "timeout_source": timeouts.get("source", "legacy"),
+        "total": total,
+        "screened": ok + len(timed_out) + len(failed),
+        "ok": ok,
+        "timed_out": len(timed_out),
+        "failed": len(failed),
+        "not_screened_deadline": len(not_screened),
+        "duration_s": duration_summary,
+        "wall_s": _json_seconds(now() - started),
+        "weights": histogram,
+        "timed_out_candidates": [
+            {
+                "file": phases[i].path.name,
+                "n_reflections_est": reflections(i),
+                "weight": weight_class(i),
+                "timeout_s": _json_seconds(used_timeout[i], 0),
+            }
+            for i in timed_out[:200]
+        ],
+        "failed_candidates": [
+            {"file": phases[i].path.name, "reason": outcomes[i][2]} for i in failed[:50]
+        ],
+        "not_screened_candidates": [phases[i].path.name for i in sorted(not_screened)[:200]],
+    }
+    return {phase: results[i] for i, phase in enumerate(phases)}, report
 
 
 def calculate_fom_and_strain(
@@ -448,6 +666,7 @@ class BaseSearchTree(Tree):
         record_peak_matcher_scores: bool = False,
         peak_matching_strategy: PeakMatchingStrategy | None = None,
         *args,
+        bgmn_timeout: float | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -455,6 +674,7 @@ class BaseSearchTree(Tree):
         if peak_matching_strategy is None:
             peak_matching_strategy = PeakMatchingStrategy.default_tree()
 
+        self.bgmn_timeout = bgmn_timeout
         self.pattern_path = pattern_path
         self.rpb_threshold = rpb_threshold
         self.refinement_params = refine_params if refine_params is not None else {}
@@ -669,6 +889,7 @@ class BaseSearchTree(Tree):
         if node.data.status not in {
             "expanded",
             "max_depth",
+            "stopped",
             "similar_structure",
         }:
             raise ValueError(f"Node with id {node.identifier} is not expanded.")
@@ -682,7 +903,7 @@ class BaseSearchTree(Tree):
             for node_at_same_level in nodes_at_same_level
             if node_at_same_level.data.group_id == node.data.group_id
             and node_at_same_level.data.status
-            in {"similar_structure", "expanded", "max_depth"}
+            in {"similar_structure", "expanded", "max_depth", "stopped"}
         ]
 
         phases_at_same_level = sorted(
@@ -709,7 +930,7 @@ class BaseSearchTree(Tree):
         -------
             a tuple of the phase combinations
         """
-        if node.data.status not in {"expanded", "max_depth"}:
+        if node.data.status not in {"expanded", "max_depth", "stopped"}:
             raise ValueError(f"Node with id {node.identifier} is not expanded.")
 
         # set up the default value for the current_phases
@@ -905,6 +1126,7 @@ class BaseSearchTree(Tree):
             instrument_profile=self.instrument_profile,
             phase_params=self.phase_params,
             refinement_params=self.refinement_params,
+            bgmn_timeout=self.bgmn_timeout,
         )
 
     def _clone(self, identifier=None, with_tree=False, deep=False):
@@ -925,6 +1147,7 @@ class BaseSearchTree(Tree):
             maximum_grouping_distance=self.maximum_grouping_distance,
             pinned_phases=self.pinned_phases,
             express_mode=self.express_mode,
+            bgmn_timeout=self.bgmn_timeout,
         )
 
     @classmethod
@@ -962,6 +1185,7 @@ class BaseSearchTree(Tree):
             pinned_phases=search_tree.pinned_phases,
             record_peak_matcher_scores=search_tree.record_peak_matcher_scores,
             peak_matching_strategy=search_tree.peak_matching_strategy,
+            bgmn_timeout=getattr(search_tree, "bgmn_timeout", None),
         )
         new_search_tree.add_node(root_node)
 
@@ -1025,6 +1249,10 @@ class SearchTree(BaseSearchTree):
         record_peak_matcher_scores: bool = False,
         peak_matching_strategy: PeakMatchingStrategy | None = None,
         *args,
+        screening_timeouts: dict | None = None,
+        screening_deadline: float | None = None,
+        screening_priority: dict[str, float] | None = None,
+        expansion_bgmn_timeout: float | None = None,
         **kwargs,
     ):
         pattern_path = Path(pattern_path)
@@ -1077,8 +1305,23 @@ class SearchTree(BaseSearchTree):
             record_peak_matcher_scores,
             peak_matching_strategy,
             *args,
+            bgmn_timeout=expansion_bgmn_timeout,
             **kwargs,
         )
+
+        # Screening options: plain values only (never ObjectRefs or callables).
+        self.screening_timeouts = (
+            dict(screening_timeouts)
+            if screening_timeouts is not None
+            else {
+                "default": float(LEGACY_SCREENING_TIMEOUT_S),
+                "very_heavy": float(LEGACY_SCREENING_TIMEOUT_S),
+                "source": "legacy",
+            }
+        )
+        self.screening_deadline = screening_deadline
+        self.screening_priority = screening_priority
+        self.screening_report = {}
 
         # side effect: if enable_angular_cut is set to True (default),
         # sets self.peak_obs and self.refinement_params["wmax"] in the function
@@ -1221,10 +1464,7 @@ class SearchTree(BaseSearchTree):
         cif_paths = [
             cif_path for cif_path in self.cif_paths if cif_path not in pinned_phases_set
         ]
-        all_phases_result = self.refine_phases(
-            cif_paths,
-            pinned_phases=self.pinned_phases,
-        )
+        all_phases_result = self._screen_phases(cif_paths)
 
         # adjust the initial value of eps1 based on the weighted average of all the phases
         if not isinstance(self.refinement_params.get("eps1", 0), Number):
@@ -1321,6 +1561,48 @@ class SearchTree(BaseSearchTree):
 
         return all_phases_result
 
+    def _screen_phases(
+        self, phases: list[RefinementPhase]
+    ) -> dict[RefinementPhase, RefinementResult | None]:
+        """Screen every candidate (one refinement each) with per-candidate time limits."""
+        from dara.task_progress import report_progress
+
+        two_theta_max = self.refinement_params.get("wmax") or 90
+        weights = {}
+        for phase in phases:
+            n_reflections = estimate_reflections(phase.path, self.wavelength, two_theta_max)
+            weights[phase] = (n_reflections, classify_weight(n_reflections))
+
+        pinned = list(self.pinned_phases)
+
+        def make_args(phase, timeout):
+            return (
+                self.pattern_path,
+                [*pinned, phase],
+                self.wavelength,
+                self.instrument_profile,
+                self.phase_params,
+                self.refinement_params,
+            )
+
+        results, report = run_screening(
+            phases,
+            make_args,
+            timeouts=self.screening_timeouts,
+            weights=weights,
+            priority=self.screening_priority,
+            deadline=self.screening_deadline,
+            submit=lambda args, timeout: remote_screen_refinement.options(
+                num_cpus=BGMN_N_THREADS
+            ).remote(*args, bgmn_timeout=timeout),
+            wait=lambda refs: ray.wait(refs, num_returns=len(refs), timeout=1.0),
+            get=ray.get,
+            cancel=lambda ref: ray.cancel(ref, force=False),
+            progress=report_progress,
+        )
+        self.screening_report = report
+        return results
+
     def get_search_results(self) -> list[SearchResult]:
         """
         Get the search results.
@@ -1336,8 +1618,8 @@ class SearchTree(BaseSearchTree):
         for node in self.nodes.values():
             if node.data.current_result is None:
                 continue
-            if node.data.status in {"expanded", "max_depth"} and all(
-                child.data.status not in {"expanded", "max_depth"}
+            if node.data.status in {"expanded", "max_depth", "stopped"} and all(
+                child.data.status not in {"expanded", "max_depth", "stopped"}
                 for child in self.children(node.identifier)
             ):
                 (

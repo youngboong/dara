@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xrdMeasurements xmlns="http://www.xrdml.com/XRDMeasurement/2.2" status="Completed">
+  <xrdMeasurement measurementType="Scan" status="Completed">
+    <usedWavelength intended="K-Alpha 1"><kAlpha1 unit="Angstrom">1.5405980</kAlpha1></usedWavelength>
+    <scan appendNumber="0" mode="Continuous" scanAxis="Gonio" status="Completed">
+      <dataPoints>
+        <positions axis="2Theta" unit="deg">
+          <listPositions>10.0000 10.5500 11.0000 11.5500 12.0000 12.5500 13.0000 13.5500 14.0000 14.5500 15.0000 15.5500 16.0000 16.5500 17.0000 17.5500 18.0000 18.5500 19.0000 19.5500 20.0000 20.5500 21.0000 21.5500 22.0000 22.5500 23.0000 23.5500 24.0000 24.5500</listPositions>
+        </positions>
+        <intensities unit="counts per second">10.000 9.890 9.800 9.690 9.600 9.509 9.709 13.604 29.148 69.477 89.000 61.446 28.748 11.534 8.909 8.510 8.574 10.717 19.421 42.058 53.000 37.453 19.021 9.290 7.774 7.495 7.400 7.290 7.200 7.090</intensities>
+      </dataPoints>
+    </scan>
+  </xrdMeasurement>
+</xrdMeasurements>

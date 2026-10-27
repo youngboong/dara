@@ -23,6 +23,7 @@ You'll see the main interface with navigation options:
 
 - **Submit**: Upload and analyze new XRD patterns
 - **Results**: Browse all submitted analyses
+- **Series**: Analyse several patterns (for example a temperature series) together and plot trends
 - **Tutorial**: A short tutorial as you are reading.
 - **Documentation**: The documentation for the Dara package.
 
@@ -141,6 +142,24 @@ The analysis typically provides several possible solutions ranked by fit quality
 1. **Best Solution**: Lowest Rwp value
 2. **Alternative Solutions**: Other plausible phase combinations
 3. **Comparison**: Easy switching between different interpretations
+
+<h2 id="result-confidence">Result confidence</h2>
+
+Completed results show an evidence-based assessment next to the refinement:
+
+- A **banner** gives the overall level (High confidence, Check recommended, or Expert review recommended) and the reasons for it.
+- Each refined phase has a **verdict** (Confident, Ambiguous, or Weak evidence). Hover over it to see the evidence: how many candidate models contain the phase, its weight fraction relative to its uncertainty, the best candidate without the phase, and a Hamilton significance test.
+- A **specimen displacement** tag shows the refined displacement of the sample surface.
+
+The assessment describes what the data support. It is not a statement that a result is right or wrong, and weight fractions are relative to the modelled crystalline phases. Older results do not carry an assessment.
+
+## Series
+
+Switch on "Submit as a series" on the Submit page to analyse 2 to 50 patterns with identical settings. A temperature, time or similar variable in the file names (for example `ZnO_300C_60min.xy`) is used to order the samples and to label the x axis. The Series page tracks progress and plots phase fractions, lattice parameters, and Rwp/GOF against the variable.
+
+## Figures and exports
+
+Use "Figure (PNG)" or "Figure (SVG)" on a result for a publication-style refinement figure, and "Export for..." to create starting models for Profex/BGMN, TOPAS, GSAS-II or HighScore.
 
 ## Advanced Features
 

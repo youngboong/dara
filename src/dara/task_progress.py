@@ -24,8 +24,17 @@ def report_progress(stage, completed=None, total=None):
     if directory is None:
         return
     directory.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc).isoformat()
+    started = now
+    try:
+        # Keep the start time while the stage is unchanged (best effort).
+        previous = json.loads((directory / "progress.json").read_text(encoding="utf-8"))
+        if previous.get("stage") == stage and previous.get("stage_started_at"):
+            started = previous["stage_started_at"]
+    except (OSError, ValueError, AttributeError):
+        pass
     data = {"stage": stage, "completed": completed, "total": total,
-            "updated_at": datetime.now(timezone.utc).isoformat()}
+            "updated_at": now, "stage_started_at": started}
     temporary = directory / "progress.tmp"
     temporary.write_text(json.dumps(data), encoding="utf-8")
     temporary.replace(directory / "progress.json")

@@ -1,0 +1,14 @@
+{
+ "settings": {
+  "sets": [
+   "pairwise_reactions"
+  ],
+  "use_mp": true,
+  "mp_lattice_window": true,
+  "cif_validation": true
+ },
+ "dara_version": "1.3.0",
+ "bgmn_version": "4.2.23",
+ "started": "2026-01-01T00:00:00+00:00",
+ "ended": "2026-01-01T00:10:00+00:00"
+}

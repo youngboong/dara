@@ -1,0 +1,1452 @@
+{
+ "schema": 1,
+ "set": "pairwise_reactions",
+ "description": "20 binary-reaction products (A-Lab, Aeris, Cu K-alpha, 8-min scans). Phases and wt% from expert manual Rietveld refinements; wt% are relative to identified crystalline phases.",
+ "aliases": {},
+ "samples": [
+  {
+   "id": "2Fe3O4-3Y2O3_1000C_60min",
+   "pattern": "dataset/binary_reactions/2Fe3O4-3Y2O3_1000C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Fe3O4",
+     "Y2O3"
+    ],
+    "elements": [
+     "Fe",
+     "O",
+     "Y"
+    ],
+    "temperature_c": 1000,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "Y2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 39.714,
+     "lattice": {
+      "a": 10.606745
+     },
+     "required": true,
+     "source_label": "Y2O3",
+     "source_reference": "Y2O3 Ia-3 PDF Card - 01-084-3897.str",
+     "note": ""
+    },
+    {
+     "formula": "Fe2O3",
+     "spacegroup": 167,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 28.877,
+     "lattice": {
+      "a": 5.03785,
+      "c": 13.746627
+     },
+     "required": true,
+     "source_label": "Fe2O3",
+     "source_reference": "Fe2O3 R-3c primary PDF Card - 00-033-0664.str",
+     "note": ""
+    },
+    {
+     "formula": "YFeO3",
+     "spacegroup": 62,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 31.41,
+     "lattice": {
+      "a": 5.597226,
+      "b": 7.602955,
+      "c": 5.282725
+     },
+     "required": true,
+     "source_label": "YFeO3",
+     "source_reference": "YFeO3 primary Pnma PDF Card - 04-016-8958.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 3.07,
+    "rexp": 2.06,
+    "gof": 1.49,
+    "durbin_watson": 1.02,
+    "sample_displacement_mm": -0.3675255,
+    "sample_displacement_mm_esd": 0.002241295
+   },
+   "human_products": "Y2O3, Fe2O3, YFeO3",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "2FeC2O4(H2O)2-Y2O3_200C_60min",
+   "pattern": "dataset/binary_reactions/2FeC2O4(H2O)2-Y2O3_200C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "FeC2O4(H2O)2",
+     "Y2O3"
+    ],
+    "elements": [
+     "C",
+     "Fe",
+     "H",
+     "O",
+     "Y"
+    ],
+    "temperature_c": 200,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "FeC2O4(H2O)2",
+     "spacegroup": 15,
+     "spacegroup_any_of": [],
+     "accept_any_of": [
+      "FeH4C2O6"
+     ],
+     "wt_percent": 61.904,
+     "lattice": {
+      "a": 12.016149,
+      "b": 5.557162,
+      "c": 9.71486,
+      "beta": 127.0415
+     },
+     "required": true,
+     "source_label": "FeC2O4(H2O)2",
+     "source_reference": "FeC2O4(H2O)2 C2onc PDF Card - 01-091-0997.str",
+     "note": ""
+    },
+    {
+     "formula": "Y2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 38.096,
+     "lattice": {
+      "a": 10.608613
+     },
+     "required": true,
+     "source_label": "Y2O3 Ia-3",
+     "source_reference": "Y2O3 Ia-3 PDF Card - 01-084-3897.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 3.98,
+    "rexp": 1.52,
+    "gof": 2.62,
+    "durbin_watson": 0.32,
+    "sample_displacement_mm": -0.5093379,
+    "sample_displacement_mm_esd": 0.001859666
+   },
+   "human_products": "Y2O3, FeH4C2O6",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "Bi2O3-2MoO3_400C_60min",
+   "pattern": "dataset/binary_reactions/Bi2O3-2MoO3_400C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Bi2O3",
+     "MoO3"
+    ],
+    "elements": [
+     "Bi",
+     "Mo",
+     "O"
+    ],
+    "temperature_c": 400,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "MoO3",
+     "spacegroup": 62,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 40.49,
+     "lattice": {
+      "a": 3.962631,
+      "b": 13.857231,
+      "c": 3.697163
+     },
+     "required": true,
+     "source_label": "Molybdite Pbnm ICSD",
+     "source_reference": "MoO3 Pbnm_62 293K 1atm ICSD_CollCode166362.cif",
+     "note": ""
+    },
+    {
+     "formula": "Bi2O3",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 38.052,
+     "lattice": {
+      "a": 5.850882,
+      "b": 8.164364,
+      "c": 7.509933,
+      "beta": 112.9731
+     },
+     "required": true,
+     "source_label": "Bismite P121/c1 ICSD",
+     "source_reference": "Bi2O3 P121onc1_14 RT 1atm ICSD_CollCode15072.cif",
+     "note": ""
+    },
+    {
+     "formula": "Bi2Mo3O12",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 21.458,
+     "lattice": {
+      "a": 7.67975,
+      "b": 11.520444,
+      "c": 11.942421,
+      "beta": 114.8389
+     },
+     "required": true,
+     "source_label": "Bi2(MoO4)3 P121/c1 ICSD",
+     "source_reference": "Bi2(MoO4)3 P121onc1_14 RT 1atm ICSD_CollCode2650.cif",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 8.2,
+    "rexp": 2.79,
+    "gof": 2.93,
+    "durbin_watson": 0.28,
+    "sample_displacement_mm": -0.5109658,
+    "sample_displacement_mm_esd": 0.0007933964
+   },
+   "human_products": "Bi2O3, MoO3, Bi2Mo3O12",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "Bi2O3-Nb2O5_500C_60min",
+   "pattern": "dataset/binary_reactions/Bi2O3-Nb2O5_500C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Bi2O3",
+     "Nb2O5"
+    ],
+    "elements": [
+     "Bi",
+     "Nb",
+     "O"
+    ],
+    "temperature_c": 500,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "Bi2O3",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 52.575,
+     "lattice": {
+      "a": 5.85209,
+      "b": 8.167345,
+      "c": 7.51506,
+      "beta": 112.9925
+     },
+     "required": true,
+     "source_label": "Bismuth Oxide",
+     "source_reference": "Bi2O3 P12onc_14 PDF Card - 04-016-7495.str",
+     "note": ""
+    },
+    {
+     "formula": "Nb2O5",
+     "spacegroup": null,
+     "spacegroup_any_of": [],
+     "accept_any_of": [
+      "Nb16.8O42",
+      "Nb12O29"
+     ],
+     "wt_percent": 47.425,
+     "lattice": {
+      "a": 6.17311,
+      "b": 29.267528,
+      "c": 3.932291
+     },
+     "required": true,
+     "source_label": "Nb16.8 O42 ICSD",
+     "source_reference": "Nb16p8O42 Pbam_55 RT 1atm ICSD_CollCode1840.cif",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": true,
+   "fully_indexed": false,
+   "reference_fit": {
+    "rwp": 7.8,
+    "rexp": 3.26,
+    "gof": 2.39,
+    "durbin_watson": 0.39,
+    "sample_displacement_mm": 0.02635238,
+    "sample_displacement_mm_esd": 0.002287074
+   },
+   "human_products": "Bi2O3, Nb2O5, unknown phase",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "Bi2O3-V2O5_400C_60min",
+   "pattern": "dataset/binary_reactions/Bi2O3-V2O5_400C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Bi2O3",
+     "V2O5"
+    ],
+    "elements": [
+     "Bi",
+     "O",
+     "V"
+    ],
+    "temperature_c": 400,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "Bi2O3",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 59.032,
+     "lattice": {
+      "a": 5.850181,
+      "b": 8.167825,
+      "c": 7.511905,
+      "beta": 112.9745
+     },
+     "required": true,
+     "source_label": "Bismuth Oxide",
+     "source_reference": "Bi2O3 P12onc_14 PDF Card - 04-016-7495.str",
+     "note": ""
+    },
+    {
+     "formula": "BiVO4",
+     "spacegroup": 88,
+     "spacegroup_any_of": [
+      88,
+      15
+     ],
+     "accept_any_of": [],
+     "wt_percent": 10.451,
+     "lattice": {
+      "a": 5.146807,
+      "c": 11.731301
+     },
+     "required": true,
+     "source_label": "Bismuth Vanadate",
+     "source_reference": "BiVO4 I41ona_88 high pressure PDF Card - 04-008-8593.str",
+     "note": ""
+    },
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 30.517,
+     "lattice": {
+      "a": 11.512344,
+      "b": 3.563619,
+      "c": 4.37317
+     },
+     "required": true,
+     "source_label": "Shcherbinaite, syn",
+     "source_reference": "V2O5 Pnmm_59 or Pmmn_59 PDF Card - 00-041-1426.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 7.68,
+    "rexp": 3.08,
+    "gof": 2.5,
+    "durbin_watson": 0.38,
+    "sample_displacement_mm": -0.5481627,
+    "sample_displacement_mm_esd": 0.0005835237
+   },
+   "human_products": "Bi2O3, V2O5, VBiO4",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "CaCO3-NH4H2PO4_200C_60min",
+   "pattern": "dataset/binary_reactions/CaCO3-NH4H2PO4_200C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "CaCO3",
+     "NH4H2PO4"
+    ],
+    "elements": [
+     "C",
+     "Ca",
+     "H",
+     "N",
+     "O",
+     "P"
+    ],
+    "temperature_c": 200,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "CaCO3",
+     "spacegroup": 167,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 100.0,
+     "lattice": {
+      "a": 4.990768,
+      "c": 17.073773
+     },
+     "required": true,
+     "source_label": "Calcium Carbonate",
+     "source_reference": "CaCO3 R-3cH_167 PDF Card - 01-086-5298",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": true,
+   "fully_indexed": false,
+   "reference_fit": {
+    "rwp": 8.64,
+    "rexp": 3.34,
+    "gof": 2.59,
+    "durbin_watson": 0.33,
+    "sample_displacement_mm": -0.5744011,
+    "sample_displacement_mm_esd": 0.001179429
+   },
+   "human_products": "CaCO3, unknown phase",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "CoO-WO3_900C_60min",
+   "pattern": "dataset/binary_reactions/CoO-WO3_900C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "CoO",
+     "WO3"
+    ],
+    "elements": [
+     "Co",
+     "O",
+     "W"
+    ],
+    "temperature_c": 900,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "CoWO4",
+     "spacegroup": 13,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 31.566,
+     "lattice": {
+      "a": 4.669774,
+      "b": 5.685296,
+      "c": 4.952135,
+      "beta": 89.98233
+     },
+     "required": true,
+     "source_label": "Cobalt Tungstate",
+     "source_reference": "CoWO4_P2onc_13_PDF Card - 01-072-0479.str",
+     "note": ""
+    },
+    {
+     "formula": "WO3",
+     "spacegroup": 14,
+     "spacegroup_any_of": [
+      14,
+      2
+     ],
+     "accept_any_of": [],
+     "wt_percent": 68.434,
+     "lattice": {
+      "a": 7.30863,
+      "b": 7.53751,
+      "c": 7.695441,
+      "beta": 90.7621
+     },
+     "required": true,
+     "source_label": "Liguowuite, syn",
+     "source_reference": "WO3_P21onn_14_PDF Card - 01-083-0950.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 8.66,
+    "rexp": 3.28,
+    "gof": 2.64,
+    "durbin_watson": 0.31,
+    "sample_displacement_mm": -0.2213028,
+    "sample_displacement_mm_esd": 0.002105679
+   },
+   "human_products": "CoWO4, WO3",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "CoO-ZnO_1100C_60min",
+   "pattern": "dataset/binary_reactions/CoO-ZnO_1100C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "CoO",
+     "ZnO"
+    ],
+    "elements": [
+     "Co",
+     "O",
+     "Zn"
+    ],
+    "temperature_c": 1100,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 50.472,
+     "lattice": {
+      "a": 3.253998,
+      "c": 5.20315
+     },
+     "required": true,
+     "source_label": "Zinc Oxide",
+     "source_reference": "ZnO_P63mc_186_PDF Card - 04-013-6608.str",
+     "note": ""
+    },
+    {
+     "formula": "ZnCo2O4",
+     "spacegroup": 227,
+     "spacegroup_any_of": [],
+     "accept_any_of": [
+      "Co3O4"
+     ],
+     "wt_percent": 49.528,
+     "lattice": {
+      "a": 8.086678
+     },
+     "required": true,
+     "source_label": "Zinc Cobalt Oxide",
+     "source_reference": "ZnCo2O4_Fd-3m_227_PDF Card - 00-023-1390.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 1.73,
+    "rexp": 1.37,
+    "gof": 1.26,
+    "durbin_watson": 1.28,
+    "sample_displacement_mm": -0.4005507,
+    "sample_displacement_mm_esd": 0.002181144
+   },
+   "human_products": "ZnO, Co3O4",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "Cr2O3-2MnO_1100C_60min",
+   "pattern": "dataset/binary_reactions/Cr2O3-2MnO_1100C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Cr2O3",
+     "MnO"
+    ],
+    "elements": [
+     "Cr",
+     "Mn",
+     "O"
+    ],
+    "temperature_c": 1100,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "MnCr2O4",
+     "spacegroup": 227,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 100.0,
+     "lattice": {
+      "a": 8.453201
+     },
+     "required": true,
+     "source_label": "Manganochromite, syn",
+     "source_reference": "Cr2MnO4_Fd-3m_227_PDF Card - 04-005-7231.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 2.81,
+    "rexp": 2.01,
+    "gof": 1.4,
+    "durbin_watson": 1.05,
+    "sample_displacement_mm": -0.5053881,
+    "sample_displacement_mm_esd": 0.0007494743
+   },
+   "human_products": "MnCr2O4",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "Cr2O3-2PbO_500C_60min",
+   "pattern": "dataset/binary_reactions/Cr2O3-2PbO_500C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Cr2O3",
+     "PbO"
+    ],
+    "elements": [
+     "Cr",
+     "O",
+     "Pb"
+    ],
+    "temperature_c": 500,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "Pb2CrO5",
+     "spacegroup": 12,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 87.156,
+     "lattice": {
+      "a": 14.005485,
+      "b": 5.681348,
+      "c": 7.144031,
+      "beta": 115.258
+     },
+     "required": true,
+     "source_label": "Lead Oxide Chromate",
+     "source_reference": "Pb2CrO5_C2onm_12_PDF Card - 04-010-3858.str",
+     "note": ""
+    },
+    {
+     "formula": "PbCrO4",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 12.844,
+     "lattice": {
+      "a": 6.802904,
+      "b": 7.439003,
+      "c": 7.126984,
+      "beta": 102.554
+     },
+     "required": true,
+     "source_label": "PbCrO4",
+     "source_reference": "PbCrO4 P121onn1_14 298K 1atm ICSD_CollCode140083.cif",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": true,
+   "fully_indexed": false,
+   "reference_fit": {
+    "rwp": 10.06,
+    "rexp": 2.83,
+    "gof": 3.55,
+    "durbin_watson": 0.19,
+    "sample_displacement_mm": -0.5211683,
+    "sample_displacement_mm_esd": 0.0008346847
+   },
+   "human_products": "CrPbO4, Pb2CrO5, unknown phase",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "Cr2O3-2ZnO_1100C_60min",
+   "pattern": "dataset/binary_reactions/Cr2O3-2ZnO_1100C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Cr2O3",
+     "ZnO"
+    ],
+    "elements": [
+     "Cr",
+     "O",
+     "Zn"
+    ],
+    "temperature_c": 1100,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "ZnCr2O4",
+     "spacegroup": 227,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 75.033,
+     "lattice": {
+      "a": 8.328489
+     },
+     "required": true,
+     "source_label": "Zincochromite",
+     "source_reference": "ZnCr2O4_Fd-3mZ_sg227_296K_ICSD_CollCode50047.cif",
+     "note": ""
+    },
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 24.967,
+     "lattice": {
+      "a": 3.24982,
+      "c": 5.206162
+     },
+     "required": true,
+     "source_label": "Zinc Oxide",
+     "source_reference": "ZnO_P63mc_186_PDF Card - 04-013-6608.cif",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 4.21,
+    "rexp": 2.73,
+    "gof": 1.54,
+    "durbin_watson": 0.93,
+    "sample_displacement_mm": -0.5193902,
+    "sample_displacement_mm_esd": 0.000605043
+   },
+   "human_products": "ZnCr2O4, ZnO",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "Cr2O3-V2O5_400C_60min",
+   "pattern": "dataset/binary_reactions/Cr2O3-V2O5_400C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Cr2O3",
+     "V2O5"
+    ],
+    "elements": [
+     "Cr",
+     "O",
+     "V"
+    ],
+    "temperature_c": 400,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [
+      "V2Cr0.11O5.16"
+     ],
+     "wt_percent": 54.153,
+     "lattice": {
+      "a": 11.508582,
+      "b": 3.563221,
+      "c": 4.372078
+     },
+     "required": true,
+     "source_label": "Vanadium Chromium Oxide",
+     "source_reference": "V2 Cr0p11 O5p16 Pnmm_59 PDF Card - 04-012-6937.str",
+     "note": ""
+    },
+    {
+     "formula": "Cr2O3",
+     "spacegroup": 167,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 45.847,
+     "lattice": {
+      "a": 4.957948,
+      "c": 13.595321
+     },
+     "required": true,
+     "source_label": "Chromium Oxide",
+     "source_reference": "Cr2O3 R-3c_167 PDF Card - 04-008-7629.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 5.57,
+    "rexp": 3.26,
+    "gof": 1.71,
+    "durbin_watson": 0.72,
+    "sample_displacement_mm": -0.3236697,
+    "sample_displacement_mm_esd": 0.004488339
+   },
+   "human_products": "V2O5, Cr2O3",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "CuO-MnO_800C_60min",
+   "pattern": "dataset/binary_reactions/CuO-MnO_800C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "CuO",
+     "MnO"
+    ],
+    "elements": [
+     "Cu",
+     "Mn",
+     "O"
+    ],
+    "temperature_c": 800,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "CuMn2O4",
+     "spacegroup": 227,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 54.36,
+     "lattice": {
+      "a": 8.285552
+     },
+     "required": true,
+     "source_label": "CuMn2O4",
+     "source_reference": "CuMn2O4 Fd-3m_227 PDF Card - 04-005-6874.str",
+     "note": ""
+    },
+    {
+     "formula": "CuO",
+     "spacegroup": 15,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 28.917,
+     "lattice": {
+      "a": 4.689855,
+      "b": 3.423223,
+      "c": 5.131845,
+      "beta": 99.38242
+     },
+     "required": true,
+     "source_label": "Tenorite, syn",
+     "source_reference": "CuO A2ona_15 PDF Card - 04-006-2679.str",
+     "note": ""
+    },
+    {
+     "formula": "Mn2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 16.722,
+     "lattice": {
+      "a": 9.381759
+     },
+     "required": true,
+     "source_label": "Bixbyite-(Mn), C, syn",
+     "source_reference": "Mn2O3 Ia-3_206 PDF Card - 00-041-1442.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 2.27,
+    "rexp": 1.7,
+    "gof": 1.34,
+    "durbin_watson": 1.18,
+    "sample_displacement_mm": -0.5050701,
+    "sample_displacement_mm_esd": 0.001351635
+   },
+   "human_products": "Mn2CuO4, CuO, Mn2O3",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "Fe2O3-2TiO2_1000C_60min",
+   "pattern": "dataset/binary_reactions/Fe2O3-2TiO2_1000C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Fe2O3",
+     "TiO2"
+    ],
+    "elements": [
+     "Fe",
+     "O",
+     "Ti"
+    ],
+    "temperature_c": 1000,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "Fe2TiO5",
+     "spacegroup": 63,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 26.842,
+     "lattice": {
+      "a": 9.786599,
+      "b": 3.728976,
+      "c": 9.97672
+     },
+     "required": true,
+     "source_label": "Pseudobrookite, syn",
+     "source_reference": "TiFe2O5 ccmm_63 PDF Card - 04-002-2494.str",
+     "note": ""
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": 136,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 73.158,
+     "lattice": {
+      "a": 4.593978,
+      "c": 2.959711
+     },
+     "required": true,
+     "source_label": "Rutile, syn",
+     "source_reference": "TiO2 P42onmnm_136 PDF Card - 04-005-4625.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 3.02,
+    "rexp": 2.28,
+    "gof": 1.32,
+    "durbin_watson": 1.16,
+    "sample_displacement_mm": -0.472209,
+    "sample_displacement_mm_esd": 0.001655775
+   },
+   "human_products": "TiFe2O5, TiO2",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "Fe2O3-Nb2O5_900C_60min",
+   "pattern": "dataset/binary_reactions/Fe2O3-Nb2O5_900C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Fe2O3",
+     "Nb2O5"
+    ],
+    "elements": [
+     "Fe",
+     "Nb",
+     "O"
+    ],
+    "temperature_c": 900,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "Fe2O3",
+     "spacegroup": 167,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 18.673,
+     "lattice": {
+      "a": 5.036243,
+      "c": 13.759197
+     },
+     "required": true,
+     "source_label": "Hematite",
+     "source_reference": "Fe2O3_R-3cH_sg167_293K_ICSD_CollCode184766.cif",
+     "note": ""
+    },
+    {
+     "formula": "FeNbO4",
+     "spacegroup": 13,
+     "spacegroup_any_of": [
+      13,
+      60
+     ],
+     "accept_any_of": [
+      "Fe0.95Nb1.03O4"
+     ],
+     "wt_percent": 46.378,
+     "lattice": {
+      "a": 4.649311,
+      "b": 5.620091,
+      "c": 4.999722,
+      "beta": 89.90466
+     },
+     "required": true,
+     "source_label": "Fe0p95Nb1p03O4_P12onc1_sg13_2103K_ICSD_CollCode6121.cif",
+     "source_reference": "Fe0p95Nb1p03O4_P12onc1_sg13_2103K_ICSD_CollCode6121.cif",
+     "note": ""
+    },
+    {
+     "formula": "Nb2O5",
+     "spacegroup": null,
+     "spacegroup_any_of": [],
+     "accept_any_of": [
+      "Nb12O29"
+     ],
+     "wt_percent": 34.95,
+     "lattice": {
+      "a": 15.621242,
+      "b": 3.828407,
+      "c": 20.626482,
+      "beta": 113.292
+     },
+     "required": true,
+     "source_label": "Nb12O29",
+     "source_reference": "Nb12O29_A1m1_sg8_2K_ICSD_CollCode155017.cif",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 2.71,
+    "rexp": 1.88,
+    "gof": 1.45,
+    "durbin_watson": 1.03,
+    "sample_displacement_mm": -0.5481898,
+    "sample_displacement_mm_esd": 0.001749605
+   },
+   "human_products": "NbFeO4, Nb2O5, Fe2O3",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "Fe3O4-3SrCO3_900C_60min",
+   "pattern": "dataset/binary_reactions/Fe3O4-3SrCO3_900C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Fe3O4",
+     "SrCO3"
+    ],
+    "elements": [
+     "C",
+     "Fe",
+     "O",
+     "Sr"
+    ],
+    "temperature_c": 900,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "SrCO3",
+     "spacegroup": 62,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 14.992,
+     "lattice": {
+      "a": 5.105064,
+      "b": 8.411304,
+      "c": 6.026544
+     },
+     "required": true,
+     "source_label": "Strontianite",
+     "source_reference": "SrCO3 Pmcn_62 or Pnam_62 PDF Card - 04-019-1397.str",
+     "note": ""
+    },
+    {
+     "formula": "Sr8Fe8O23",
+     "spacegroup": null,
+     "spacegroup_any_of": [],
+     "accept_any_of": [
+      "SrFeO2.6",
+      "SrFeO3",
+      "SrFeO2.5",
+      "Sr4Fe4O11",
+      "SrFeO2.75"
+     ],
+     "wt_percent": 85.008,
+     "lattice": {
+      "a": 3.861134,
+      "c": 3.870223
+     },
+     "required": true,
+     "source_label": "Strontium Iron Oxide",
+     "source_reference": "SrFeO2p6 P4onmmm_123 PDF Card - 00-072-0529.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": true,
+   "fully_indexed": false,
+   "reference_fit": {
+    "rwp": 3.54,
+    "rexp": 1.66,
+    "gof": 2.14,
+    "durbin_watson": 0.48,
+    "sample_displacement_mm": -0.5519929,
+    "sample_displacement_mm_esd": 0.001441554
+   },
+   "human_products": "Sr8Fe8O23, SrCO3, unknown phase",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "Fe3O4-3ZnO_1000C_60min",
+   "pattern": "dataset/binary_reactions/Fe3O4-3ZnO_1000C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Fe3O4",
+     "ZnO"
+    ],
+    "elements": [
+     "Fe",
+     "O",
+     "Zn"
+    ],
+    "temperature_c": 1000,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 31.052,
+     "lattice": {
+      "a": 3.250138,
+      "c": 5.205705
+     },
+     "required": true,
+     "source_label": "Zinc Oxide",
+     "source_reference": "ZnO_P63mc_186_PDF Card - 04-013-6608.str",
+     "note": ""
+    },
+    {
+     "formula": "ZnFe2O4",
+     "spacegroup": 227,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 68.948,
+     "lattice": {
+      "a": 8.439458
+     },
+     "required": true,
+     "source_label": "Zinc Iron Oxide",
+     "source_reference": "ZnFe2O4 Fd-3m_227 PDF Card - 04-014-7767.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 2.63,
+    "rexp": 1.73,
+    "gof": 1.52,
+    "durbin_watson": 0.91,
+    "sample_displacement_mm": -0.4864855,
+    "sample_displacement_mm_esd": 0.0009031067
+   },
+   "human_products": "ZnFe2O4, ZnO",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "GeO2-ZnO_700C_60min",
+   "pattern": "dataset/binary_reactions/GeO2-ZnO_700C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "GeO2",
+     "ZnO"
+    ],
+    "elements": [
+     "Ge",
+     "O",
+     "Zn"
+    ],
+    "temperature_c": 700,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 31.783,
+     "lattice": {
+      "a": 3.249969,
+      "c": 5.206634
+     },
+     "required": true,
+     "source_label": "Zinc Oxide",
+     "source_reference": "ZnO_P63mc_186_PDF Card - 04-013-6608.cif",
+     "note": ""
+    },
+    {
+     "formula": "GeO2",
+     "spacegroup": 152,
+     "spacegroup_any_of": [
+      152,
+      154
+     ],
+     "accept_any_of": [],
+     "wt_percent": 46.906,
+     "lattice": {
+      "a": 4.989584,
+      "c": 5.647097
+     },
+     "required": true,
+     "source_label": "Germanium Oxide",
+     "source_reference": "GeO2 P3121_152 PDF Card - 04-008-7663.str",
+     "note": ""
+    },
+    {
+     "formula": "Zn2GeO4",
+     "spacegroup": 148,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 21.311,
+     "lattice": {
+      "a": 14.230653,
+      "c": 9.520695
+     },
+     "required": true,
+     "source_label": "Zinc Germanium Oxide",
+     "source_reference": "Zn2GeO4 R-3_148 hexagonal PDF Card - 04-018-3891.str",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 8.02,
+    "rexp": 2.54,
+    "gof": 3.16,
+    "durbin_watson": 0.23,
+    "sample_displacement_mm": -0.4943586,
+    "sample_displacement_mm_esd": 0.0004907181
+   },
+   "human_products": "GeO2, ZnO, Zn2GeO4",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "NH4H2PO4-Na2CO3_200C_60min",
+   "pattern": "dataset/binary_reactions/NH4H2PO4-Na2CO3_200C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "NH4H2PO4",
+     "Na2CO3"
+    ],
+    "elements": [
+     "C",
+     "H",
+     "N",
+     "Na",
+     "O",
+     "P"
+    ],
+    "temperature_c": 200,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "Na2HPO4",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 52.664,
+     "lattice": {
+      "a": 5.454395,
+      "b": 6.853541,
+      "c": 10.954519,
+      "beta": 116.4015
+     },
+     "required": true,
+     "source_label": "Nahpoite, syn",
+     "source_reference": "Na2HPO4 P21onc_14 PDF Card - 04-012-2107.str",
+     "note": ""
+    },
+    {
+     "formula": "Na4P2O7",
+     "spacegroup": 19,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 47.336,
+     "lattice": {
+      "a": 5.395403,
+      "b": 9.364327,
+      "c": 13.49946
+     },
+     "required": true,
+     "source_label": "Na4P2O7",
+     "source_reference": "Na4P2O7_P212121_sg19_284K_ICSD_CollCode36479.cif",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 6.16,
+    "rexp": 2.8,
+    "gof": 2.2,
+    "durbin_watson": 0.46,
+    "sample_displacement_mm": -0.4824476,
+    "sample_displacement_mm_esd": 0.0006463841
+   },
+   "human_products": "Na4P2O7, Na2PHO4",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  },
+  {
+   "id": "V2O5-2ZnO_400C_60min",
+   "pattern": "dataset/binary_reactions/V2O5-2ZnO_400C_60min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "ZnO"
+    ],
+    "elements": [
+     "O",
+     "V",
+     "Zn"
+    ],
+    "temperature_c": 400,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 37.788,
+     "lattice": {
+      "a": 3.250769,
+      "c": 5.2078
+     },
+     "required": true,
+     "source_label": "Zinc Oxide",
+     "source_reference": "ZnO_P63mc_186_PDF Card - 04-013-6608.cif",
+     "note": ""
+    },
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 42.626,
+     "lattice": {
+      "a": 11.516262,
+      "b": 3.565098,
+      "c": 4.373968
+     },
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "V2O5_PmmnZ_sg59_RT_ICSD_CollCode40488.cif",
+     "note": ""
+    },
+    {
+     "formula": "Zn2V2O7",
+     "spacegroup": 15,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "wt_percent": 19.587,
+     "lattice": {
+      "a": 7.432441,
+      "b": 8.324808,
+      "c": 10.09566,
+      "beta": 111.2833
+     },
+     "required": true,
+     "source_label": "Zn2V2O7",
+     "source_reference": "Zn2V2O7_C12onc1_sg15_RT_ICSD_CollCode2886.cif",
+     "note": ""
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": {
+    "rwp": 6.31,
+    "rexp": 3.5,
+    "gof": 1.8,
+    "durbin_watson": 0.68,
+    "sample_displacement_mm": -0.4959962,
+    "sample_displacement_mm_esd": 0.0007137267
+   },
+   "human_products": "ZnO,V2O5, V2Zn2O7",
+   "source": "data/pairwise_reactions_manual_rietveld_summary.xlsx (Phase_summary, Notes on fits); data/pairwise_reactions-benchmark_summary_102125.xlsx (Human)"
+  }
+ ]
+}

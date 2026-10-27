@@ -1,11 +1,13 @@
 # 내부 실행 및 개발 스크립트
 
-일반 사용자는 저장소 루트의 **START.cmd**만 실행합니다.
+일반 사용자는 저장소 루트의 **START.cmd**만 실행합니다. Python은 미리 설치하지 않아도 됩니다.
 검증·데이터 준비 도구는 Optional(선택)이며 저장소 루트에서 실행합니다.
 
 | 파일 | 용도 |
 | --- | --- |
-| `start_dara_web.ps1` | START에서 호출하는 설치·시작 처리 |
+| `start_dara_web.ps1` | START에서 호출. 고정 버전 uv와 저장소 안의 Python 3.12를 내려받아 `.venv`를 만들고 DARA를 설치한 뒤 서버를 시작합니다. 스위치: `-Reinstall`, `-SetupOnly`, `-Offline`, `-PythonExe`, `-NoBrowser`, `-SkipApiKeySetup` |
+| `ensure_bgmn.py` | 매 실행마다 BGMN 정제 프로그램(`BGMN.EXE`, `EFLECH.EXE`, `TEIL.EXE`, `OUTPUT.EXE`)을 확인하고 없으면 내려받습니다. `dara`를 import하지 않는 표준 라이브러리 전용 스크립트 |
+| `constraints-py312-win.txt` | Windows/CPython 3.12에서 검증된 패키지 버전 목록. START가 `uv pip install -c`의 제약 조건으로 사용하며 의도적으로만 재생성합니다 |
 | `launch_dara_web.py` | 시작 진행 페이지, 서버 실행과 브라우저 연결 |
 | `materials_project_key.ps1` | 최초 MP API 키 입력과 저장된 선택 재사용 |
 | `serve_workflow_qa.py` | 8899 포트의 합성 데이터 UI 검증 서버 |
@@ -14,6 +16,9 @@
 | `worker_fixture_job.py` | 작업 제어 검증에 사용하는 합성 작업 |
 | `filter_cod.py`, `filter_icsd.py` | 로컬 구조 DB에서 후보 색인을 재생성하는 유지보수 도구 |
 | `run_binary_reaction.py` | 논문 데이터 배치 분석; 로컬 ICSD 설정 필요 |
+| `run_benchmark.py` | Accuracy benchmark CLI: `validate-gt`, `run`, `score`, `compare` (results in `benchmarks/<run>/`, regression gates in `compare`) |
+| `convert_benchmark_xlsx.py` | Regenerates `dataset/ground_truth/*.json` from the benchmark spreadsheets (`--data-dir`, `--check`) |
+| `check_prefilter_retention.py` | Rebuilds each benchmark sample's candidate pool like a production job and checks that the candidate pre-filter keeps every ground-truth phase (`--set`, `--ids`, `--out`, `--cache-dir`, `--rel-floors`, `--no-mp`, `--refresh`); needs network and `MP_API_KEY`, exit 0 only at 100 % retention |
 
 DB 필터는 `src/dara/data/mp_struct_info.json.gz`와 설정된 로컬 구조 DB를 사용합니다.
 일반 분석에는 포함된 색인을 사용하므로 재생성이 필요하지 않습니다.

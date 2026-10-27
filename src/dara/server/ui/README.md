@@ -1,25 +1,26 @@
-# DARA 웹 프런트엔드 개발
+# DARA web front end development
 
-일반 실행은 저장소 루트의 `START.cmd`를 사용합니다. Node.js는 프런트엔드를
-수정할 때만 필요합니다. Python 서버는 포함된 `public/` 빌드를 제공하므로
-이 폴더를 단순 생성물로 보고 삭제하지 마세요.
+For normal use, run `START.cmd` in the repository root. Node.js is only needed
+when you modify the front end. The Python server serves the bundled `public/`
+build, so do not delete this folder as if it were a disposable artifact.
 
-이 디렉터리에서 의존성을 설치하고 개발 서버를 실행합니다.
+Install the dependencies and start the development server in this directory:
 
 ```console
 npm ci
 npm run develop
 ```
 
-개발 모드의 API 주소는 `http://localhost:8001/api`입니다.
-Python 환경에서 `dara server --port 8001`로 백엔드를 별도로 실행합니다.
-기본 START 서버는 8898 포트를 사용합니다.
+In development mode the API address is `http://localhost:8001/api`.
+Run the backend separately from the Python environment with `dara server --port 8001`.
+The default START server uses port 8898.
 
-배포할 화면을 만들려면 다음 명령을 실행하고 `public/` 변경사항도 함께 반영합니다.
+To build the screens that are shipped with the server, run the following command and
+commit the changes under `public/` together with your source changes:
 
 ```console
 npm run build
 ```
 
-페이지는 `src/pages/`, 공통 UI는 `src/components/`, 앱 내 안내는 `src/md-pages/`에 있습니다.
-개발 캐시 `.cache/`와 `node_modules/`는 커밋하지 않습니다.
+Pages are in `src/pages/`, shared UI in `src/components/`, and the in-app guide in `src/md-pages/`.
+Do not commit the development cache `.cache/` or `node_modules/`.

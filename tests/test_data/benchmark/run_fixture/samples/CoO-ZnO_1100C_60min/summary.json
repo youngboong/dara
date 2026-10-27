@@ -1,0 +1,115 @@
+{
+ "status": "COMPLETED",
+ "final_result": {
+  "phases": [
+   "ZnO_186_(cod_2300453)-0",
+   "ZnCo2O4_227_(mp_mp-1)-9"
+  ],
+  "highlighted_phases": [
+   "ZnO_186_(cod_2300453)-0",
+   "ZnCo2O4_227_(mp_mp-1)-9"
+  ],
+  "phase_metadata": {
+   "ZnO_186_(cod_2300453)-0": {
+    "spacegroup_number": 186
+   },
+   "ZnCo2O4_227_(mp_mp-1)-9": {
+    "spacegroup_number": 227
+   }
+  },
+  "phase_details": {
+   "ZnO_186_(cod_2300453)-0": {
+    "weight_percent": 62.0,
+    "weight_esd_percent": 0.3,
+    "lattice_parameters": {
+     "a": {
+      "value": 3.2495,
+      "esd": 0.001
+     },
+     "c": {
+      "value": 5.2069,
+      "esd": 0.001
+     }
+    }
+   },
+   "ZnCo2O4_227_(mp_mp-1)-9": {
+    "weight_percent": 38.0,
+    "weight_esd_percent": 0.3,
+    "lattice_parameters": {
+     "a": {
+      "value": 8.1,
+      "esd": 0.001
+     }
+    }
+   }
+  },
+  "confidence": {
+   "phases": {
+    "ZnO_186_(cod_2300453)-0": {
+     "level": "confident"
+    },
+    "ZnCo2O4_227_(mp_mp-1)-9": {
+     "level": "ambiguous"
+    }
+   },
+   "overall": {
+    "level": "check"
+   },
+   "sample_displacement": {
+    "displacement_mm": -0.3
+   }
+  },
+  "fit_quality": {
+   "rwp": 6.4,
+   "gof": 2.1
+  },
+  "rwp": 6.4
+ },
+ "all_results": [
+  {
+   "phases": [
+    "ZnO_186_(cod_2300453)-0",
+    "ZnCo2O4_227_(mp_mp-1)-9"
+   ],
+   "highlighted_phases": [
+    "ZnO_186_(cod_2300453)-0",
+    "ZnCo2O4_227_(mp_mp-1)-9"
+   ],
+   "phase_metadata": {
+    "ZnO_186_(cod_2300453)-0": {
+     "spacegroup_number": 186
+    },
+    "ZnCo2O4_227_(mp_mp-1)-9": {
+     "spacegroup_number": 227
+    }
+   },
+   "phase_details": {
+    "ZnO_186_(cod_2300453)-0": {
+     "weight_percent": 62.0,
+     "weight_esd_percent": 0.3,
+     "lattice_parameters": {
+      "a": {
+       "value": 3.2495,
+       "esd": 0.001
+      },
+      "c": {
+       "value": 5.2069,
+       "esd": 0.001
+      }
+     }
+    },
+    "ZnCo2O4_227_(mp_mp-1)-9": {
+     "weight_percent": 38.0,
+     "weight_esd_percent": 0.3,
+     "lattice_parameters": {
+      "a": {
+       "value": 8.1,
+       "esd": 0.001
+      }
+     }
+    }
+   }
+  }
+ ],
+ "runtime": 180.0
+}

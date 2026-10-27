@@ -28,6 +28,47 @@ def _record(task_id):
     return record
 
 
+def _as_utc(value):
+    """Datetime from a stored value; naive datetimes are UTC."""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _seconds_since(value, now):
+    moment = _as_utc(value)
+    return None if moment is None else max(0.0, (now - moment).total_seconds())
+
+
+def _runtime_fields(record, state, now=None) -> dict:
+    """Elapsed time, time budget and stage ETA (each ``None`` when unknown)."""
+    now = now or datetime.now(timezone.utc)
+    running = record.get("status") in {"RUNNING", "CANCELLING"}
+    elapsed = _seconds_since(record.get("start_time"), now) if running else None
+    kwargs = ((record.get("job") or {}).get("function_kwargs")) or {}
+    budget = kwargs.get("max_runtime_s") if isinstance(kwargs, dict) else None
+    stage_elapsed = _seconds_since(state.get("stage_started_at"), now) if running else None
+    completed, total = state.get("completed"), state.get("total")
+    eta = None
+    if (
+        stage_elapsed is not None
+        and isinstance(completed, (int, float)) and isinstance(total, (int, float))
+        and 0 < completed < total
+    ):
+        eta = round(stage_elapsed / completed * (total - completed))
+    return {
+        "elapsed_s": None if elapsed is None else round(elapsed),
+        "budget_s": budget if isinstance(budget, (int, float)) else None,
+        "stage_elapsed_s": None if stage_elapsed is None else round(stage_elapsed),
+        "eta_s": eta,
+    }
+
+
 @router.get("/task/{task_id}/progress")
 async def progress(task_id: int):
     record = _record(task_id)
@@ -37,7 +78,8 @@ async def progress(task_id: int):
     except (OSError, ValueError):
         state = {"stage": record["status"], "completed": None, "total": None}
     return {**state, "status": record["status"],
-            "completed_candidates": len(list(directory.glob("candidate_*.zip")))}
+            "completed_candidates": len(list(directory.glob("candidate_*.zip"))),
+            **_runtime_fields(record, state)}
 
 
 @router.post("/task/{task_id}/cancel")

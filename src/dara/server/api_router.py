@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import csv
+import importlib
+import importlib.util
 import json
+import logging
 import os
 import re
 import shutil
+import sys
 import tempfile
+import threading
+import time
 import zipfile
 from ast import literal_eval
 from copy import deepcopy
@@ -19,13 +26,34 @@ import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from monty.serialization import MontyDecoder
+from pydantic import BaseModel
 from pymatgen.core import Composition, Element
-from pymatgen.symmetry.groups import SpaceGroup
 
+from dara import structure_db
 from dara.cif import Cif
 from dara.analysis_range import validate_analysis_range
 from dara.jobs import PhaseSearchMaker
-from dara.plot import peaks_in_fit_range, visualize
+from dara.plot import peaks_in_fit_range, spacegroup_symbol, visualize
+from dara.server.data_quality import intensities_look_like_counts, pattern_quality
+from dara.server.failure_summary import summarize_failure
+from dara.server import confidence as confidence_module
+from dara.server.fit_cautions import (
+    broad_background_caution,
+    cached_lattice_flags,
+    displacement_caution,
+    fit_cautions,
+    lattice_bound_flags,
+    lattice_range_resolver,
+    search_cautions,
+)
+from dara.server.table_export import (
+    MULTI_TASK_EXTRA_COLUMNS,
+    TABLE_COLUMNS,
+    multi_task_rows,
+    rows_to_csv,
+    task_table_rows,
+)
+from dara.server.task_summary import SUMMARY_SCHEMA, compact_summary, runtime_seconds
 from dara.server.utils import convert_to_local_tz, get_result_store, get_worker_store
 from dara.server.worker import (
     add_job_to_queue,
@@ -41,6 +69,8 @@ from dara.xrd import (
     recommend_xrdml_instrument_profile,
 )
 
+logger = logging.getLogger("dara.server.api")
+
 router = APIRouter(prefix="/api")
 
 
@@ -49,13 +79,19 @@ def _available_instrument_profiles() -> list[str]:
     return sorted(path.stem for path in device_dir.glob("*.geq"))
 
 
+@lru_cache(maxsize=256)
+def _spacegroup_symbol(number) -> str:
+    """Hermann-Mauguin symbol of a space-group number (building the group is slow)."""
+    return spacegroup_symbol(number)
+
+
 def _refined_phase_metadata(refinement) -> dict[str, dict]:
     """Return user-facing crystallographic labels for refined phases."""
     metadata = {}
     for phase_name, phase_result in refinement.lst_data.phases_results.items():
         spacegroup_number = phase_result.spacegroup_no
         try:
-            spacegroup_symbol = SpaceGroup.from_int_number(spacegroup_number).symbol
+            spacegroup_symbol = _spacegroup_symbol(spacegroup_number)
         except (TypeError, ValueError):
             spacegroup_symbol = phase_result.hermann_mauguin
         metadata[phase_name] = {
@@ -168,7 +204,13 @@ def _phase_refinement_details(refinement) -> dict[str, dict]:
             "rphase": phase.rphase,
             "grain_sizes": grain_sizes,
         }
-    return output
+    try:
+        # Orientation-refined phases report only a mean GEWICHT; take their weight esd from
+        # BGMN's Q<phase> goals so every consumer (task page, tables, summary) agrees.
+        return confidence_module.fill_weight_esd(refinement, output)
+    except Exception:
+        logger.debug("Weight esd could not be filled from Q goals", exc_info=True)
+        return output
 
 
 def _peak_diagnostics(refinement, missing=None, extra=None, mismatch=None) -> dict:
@@ -245,6 +287,16 @@ async def inspect_pattern(pattern_file: Annotated[UploadFile, File()]):
         if suggestion and suggestion["profile"] not in available:
             suggestion = None
 
+    # B's reader may add load warnings and an intensity unit; older readers do not.
+    intensity_unit = getattr(pattern, "intensity_unit", None)
+    load_warnings = [str(item) for item in (getattr(pattern, "load_warnings", None) or [])]
+    try:
+        quality_checks, quality_stats = pattern_quality(
+            angles, np.asarray(pattern.intensities, dtype=float), intensity_unit
+        )
+    except Exception:
+        quality_checks, quality_stats = [], {}
+
     return {
         "filename": filename,
         "format": temp_path.suffix.lower().lstrip("."),
@@ -255,6 +307,10 @@ async def inspect_pattern(pattern_file: Annotated[UploadFile, File()]):
         "profile_suggestion": suggestion,
         "recommended_wavelength": metadata.get("radiation"),
         "filename_chemistry": suggest_filename_chemistry(filename),
+        "intensity_unit": intensity_unit,
+        "load_warnings": load_warnings,
+        "quality_checks": quality_checks,
+        "quality_stats": quality_stats,
     }
 
 
@@ -310,6 +366,12 @@ def _rerun_settings(record: dict, kwargs: dict, pattern) -> dict:
         "two_theta_min": refine.get("wmin"),
         "two_theta_max": refine.get("wmax"),
         "excluded_ranges": refine.get("excluded_ranges", []),
+        # Old tasks ran without the pre-filter or limits: a faithful rerun keeps that.
+        "candidate_prefilter": bool(kwargs.get("candidate_prefilter", False)),
+        "screening_timeout_s": kwargs.get("screening_timeout_s"),
+        "max_analysis_minutes": (
+            kwargs["max_runtime_s"] / 60 if kwargs.get("max_runtime_s") else None
+        ),
     }
     angles = np.asarray(pattern.angles, dtype=float)
     finite = angles[np.isfinite(angles)]
@@ -331,53 +393,98 @@ async def rerun_settings(task_id: int):
     return _rerun_settings(*_saved_task_input(task_id))
 
 
-@router.post("/submit")
-async def submit(
-    user: Annotated[str, Form()],
-    pattern_file: Annotated[UploadFile | None, File()] = None,
-    source_task_id: Annotated[int | None, Form()] = None,
-    precursor_formulas: Annotated[str, Form()] = "[]",
-    elements: Annotated[str, Form()] = "[]",
-    analysis_mode: Annotated[str, Form()] = "",
-    instrument_profile: Annotated[str, Form()] = "Aeris-fds-Pixcel1d-Medipix3",
-    wavelength: Annotated[str, Form()] = "Cu",
-    temperature: Annotated[int, Form()] = -1,
-    atmosphere: Annotated[str, Form()] = "air",
-    use_cod: Annotated[bool, Form()] = True,
-    use_mp: Annotated[bool, Form()] = True,
-    mp_e_hull_cutoff: Annotated[float, Form()] = 0.05,
-    max_mp_structures: Annotated[int, Form()] = 100,
-    use_rxn_predictor: Annotated[Optional[bool], Form()] = None,
-    additional_phases: Annotated[list[UploadFile], File()] = None,
-    reuse_additional_cifs: Annotated[bool, Form()] = True,
-    two_theta_min: Annotated[float | None, Form()] = None,
-    two_theta_max: Annotated[float | None, Form()] = None,
-    excluded_ranges: Annotated[str, Form()] = "[]",
-    refinement_controls: Annotated[str, Form()] = "{}",
-):
+LAB_WAVELENGTHS_ANGSTROM = {
+    "Cu": 1.540598, "Co": 1.789010, "Cr": 2.289760, "Fe": 1.936042, "Mo": 0.70930,
+}
+WAVELENGTH_TOLERANCE_ANGSTROM = 0.03
+
+
+def _selected_wavelength_angstrom(wavelength: str) -> float | None:
+    """Selected wavelength in Å: a lab target name, or a numeric value in nm."""
+    text = str(wavelength).strip()
     try:
-        original_kwargs = {}
-        if source_task_id is not None:
-            source_record, original_kwargs, pattern = _saved_task_input(source_task_id)
-            name = _rerun_settings(source_record, original_kwargs, pattern)["filename"]
-        if pattern_file is not None:
-            name = Path(pattern_file.filename or "pattern.xy").name
-            with tempfile.TemporaryDirectory() as pattern_temp_dir:
-                temp_path = Path(pattern_temp_dir) / name
-                with open(temp_path, "wb") as temp_file:
-                    shutil.copyfileobj(pattern_file.file, temp_file)
-                try:
-                    pattern = load_pattern(temp_path)
-                except ValueError:
-                    raise HTTPException(status_code=400, detail="Invalid file format")
-        elif source_task_id is None:
-            raise HTTPException(status_code=400, detail="Upload an XRD pattern or select a source task")
+        return float(text) * 10
+    except ValueError:
+        return LAB_WAVELENGTHS_ANGSTROM.get(text.capitalize())
+
+
+def _wavelength_mismatch(pattern, pattern_path: Path, wavelength: str) -> dict | None:
+    """Describe a recorded-vs-selected wavelength disagreement for an XRDML upload."""
+    if pattern_path.suffix.lower() != ".xrdml" or not getattr(pattern, "xrdml_dict", None):
+        return None
+    try:
+        recorded = get_xrdml_metadata(pattern.xrdml_dict).get("k_alpha1_angstrom")
+        selected = _selected_wavelength_angstrom(wavelength)
+        if recorded is None or selected is None:
+            return None
+        recorded, selected = float(recorded), float(selected)
+    except (TypeError, ValueError):
+        return None
+    if abs(recorded - selected) <= WAVELENGTH_TOLERANCE_ANGSTROM:
+        return None
+    return {
+        "code": "wavelength_mismatch",
+        "message": (
+            f"The file records a wavelength of {recorded:.4f} Å, but {selected:.4f} Å "
+            "is selected. A mismatch shifts all calculated peak positions."
+        ),
+        "recorded_angstrom": recorded,
+        "selected_angstrom": selected,
+    }
+
+
+def build_submission_job(
+    pattern,                                   # dara.xrd.XRDData (already loaded)
+    name: str,
+    *,
+    analysis_mode: str = "",
+    precursor_formulas: list[str] | str = "[]",
+    elements: list[str] | str = "[]",
+    instrument_profile: str = "Aeris-fds-Pixcel1d-Medipix3",
+    wavelength: str | float = "Cu",
+    temperature: int = -1,
+    atmosphere: str = "air",
+    use_cod: bool = True,
+    use_mp: bool = True,
+    mp_e_hull_cutoff: float = 0.05,
+    max_mp_structures: int = 100,
+    use_rxn_predictor: bool | None = None,
+    additional_cifs: list | None = None,       # list[dara.cif.Cif], already parsed
+    library_cif_ids: list[str] | str = "[]",   # reference library ids
+    two_theta_min: float | None = None,
+    two_theta_max: float | None = None,
+    excluded_ranges: str | list = "[]",
+    refinement_controls: str | dict = "{}",
+    original_kwargs: dict | None = None,       # restored kwargs of a source task (clone), else None
+    source_task_id: int | None = None,
+    candidate_prefilter: bool | None = None,   # None keeps the legacy behaviour (no pre-filter)
+    screening_timeout_s: float | None = None,  # None keeps the legacy 1200 s per reference
+    max_analysis_minutes: float | None = None,  # None means no analysis time limit
+):
+    """Validate submission fields and return an unqueued jobflow Job.
+
+    Raises ``HTTPException(400)`` on invalid input.
+    """
+    try:
+        original_kwargs = original_kwargs if original_kwargs is not None else {}
+        additional_cifs = list(additional_cifs or [])
         range_params = validate_analysis_range(
             pattern.angles, two_theta_min, two_theta_max, excluded_ranges
         )
 
-        precursor_formulas = _parse_string_list(precursor_formulas)
-        elements = _parse_string_list(elements)
+        precursor_formulas = (
+            list(precursor_formulas)
+            if isinstance(precursor_formulas, (list, tuple))
+            else _parse_string_list(precursor_formulas)
+        )
+        elements = (
+            list(elements) if isinstance(elements, (list, tuple)) else _parse_string_list(elements)
+        )
+        library_ids = (
+            [str(item) for item in library_cif_ids]
+            if isinstance(library_cif_ids, (list, tuple))
+            else _parse_string_list(library_cif_ids)
+        )
 
         # Compatibility with the original web/API contract.
         if not analysis_mode:
@@ -387,25 +494,21 @@ async def submit(
         if analysis_mode not in {"reaction", "elemental", "known_mixture"}:
             raise HTTPException(status_code=400, detail="Invalid analysis mode")
 
-        additional_cifs = []
-        if source_task_id is not None and reuse_additional_cifs:
-            additional_cifs = MontyDecoder().process_decoded(
-                original_kwargs.get("additional_cifs") or original_kwargs.get("cifs") or []
-            )
-        if additional_phases:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                temp_dir = Path(temp_dir)
-                for phase in additional_phases:
-                    phase_name = Path(phase.filename or "reference.cif").name
-                    with open(temp_dir / phase_name, "wb") as f:
-                        shutil.copyfileobj(phase.file, f)
-                    cif_file = Cif.from_file(temp_dir / phase_name)
-                    if not cif_file.data:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Invalid additional CIF file provided",
-                        )
-                    additional_cifs.append(cif_file)
+        if library_ids:
+            try:
+                from dara.server.reference_library_router import load_library_cifs
+            except ImportError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="The reference CIF library is not available on this server.",
+                )
+            try:
+                additional_cifs.extend(load_library_cifs(library_ids))
+            except KeyError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown reference library CIF: {exc.args[0]}",
+                )
 
         try:
             [Composition(p) for p in precursor_formulas]
@@ -436,6 +539,16 @@ async def submit(
             raise HTTPException(status_code=400, detail="MP E-hull cutoff must be 0 to 1 eV/atom")
         if not 1 <= max_mp_structures <= 1000:
             raise HTTPException(status_code=400, detail="MP structure limit must be 1 to 1000")
+        if max_analysis_minutes is not None and not 5 <= max_analysis_minutes <= 720:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum analysis time must be between 5 and 720 minutes",
+            )
+        if screening_timeout_s is not None and not 60 <= screening_timeout_s <= 1200:
+            raise HTTPException(
+                status_code=400,
+                detail="Screening time limit must be between 60 and 1200 seconds",
+            )
 
         try:
             wavelength = float(wavelength)
@@ -500,11 +613,22 @@ async def submit(
             ),
             "search_kwargs": search_kwargs,
         }
+        # Run-time controls are sent explicitly by the UI and never inherited from a
+        # source task; omitted when None so API/benchmark jobs stay on the legacy path.
+        if candidate_prefilter is not None:
+            maker_kwargs["candidate_prefilter"] = bool(candidate_prefilter)
+        if screening_timeout_s is not None:
+            maker_kwargs["screening_timeout_s"] = float(screening_timeout_s)
+        if max_analysis_minutes is not None:
+            maker_kwargs["max_runtime_s"] = float(max_analysis_minutes) * 60
         if original_kwargs.get("final_refinement_params") is not None:
             maker_kwargs["final_refinement_params"] = deepcopy(original_kwargs["final_refinement_params"])
         from dara.refinement_controls import RefinementControls, apply_controls
 
-        controls = RefinementControls.model_validate_json(refinement_controls)
+        if isinstance(refinement_controls, dict):
+            controls = RefinementControls.model_validate(refinement_controls)
+        else:
+            controls = RefinementControls.model_validate_json(refinement_controls)
         maker_kwargs["final_refinement_params"] = apply_controls(
             maker_kwargs.get("final_refinement_params"), controls)
         maker_kwargs["final_refinement_overrides"] = {
@@ -538,13 +662,121 @@ async def submit(
             ).make(**maker_kwargs)
         job.metadata["submission_settings"] = {
             "filename": name, "analysis_mode": analysis_mode, "atmosphere": atmosphere,
-            "source_task_id": source_task_id,
+            "source_task_id": source_task_id, "library_cif_ids": library_ids,
+            "candidate_prefilter": candidate_prefilter,
+            "screening_timeout_s": screening_timeout_s,
+            "max_analysis_minutes": max_analysis_minutes,
         }
         if instrument_profile.startswith("user-"):
             from dara.instrument_profiles import registered_profiles, registered_profile_path
 
             registered_profile_path(instrument_profile)
             job.metadata["instrument_profile_details"] = registered_profiles().get(instrument_profile)
+        return job
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        print_exc()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/submit")
+async def submit(
+    user: Annotated[str, Form()],
+    pattern_file: Annotated[UploadFile | None, File()] = None,
+    source_task_id: Annotated[int | None, Form()] = None,
+    precursor_formulas: Annotated[str, Form()] = "[]",
+    elements: Annotated[str, Form()] = "[]",
+    analysis_mode: Annotated[str, Form()] = "",
+    instrument_profile: Annotated[str, Form()] = "Aeris-fds-Pixcel1d-Medipix3",
+    wavelength: Annotated[str, Form()] = "Cu",
+    temperature: Annotated[int, Form()] = -1,
+    atmosphere: Annotated[str, Form()] = "air",
+    use_cod: Annotated[bool, Form()] = True,
+    use_mp: Annotated[bool, Form()] = True,
+    mp_e_hull_cutoff: Annotated[float, Form()] = 0.05,
+    max_mp_structures: Annotated[int, Form()] = 100,
+    use_rxn_predictor: Annotated[Optional[bool], Form()] = None,
+    additional_phases: Annotated[list[UploadFile], File()] = None,
+    reuse_additional_cifs: Annotated[bool, Form()] = True,
+    two_theta_min: Annotated[float | None, Form()] = None,
+    two_theta_max: Annotated[float | None, Form()] = None,
+    excluded_ranges: Annotated[str, Form()] = "[]",
+    refinement_controls: Annotated[str, Form()] = "{}",
+    confirm_wavelength: Annotated[bool, Form()] = False,
+    library_cif_ids: Annotated[str, Form()] = "[]",
+    candidate_prefilter: Annotated[Optional[bool], Form()] = None,
+    screening_timeout_s: Annotated[Optional[float], Form()] = None,
+    max_analysis_minutes: Annotated[Optional[float], Form()] = None,
+):
+    try:
+        original_kwargs = {}
+        if source_task_id is not None:
+            source_record, original_kwargs, pattern = _saved_task_input(source_task_id)
+            name = _rerun_settings(source_record, original_kwargs, pattern)["filename"]
+        if pattern_file is not None:
+            name = Path(pattern_file.filename or "pattern.xy").name
+            with tempfile.TemporaryDirectory() as pattern_temp_dir:
+                temp_path = Path(pattern_temp_dir) / name
+                with open(temp_path, "wb") as temp_file:
+                    shutil.copyfileobj(pattern_file.file, temp_file)
+                try:
+                    pattern = load_pattern(temp_path)
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=f"Could not read pattern: {exc}")
+                if not confirm_wavelength:
+                    mismatch = _wavelength_mismatch(pattern, temp_path, wavelength)
+                    if mismatch:
+                        raise HTTPException(status_code=400, detail=mismatch)
+        elif source_task_id is None:
+            raise HTTPException(status_code=400, detail="Upload an XRD pattern or select a source task")
+        additional_cifs = []
+        if source_task_id is not None and reuse_additional_cifs:
+            additional_cifs = MontyDecoder().process_decoded(
+                original_kwargs.get("additional_cifs") or original_kwargs.get("cifs") or []
+            )
+        if additional_phases:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_dir = Path(temp_dir)
+                for phase in additional_phases:
+                    phase_name = Path(phase.filename or "reference.cif").name
+                    with open(temp_dir / phase_name, "wb") as f:
+                        shutil.copyfileobj(phase.file, f)
+                    cif_file = Cif.from_file(temp_dir / phase_name)
+                    if not cif_file.data:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Invalid additional CIF file provided",
+                        )
+                    additional_cifs.append(cif_file)
+
+        job = build_submission_job(
+            pattern,
+            name,
+            analysis_mode=analysis_mode,
+            precursor_formulas=precursor_formulas,
+            elements=elements,
+            instrument_profile=instrument_profile,
+            wavelength=wavelength,
+            temperature=temperature,
+            atmosphere=atmosphere,
+            use_cod=use_cod,
+            use_mp=use_mp,
+            mp_e_hull_cutoff=mp_e_hull_cutoff,
+            max_mp_structures=max_mp_structures,
+            use_rxn_predictor=use_rxn_predictor,
+            additional_cifs=additional_cifs,
+            library_cif_ids=library_cif_ids,
+            two_theta_min=two_theta_min,
+            two_theta_max=two_theta_max,
+            excluded_ranges=excluded_ranges,
+            refinement_controls=refinement_controls,
+            original_kwargs=original_kwargs,
+            source_task_id=source_task_id,
+            candidate_prefilter=candidate_prefilter,
+            screening_timeout_s=screening_timeout_s,
+            max_analysis_minutes=max_analysis_minutes,
+        )
         job_index = add_job_to_queue(job, user=user)
         return {"message": "submitted", "wf_id": job_index}
     except Exception as e:
@@ -552,6 +784,405 @@ async def submit(
             raise e
         print_exc()
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Submission estimate (candidate counts and run time before the job is queued)
+# ---------------------------------------------------------------------------
+
+MP_ESTIMATE_TIMEOUT_S = 15
+MP_ESTIMATE_TTL_S = 600
+_MP_ESTIMATE_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
+_MP_ESTIMATE_LOCKS: dict[tuple, threading.Lock] = {}
+_MP_ESTIMATE_GUARD = threading.Lock()
+
+# Fallbacks used when ``dara.search.candidate_cost`` is not available.
+_COST_DEFAULTS = {
+    "LIGHT_MAX": 400,
+    "HEAVY_MAX": 1200,
+    "DEFAULT_ASSUMED_REFLECTIONS": 300,
+    "PREFILTER_MIN_CANDIDATES": 40,
+    "PREFILTER_TYPICAL_KEEP_FRACTION": 0.85,
+}
+REACTION_ESTIMATE_CANDIDATES = 40
+LONG_RUN_S = 1800
+VERY_LONG_RUN_S = 5400
+DEDUP_KEEP_FRACTION = 0.85
+
+
+class EstimateRequest(BaseModel):
+    analysis_mode: str = "elemental"
+    elements: list[str] | str = []
+    precursor_formulas: list[str] | str = []
+    use_cod: bool = True
+    use_mp: bool = True
+    mp_e_hull_cutoff: float = 0.05
+    max_mp_structures: int = 100
+    candidate_prefilter: bool = False
+    wavelength: str | float = "Cu"
+    two_theta_max: float | None = None
+    data_points: int | None = None
+    max_analysis_minutes: float | None = None
+
+
+def _candidate_cost_module():
+    """The engine's cost model, or ``None`` while it is not installed."""
+    try:
+        return importlib.import_module("dara.search.candidate_cost")
+    except (ImportError, AttributeError):
+        return None
+
+
+def _cost_constant(module, name: str):
+    return getattr(module, name, _COST_DEFAULTS[name]) if module is not None else _COST_DEFAULTS[name]
+
+
+def _mp_configured() -> bool:
+    return bool(os.environ.get("MP_API_KEY")) and importlib.util.find_spec("mp_api") is not None
+
+
+def _mp_rows_for_estimate(elements: list[str], cutoff: float, limit: int) -> list[dict]:
+    """MP metadata rows for the estimate, cached for ``MP_ESTIMATE_TTL_S`` (failures are not)."""
+    key = (tuple(sorted(elements)), cutoff, limit)
+    with _MP_ESTIMATE_GUARD:
+        lock = _MP_ESTIMATE_LOCKS.setdefault(key, threading.Lock())
+    with lock:
+        cached = _MP_ESTIMATE_CACHE.get(key)
+        if cached is not None and time.monotonic() - cached[0] < MP_ESTIMATE_TTL_S:
+            return cached[1]
+        rows = MaterialsProjectDatabase(
+            max_structures=limit, e_hull_filter=cutoff
+        ).count_by_chemsys(
+            list(key[0]), e_hull_filter=cutoff, limit=limit, timeout_s=MP_ESTIMATE_TIMEOUT_S
+        )
+        _MP_ESTIMATE_CACHE[key] = (time.monotonic(), rows)
+        return rows
+
+
+def _unique_formula_sg(pairs) -> int:
+    return len({(str(formula), str(sg)) for formula, sg in pairs})
+
+
+def _runtime_level(expected_s: float | None) -> str:
+    if expected_s is None:
+        return "unknown"
+    if expected_s > VERY_LONG_RUN_S:
+        return "very_long"
+    if expected_s > LONG_RUN_S:
+        return "long"
+    return "ok"
+
+
+def _reflection_summary(cost, mp_rows, wavelength, two_theta_max) -> tuple[dict, list[int]]:
+    """Median reflection count and the number of very heavy MP structures."""
+    summary = {"median": None, "very_heavy": 0, "source": "default"}
+    counts: list[int] = []
+    function = getattr(cost, "reflections_from_cell", None) if cost is not None else None
+    if function is None or not mp_rows:
+        return summary, counts
+    for row in mp_rows:
+        try:
+            counts.append(
+                int(
+                    function(
+                        row.get("volume"), row.get("spacegroup"), wavelength,
+                        two_theta_max or 90, primitive=True,
+                    )
+                )
+            )
+        except Exception:
+            continue
+    if not counts:
+        return summary, counts
+    ordered = sorted(counts)
+    middle = len(ordered) // 2
+    median = ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
+    heavy = _cost_constant(cost, "HEAVY_MAX")
+    return {
+        "median": round(median),
+        "very_heavy": sum(count >= heavy for count in counts),
+        "source": "mp",
+    }, counts
+
+
+def _runtime_estimate(cost, n_candidates, reflection_counts, data_points) -> tuple[dict | None, list[str]]:
+    function = getattr(cost, "estimate_runtime_s", None) if cost is not None else None
+    if function is None:
+        return None, []
+    try:
+        from dara.hardware import detect_cpu_count
+
+        workers = detect_cpu_count()
+        estimate = function(n_candidates, reflection_counts, workers, data_points=data_points)
+        return {
+            "low_s": estimate["low_s"], "expected_s": estimate["expected_s"],
+            "high_s": estimate["high_s"], "workers": workers,
+        }, [str(item) for item in estimate.get("assumptions") or []]
+    except Exception:
+        logger.warning("Run-time estimate failed", exc_info=True)
+        return None, []
+
+
+async def _estimate_submission(request: EstimateRequest) -> dict:
+    started = time.perf_counter()
+    mode = request.analysis_mode
+    if mode not in {"reaction", "elemental", "known_mixture"}:
+        raise HTTPException(status_code=400, detail="Invalid analysis mode")
+    precursors = (
+        list(request.precursor_formulas)
+        if isinstance(request.precursor_formulas, (list, tuple))
+        else _parse_string_list(request.precursor_formulas)
+    )
+    elements = (
+        list(request.elements)
+        if isinstance(request.elements, (list, tuple))
+        else _parse_string_list(request.elements)
+    )
+    try:
+        [Composition(p) for p in precursors]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid precursor formulas")
+    try:
+        elements = sorted({str(Element(element)) for element in elements})
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid element symbols")
+    if not elements and precursors:
+        elements = sorted(
+            {str(el) for formula in precursors for el in Composition(formula).elements}
+        )
+    if mode in {"reaction", "known_mixture"} and not precursors:
+        raise HTTPException(
+            status_code=400,
+            detail="This analysis mode requires precursor/known-phase formulas",
+        )
+    if mode == "elemental" and not elements:
+        raise HTTPException(status_code=400, detail="Elemental mode requires elements")
+    if not 0 <= request.mp_e_hull_cutoff <= 1:
+        raise HTTPException(status_code=400, detail="MP E-hull cutoff must be 0 to 1 eV/atom")
+    if not 1 <= request.max_mp_structures <= 1000:
+        raise HTTPException(status_code=400, detail="MP structure limit must be 1 to 1000")
+    wavelength = request.wavelength
+    try:
+        wavelength = float(wavelength)
+    except ValueError:
+        pass
+
+    cost = _candidate_cost_module()
+    min_candidates = _cost_constant(cost, "PREFILTER_MIN_CANDIDATES")
+    keep_fraction = _cost_constant(cost, "PREFILTER_TYPICAL_KEEP_FRACTION")
+    cutoff = request.mp_e_hull_cutoff
+    limit = request.max_mp_structures
+    prefilter = bool(request.candidate_prefilter)
+
+    candidates = {
+        "cod": None, "mp": None, "mp_capped": False, "total_before_dedup": None,
+        "expected_after_dedup": None, "prefilter_expected_after": None, "note": None,
+    }
+    mp_status = "disabled"
+    mp_rows: list[dict] = []
+    after: int | None = None
+
+    if mode == "reaction":
+        candidates["note"] = (
+            "Candidates come from the predicted product set (typically 20-60 structures)."
+        )
+        n_runtime = REACTION_ESTIMATE_CANDIDATES
+    else:
+        known = mode == "known_mixture"
+        use_mp = request.use_mp and not known
+        if known:
+            candidates["note"] = "Known-phase mode uses only the listed formulas."
+
+        async def count_cod():
+            if not request.use_cod:
+                return None
+            return await asyncio.to_thread(
+                structure_db.cod_candidate_rows, elements, precursors, cutoff,
+                formulas_only=known,
+            )
+
+        async def query_mp():
+            if not use_mp:
+                return "disabled", []
+            if not _mp_configured():
+                return "not_configured", []
+            try:
+                rows = await asyncio.wait_for(
+                    asyncio.to_thread(_mp_rows_for_estimate, elements, cutoff, limit),
+                    MP_ESTIMATE_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                return "timeout", []
+            except Exception:
+                logger.warning("Materials Project estimate query failed", exc_info=True)
+                return "error", []
+            return "ok", rows
+
+        cod_rows, (mp_status, mp_rows) = await asyncio.gather(count_cod(), query_mp())
+        cod_pairs = [(row[0], row[2]) for row in cod_rows or []]
+        mp_ok = mp_status == "ok"
+        candidates["cod"] = len(cod_rows) if cod_rows is not None else None
+        candidates["mp"] = len(mp_rows) if mp_ok else None
+        candidates["mp_capped"] = bool(mp_ok and len(mp_rows) >= limit)
+        total = (candidates["cod"] or 0) + (candidates["mp"] or 0)
+        mp_pairs = [(row.get("formula"), row.get("spacegroup")) for row in mp_rows]
+        after = min(
+            total,
+            max(
+                round(DEDUP_KEEP_FRACTION * total),
+                _unique_formula_sg(cod_pairs),
+                _unique_formula_sg(mp_pairs),
+            ),
+        )
+        candidates["total_before_dedup"] = total
+        candidates["expected_after_dedup"] = after
+        n_runtime = (
+            max(min_candidates, round(after * keep_fraction))
+            if prefilter and after > min_candidates
+            else after
+        )
+        candidates["prefilter_expected_after"] = n_runtime
+
+    reflections, reflection_counts = _reflection_summary(
+        cost, mp_rows, wavelength, request.two_theta_max
+    )
+    runtime, cost_assumptions = _runtime_estimate(
+        cost, n_runtime, reflection_counts, request.data_points
+    )
+    level = _runtime_level(runtime["expected_s"] if runtime else None)
+
+    suggestions = []
+    if level in {"long", "very_long"} and request.use_mp and request.max_mp_structures > 50:
+        suggestions.append(
+            "Lower 'Maximum MP structures' (for example to 50) to reduce the number of candidates."
+        )
+    if level == "very_long" and len(elements) >= 5:
+        suggestions.append("Restrict the element list to the elements expected in crystalline phases.")
+    if not prefilter and after is not None and after > min_candidates:
+        suggestions.append(
+            "Enable the candidate pre-filter to skip references whose strongest peaks are absent."
+        )
+    if level in {"long", "very_long"} and request.max_analysis_minutes is None:
+        suggestions.append(
+            "Set a maximum analysis time to receive the best result found within that time."
+        )
+    if mp_status in {"timeout", "error"}:
+        suggestions.append("Materials Project could not be reached; the estimate counts COD only.")
+
+    return {
+        "analysis_mode": mode,
+        "candidates": candidates,
+        "reflections": reflections,
+        "runtime_s": (
+            {key: round(runtime[f"{key}_s"]) for key in ("low", "expected", "high")}
+            if runtime else None
+        ),
+        "workers": runtime["workers"] if runtime else None,
+        "level": level,
+        "suggestions": suggestions,
+        "mp_status": mp_status,
+        "assumptions": cost_assumptions + [
+            "MP precursor-formula references are not counted.",
+            "Duplicates are estimated, not computed.",
+        ],
+        "elapsed_ms": round((time.perf_counter() - started) * 1000),
+    }
+
+
+@router.post("/submission/estimate")
+async def estimate_submission(request: EstimateRequest):
+    """Estimate candidate counts and run time for the form values; never queues a job."""
+    return await _estimate_submission(request)
+
+
+def _warm_cod_database() -> None:
+    """Load the COD index in the background so the first estimate is fast."""
+    try:
+        structure_db.shared_cod_database()
+    except Exception:
+        logger.debug("COD index warm-up failed", exc_info=True)
+
+
+if "pytest" not in sys.modules and not os.environ.get("DARA_SKIP_COD_WARMUP"):
+    threading.Thread(target=_warm_cod_database, name="cod-warmup", daemon=True).start()
+
+
+def _counts_like(document) -> bool | None:
+    """Whether the stored pattern looks like raw counts; ``None`` when unknown."""
+    try:
+        xrd_data = document.xrd_data
+        return intensities_look_like_counts(
+            xrd_data.intensities, getattr(xrd_data, "intensity_unit", None)
+        )
+    except Exception:
+        return None
+
+
+def _matching_candidate_cifs(document, refinement) -> list[Cif]:
+    """CIFs of the displayed result whose phase set equals ``refinement``'s phases."""
+    try:
+        wanted = _search_result_key(list(refinement.lst_data.phases_results))
+        for cifs, candidate in getattr(document, "results", None) or []:
+            if _search_result_key(list(candidate.lst_data.phases_results)) == wanted:
+                return _flatten_cifs(cifs)
+    except Exception:
+        logger.debug("Could not match the final result to a candidate", exc_info=True)
+    return []
+
+
+def _final_lattice_flags(job: dict, document) -> list[dict]:
+    """Refined lattice parameters near their refinement bounds (cached per task).
+
+    Each phase is checked against the range it was actually refined with: the global
+    final-refinement ``lattice_range``, overridden per phase (user-uploaded CIFs use
+    ``additional_cif_params``; explicit controls use ``final_refinement_overrides``;
+    computed Materials Project structures use the widened ``mp_lattice_window``).
+    """
+    params = getattr(document, "final_refinement_params", None) or {}
+    kwargs = ((job.get("job") or {}).get("function_kwargs")) or {}
+    summary = getattr(document, "candidate_summary", None)
+    mp_window = (summary if isinstance(summary, dict) else {}).get("mp_lattice_window")
+    mp_window = mp_window.get("range") if isinstance(mp_window, dict) else None
+
+    def compute():
+        try:
+            additional = MontyDecoder().process_decoded(
+                deepcopy(kwargs.get("additional_cifs") or [])
+            )
+        except Exception:
+            additional = []
+        references = (
+            list(getattr(document, "input_cifs", None) or [])
+            + list(additional or [])
+            + _matching_candidate_cifs(document, document.final_result)
+        )
+        resolver = lattice_range_resolver(
+            params.get("lattice_range", 0.02),
+            additional,
+            kwargs.get("additional_cif_params"),
+            kwargs.get("final_refinement_overrides"),
+            mp_window=mp_window,
+        )
+        return lattice_bound_flags(document.final_result, references, resolver)
+
+    return cached_lattice_flags(job.get("uuid"), compute)
+
+
+def _backfill_summary(job: dict, document, runtime) -> None:
+    """Persist the results-list summary for tasks finished before it existed."""
+    existing = job.get("summary")
+    if isinstance(existing, dict) and existing.get("schema", 0) >= SUMMARY_SCHEMA:
+        return
+    try:
+        summary = compact_summary(document, runtime)
+        with get_worker_store() as store:
+            current = store.query_one({"index": job["index"]})
+            if current is None or current.get("uuid") != job.get("uuid"):
+                return
+            current["summary"] = summary
+            store.update(current)
+    except Exception:
+        logger.warning("Could not store the result summary", exc_info=True)
 
 
 @router.get("/task/{task_id}")
@@ -587,19 +1218,22 @@ async def result(task_id: int):
         }
 
     if job["status"] == "FIZZLED":
+        def _stamp(key):
+            value = job.get(key)
+            if value is None:
+                return None
+            return convert_to_local_tz(value).strftime("%Y-%m-%d %H:%M:%S")
+
         return {
             "task_label": job_name,
             "status": job["status"],  # FIZZLED
             "submitted_on": convert_to_local_tz(job["submitted_time"]).strftime(
                 "%Y-%m-%d %H:%M:%S"
             ),
-            "start_time": convert_to_local_tz(job["start_time"]).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-            "end_time": convert_to_local_tz(job["end_time"]).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-            "error_tb": job["error"],
+            "start_time": _stamp("start_time"),
+            "end_time": _stamp("end_time"),
+            "error_tb": job.get("error"),
+            "error_summary": summarize_failure(job.get("error")),
         }
 
     with get_result_store() as result_store:
@@ -607,8 +1241,69 @@ async def result(task_id: int):
     if d is None:
         raise HTTPException(status_code=404, detail="Task result not found")
     d = MontyDecoder().process_decoded(d["output"])
+    return summarize_document(job, d)
+
+
+def _confidence_blocks(
+    document, evidence_rows, final_quality, final_details, final_metadata,
+    final_diagnostics, final_lattice_flags, counts_like,
+):
+    """Confidence JSON for the final result and each displayed candidate (never raises)."""
+    none_blocks = [None] * len(evidence_rows)
+    try:
+        displayed = []
+        for number, (index, refinement, quality, details, metadata, _) in enumerate(
+            evidence_rows, start=1
+        ):
+            cifs = _flatten_cifs(document.results[index][0])
+            displayed.append(
+                confidence_module.build_evidence(
+                    f"candidate:{index}", number, index, refinement, quality, details,
+                    metadata, cifs=cifs,
+                )
+            )
+        final = document.final_result
+        cif_pool = list(getattr(document, "input_cifs", None) or []) + _matching_candidate_cifs(
+            document, final
+        )
+        target = confidence_module.build_evidence(
+            "final", None, None, final, final_quality, final_details, final_metadata,
+            lattice_flags=final_lattice_flags, cifs=cif_pool,
+        )
+        kwargs = dict(
+            counts_like=counts_like,
+            search_summary=getattr(document, "search_summary", None),
+            instrument_profile=confidence_module.instrument_profile_of(document),
+        )
+        final_block = confidence_module.evaluate_confidence(
+            target, displayed,
+            missing_peaks=(final_diagnostics.get("counts") or {}).get("missing"), **kwargs,
+        )
+        blocks = [
+            confidence_module.evaluate_confidence(
+                evidence, displayed,
+                missing_peaks=(row[5].get("counts") or {}).get("missing"), **kwargs,
+            )
+            for evidence, row in zip(displayed, evidence_rows)
+        ]
+        return final_block, blocks
+    except Exception:
+        logger.warning("Confidence could not be computed", exc_info=True)
+        return None, none_blocks
+
+
+def summarize_document(job: dict, document, *, persist_summary: bool = True) -> dict:
+    """Return the COMPLETED-task payload served by GET /api/task/{id}.
+
+    ``job`` needs ``uuid``, ``index``, ``status``, ``submitted_time``, ``start_time``,
+    ``end_time`` and ``job`` (``Job.as_dict()`` form: ``name``, ``function_kwargs``,
+    ``metadata``). With ``persist_summary=False`` the worker store is never touched.
+    """
+    d = document
+    counts_like = _counts_like(d)
 
     all_results = []
+    evidence_rows = []
     equivalent_result_indexes: dict[tuple[str, ...], int] = {}
 
     for result_index, result in enumerate(d.results):
@@ -619,7 +1314,7 @@ async def result(task_id: int):
             }
         except (TypeError, ValueError, ZeroDivisionError):
             result_weight_percent = {}
-        grouped_phases = d.grouped_phases[result_index] if d.grouped_phases else None
+        grouped_phases = deepcopy(d.grouped_phases[result_index]) if d.grouped_phases else None
         phases = [[cif.filename for cif in cifs] for cifs in result[0]]
         highlighted_phases = list(result[1].lst_data.phases_results)
         phase_metadata = _refined_phase_metadata(result[1])
@@ -665,6 +1360,8 @@ async def result(task_id: int):
                 )
 
         equivalent_result_indexes[result_key] = len(all_results)
+        fit_quality = _fit_quality(result[1])
+        phase_details = _phase_refinement_details(result[1])
         all_results.append(
             {
                 "rwp": result[1].lst_data.rwp,
@@ -677,14 +1374,20 @@ async def result(task_id: int):
                 "phases": phases,
                 "highlighted_phases": highlighted_phases,
                 "phase_metadata": phase_metadata,
-                "fit_quality": _fit_quality(result[1]),
-                "phase_details": _phase_refinement_details(result[1]),
+                "fit_quality": fit_quality,
+                "phase_details": phase_details,
                 "peak_diagnostics": diagnostics,
+                "cautions": fit_cautions(
+                    fit_quality, phase_details, diagnostics, counts_like=counts_like
+                ),
                 "grouped_phases": grouped_phases,
                 "weight_percent": result_weight_percent,
                 "source_index": result_index,
                 "equivalent_result_count": 1,
             }
+        )
+        evidence_rows.append(
+            (result_index, result[1], fit_quality, phase_details, phase_metadata, diagnostics)
         )
 
     if d.final_result is None:
@@ -703,6 +1406,42 @@ async def result(task_id: int):
         weight_percent = {}
     final_phase_metadata = _refined_phase_metadata(d.final_result)
     final_peak_diagnostics = _peak_diagnostics(d.final_result)
+    final_fit_quality = _fit_quality(d.final_result)
+    final_phase_details = _phase_refinement_details(d.final_result)
+    final_lattice_flags = _final_lattice_flags(job, d)
+    final_cautions = fit_cautions(
+        final_fit_quality,
+        final_phase_details,
+        final_peak_diagnostics,
+        counts_like=counts_like,
+        lattice_flags=final_lattice_flags,
+    )
+    final_confidence, candidate_confidence = _confidence_blocks(
+        d, evidence_rows, final_fit_quality, final_phase_details, final_phase_metadata,
+        final_peak_diagnostics, final_lattice_flags, counts_like,
+    )
+    for block, cautions in [(final_confidence, final_cautions)] + [
+        (candidate_confidence[i], all_results[i]["cautions"]) for i in range(len(all_results))
+    ]:
+        if not block:
+            continue
+        for extra in (
+            displacement_caution(block.get("sample_displacement")),
+            broad_background_caution(block.get("broad_background")),
+        ):
+            if extra is not None:
+                cautions.append(extra)
+    # Search-level cautions describe the whole run, so they belong to the final result only.
+    final_cautions.extend(
+        search_cautions(
+            getattr(d, "candidate_summary", None), getattr(d, "search_summary", None)
+        )
+    )
+    for entry, block in zip(all_results, candidate_confidence):
+        if block is not None:
+            entry["confidence"] = block
+    if persist_summary:
+        _backfill_summary(job, d, runtime)
     return {
         "status": job["status"],
         "task_label": job["job"]["name"],
@@ -712,9 +1451,11 @@ async def result(task_id: int):
             "phases": list(d.final_result.lst_data.phases_results),
             "weight_percent": weight_percent,
             "phase_metadata": final_phase_metadata,
-            "fit_quality": _fit_quality(d.final_result),
-            "phase_details": _phase_refinement_details(d.final_result),
+            "fit_quality": final_fit_quality,
+            "phase_details": final_phase_details,
             "peak_diagnostics": final_peak_diagnostics,
+            "cautions": final_cautions,
+            **({"confidence": final_confidence} if final_confidence is not None else {}),
         },
         "all_results": all_results,
         "duplicate_results_removed": len(d.results) - len(all_results),
@@ -802,6 +1543,10 @@ def _write_refinement_files(
         )
     output.writestr(f"{folder}refinement.csv", csv_buffer.getvalue())
 
+    raw_lst = getattr(refinement.lst_data, "raw_lst", None)
+    if raw_lst:
+        output.writestr(f"{folder}refinement.lst", raw_lst)
+
     metrics = getattr(refinement, "refinement_metrics", None)
     figure = (
         refinement.visualize()
@@ -843,6 +1588,7 @@ def _make_result_archive(
     document,
     summary: dict,
     result_index: int | None = None,
+    review_selection=None,
 ) -> BytesIO:
     """Build a ZIP for all hypotheses or one selected search result."""
     archive = BytesIO()
@@ -882,10 +1628,21 @@ def _make_result_archive(
             f"{description}"
             "summary.json: task settings, phases, and Rwp values\n"
             "pattern.xy: submitted diffraction pattern\n"
+            "results_table.csv: one row per candidate and phase (weight %, lattice "
+            "parameters, fit statistics, cautions); present in the all-results archive\n"
             "Each result folder contains refinement.csv, phase_parameters.json, "
-            "plot.html, and refined_cifs/.\n"
+            "refinement.lst (raw BGMN listing), plot.html, and refined_cifs/.\n"
             "plot.html loads Plotly from its public CDN when opened.\n",
         )
+
+        if result_index is None:
+            try:
+                table_rows = task_table_rows(
+                    task_id, {"review": {"selection": review_selection}}, summary
+                )
+                output.writestr("results_table.csv", rows_to_csv(table_rows, TABLE_COLUMNS))
+            except Exception:
+                logger.warning("Could not write results_table.csv", exc_info=True)
 
         xy_columns = [document.xrd_data.angles, document.xrd_data.intensities]
         if document.xrd_data.errors is not None:
@@ -947,7 +1704,13 @@ async def download_result(task_id: int, idx: int | None = Query(None, ge=0)):
     if idx is not None and idx >= len(document.results or []):
         raise HTTPException(status_code=404, detail="Search result index out of range")
     summary = await result(task_id)
-    archive = _make_result_archive(task_id, document, summary, result_index=idx)
+    archive = _make_result_archive(
+        task_id,
+        document,
+        summary,
+        result_index=idx,
+        review_selection=(job.get("review") or {}).get("selection"),
+    )
     suffix = "all_results" if idx is None else f"search_result_{idx + 1}"
     filename = (
         f"dara_task_{task_id}_{_safe_download_name(job['job']['name'])}_{suffix}.zip"
@@ -956,6 +1719,67 @@ async def download_result(task_id: int, idx: int | None = Query(None, ge=0)):
         archive,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _csv_response(content: bytes, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/task/{task_id}/table.csv")
+async def download_task_table(task_id: int):
+    """Flat CSV with one row per (candidate, phase) of a completed task."""
+    with get_worker_store() as worker_store:
+        job = worker_store.query_one({"index": task_id})
+    if job is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if job["status"] != "COMPLETED":
+        raise HTTPException(status_code=409, detail="Only completed tasks can be exported")
+    summary = await result(task_id)
+    rows = task_table_rows(task_id, job, summary)
+    filename = f"dara_task_{task_id}_{_safe_download_name(job['job']['name'])}_table.csv"
+    return _csv_response(rows_to_csv(rows, TABLE_COLUMNS), filename)
+
+
+def _parse_task_ids(ids: str | None) -> list[int]:
+    """Parse ``1,2,3`` into unique ids in the given order (1 to 50 ids)."""
+    parts = [part.strip() for part in (ids or "").split(",") if part.strip()]
+    if not parts:
+        raise HTTPException(status_code=400, detail="Provide task ids, e.g. ids=1,2,3")
+    parsed: list[int] = []
+    for part in parts:
+        if not re.fullmatch(r"\d{1,12}", part):
+            raise HTTPException(status_code=400, detail=f"Invalid task id: {part[:20]}")
+        value = int(part)
+        if value not in parsed:
+            parsed.append(value)
+    if len(parsed) > 50:
+        raise HTTPException(status_code=400, detail="Export at most 50 tasks at a time")
+    return parsed
+
+
+@router.get("/tasks/table.csv")
+async def download_tasks_table(ids: str = Query(...)):
+    """Final-result rows for several tasks; unfinished tasks get a status row."""
+    task_ids = _parse_task_ids(ids)
+    entries = []
+    for task_id in task_ids:
+        with get_worker_store() as worker_store:
+            job = worker_store.query_one({"index": task_id})
+        summary = None
+        if job is not None and job["status"] == "COMPLETED":
+            try:
+                summary = await result(task_id)
+            except HTTPException:
+                summary = None
+        entries.append((task_id, job, summary))
+    rows = multi_task_rows(entries)
+    return _csv_response(
+        rows_to_csv(rows, TABLE_COLUMNS + MULTI_TASK_EXTRA_COLUMNS), "dara_tasks_table.csv"
     )
 
 
@@ -1031,6 +1855,7 @@ async def get_all_tasks(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     user: Optional[str] = None,
+    name: Optional[str] = None,
 ):
     # Calculate the skip value based on the page and limit
     skip = (page - 1) * limit
@@ -1040,9 +1865,14 @@ async def get_all_tasks(
         query_dict["user"] = user
     if user == "unknown":
         query_dict["user"] = None
+    if name is not None and name.strip():
+        # Literal, case-insensitive substring match on the pattern file name.
+        query_dict["job.name"] = {"$regex": re.escape(name.strip()), "$options": "i"}
     with get_worker_store() as worker_store:
-        tasks = worker_store.query(
-            criteria=query_dict, sort={"submitted_time": -1}, skip=skip, limit=limit
+        tasks = list(
+            worker_store.query(
+                criteria=query_dict, sort={"submitted_time": -1}, skip=skip, limit=limit
+            )
         )
 
     tasks_result = []
@@ -1050,6 +1880,7 @@ async def get_all_tasks(
     for task in tasks:
         index = task["index"]
         state = task["status"]
+        summary = task.get("summary")
         tasks_result.append(
             {
                 "fw_id": index,
@@ -1059,6 +1890,12 @@ async def get_all_tasks(
                     "%Y-%m-%d %H:%M:%S"
                 ),
                 "user": task.get("user", "unknown"),
+                "summary": summary if isinstance(summary, dict) else None,
+                "series": ((task.get("job") or {}).get("metadata") or {}).get("series"),
+                "adopted": (task.get("review") or {}).get("selection"),
+                "error_summary": (
+                    summarize_failure(task.get("error")) if state == "FIZZLED" else None
+                ),
             }
         )
 

@@ -42,6 +42,9 @@ function HeaderMenu() {
       <Menu.Item key='results' title='Results'>
         <Link to='/results'>Results</Link>
       </Menu.Item>
+      <Menu.Item key='series' title='Series'>
+        <Link to='/series'>Series</Link>
+      </Menu.Item>
       <Menu.Item key='tutorial' title='Tutorial'>
         <Link to='/tutorial'>Tutorial</Link>
       </Menu.Item>

@@ -1,0 +1,66 @@
+{
+ "id": "Cr2O3-2ZnO_1100C_60min",
+ "set": "pairwise_reactions",
+ "group": "pairwise",
+ "status": "scored",
+ "error": null,
+ "n_required_phases": 2,
+ "tp": 2,
+ "fp": 1,
+ "fn": 0,
+ "sg_mismatch": 0,
+ "precision": 0.6666666666666666,
+ "recall": 1.0,
+ "exact_set": false,
+ "strict_exact": false,
+ "allowed_extra_found": [],
+ "matches": [
+  {
+   "gt": "ZnO",
+   "pred": "ZnO_186_(cod_2300453)-0",
+   "pred_spacegroup": 186,
+   "sg_ok": true,
+   "wt_gt": 24.967,
+   "wt_pred": 37.5,
+   "wt_gt_raw": 24.967,
+   "wt_pred_raw": 36.0,
+   "wt_abs_error": 12.533,
+   "lattice_rel_error_pct": 0.0161,
+   "lattice_note": null,
+   "verdict": "confident"
+  },
+  {
+   "gt": "ZnCr2O4",
+   "pred": "ZnCr2O4_227_(cod_1)-0",
+   "pred_spacegroup": 227,
+   "sg_ok": true,
+   "wt_gt": 75.033,
+   "wt_pred": 62.5,
+   "wt_gt_raw": 75.033,
+   "wt_pred_raw": 60.0,
+   "wt_abs_error": 12.533,
+   "lattice_rel_error_pct": 0.0179,
+   "lattice_note": null,
+   "verdict": "confident"
+  }
+ ],
+ "false_positives": [
+  {
+   "pred": "Cr2O3_167_(cod_5)-0",
+   "wt_pred": 4.0,
+   "verdict": "weak"
+  }
+ ],
+ "false_negatives": [],
+ "wt_mae": 12.533,
+ "wt_max_abs": 12.533,
+ "rwp": 8.0,
+ "gof": 2.1,
+ "runtime_s": 240.0,
+ "top5_contains_truth": false,
+ "confidence_overall": "high",
+ "displacement_mm_pred": -0.5,
+ "displacement_mm_ref": -0.5193902,
+ "displacement_ratio": 0.9627,
+ "displacement_diff_mm": 0.0194
+}

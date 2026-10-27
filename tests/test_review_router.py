@@ -158,6 +158,7 @@ def test_report_defaults_to_adoption_and_escapes_all_user_content(context):
     assert "not-for-report" not in response.text
     assert "[redacted]" in response.text
     assert "plotly" not in response.text.lower()
+    assert "review cautions" in response.text.lower()
     best = client.get("/api/task/9/report?best=true")
     assert "best_report.html" in best.headers["Content-Disposition"]
     assert "Not marked as the adopted result" in best.text
@@ -178,3 +179,14 @@ def test_svg_does_not_connect_large_angular_gaps():
 def test_provenance_supports_mp_and_escapes_unknown_sources():
     assert "Materials Project mp-149" in review_router._provenance("Si_227_(mp-149)-0")
     assert "not recorded" in review_router._provenance("user_supplied_phase")
+
+
+def test_report_lists_automated_cautions_with_escaped_text(context):
+    client, _, doc = context
+    doc.final_result = _refinement(40.0)  # high Rwp and GOF 20 trigger a poor-fit flag
+    response = client.get("/api/task/9/report?best=true")
+    assert "review cautions" in response.text.lower()
+    assert "poor_fit" in response.text
+    assert "No automated cautions." not in response.text
+    clean = client.get("/api/task/9/report?idx=0")
+    assert "No automated cautions." in clean.text

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xrdMeasurements xmlns="http://www.xrdml.com/XRDMeasurement/2.2" status="Completed">
+  <xrdMeasurement measurementType="Scan" status="Completed">
+    <usedWavelength intended="K-Alpha 1"><kAlpha1 unit="Angstrom">1.5405980</kAlpha1></usedWavelength>
+    <scan appendNumber="0" mode="Continuous" scanAxis="Gonio" status="Completed">
+      <dataPoints>
+        <positions axis="Omega" unit="deg">
+          <startPosition>5.0000</startPosition>
+          <endPosition>14.5000</endPosition>
+        </positions>
+        <positions axis="2Theta" unit="deg">
+          <startPosition>10.0000</startPosition>
+          <endPosition>29.0000</endPosition>
+        </positions>
+        <commonCountingTime unit="seconds">1.0</commonCountingTime>
+        <counts unit="counts">100 98 97 95 101 264 817 633 160 87 85 123 387 488 174 80 75 73 72 70</counts>
+      </dataPoints>
+    </scan>
+    <scan appendNumber="0" mode="Continuous" scanAxis="Gonio" status="Completed">
+      <dataPoints>
+        <positions axis="Omega" unit="deg">
+          <startPosition>15.0000</startPosition>
+          <endPosition>24.5000</endPosition>
+        </positions>
+        <positions axis="2Theta" unit="deg">
+          <startPosition>30.0000</startPosition>
+          <endPosition>49.0000</endPosition>
+        </positions>
+        <commonCountingTime unit="seconds">1.0</commonCountingTime>
+        <counts unit="counts">100 98 97 95 101 264 817 633 160 87 85 123 387 488 174 80 75 73 72 70</counts>
+      </dataPoints>
+    </scan>
+  </xrdMeasurement>
+</xrdMeasurements>

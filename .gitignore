@@ -117,6 +117,10 @@ env.bak/
 venv.bak/
 xrd/
 
+# START launcher: pinned uv, managed CPython and uv cache live inside the repository folder
+tools/
+src/dara/bgmn/bgmnwin.zip
+
 # Spyder project settings
 .spyderproject
 .spyproject

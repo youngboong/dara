@@ -1,4 +1,5 @@
 import React from 'react';
+import { runAfterSuccess } from './submitHelpers.mjs';
 import { Alert, Button, Checkbox, Form, Input, InputNumber, message, Modal, Progress, Select, Space, Tag } from 'antd';
 
 const API = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
@@ -21,6 +22,15 @@ export function RefinementControlsEditor({ value = DEFAULT_CONTROLS, onChange })
     <p style={{ marginTop: 12, marginBottom: 0, color: '#666' }}>More flexible models can lower Rwp without proving the phase assignment. Instrument-only broadening is appropriate only when sample broadening is negligible.</p>
   </section>;
 }
+
+const clock = seconds => {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const rest = String(total % 60).padStart(2, '0');
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${String(minutes).padStart(2, '0')}:${rest}`;
+};
+const etaText = seconds => (seconds < 60 ? ', < 1 min left in this stage' : `, about ${Math.round(seconds / 60)} min left in this stage`);
 
 export function TaskProgress({ taskId, onStatusChange }) {
   const [data, setData] = React.useState(null);
@@ -60,7 +70,8 @@ export function TaskProgress({ taskId, onStatusChange }) {
       {['READY','RUNNING','CANCELLING'].includes(data.status) ? <Button danger loading={busy} disabled={data.status === 'CANCELLING'} onClick={cancel}>{data.status === 'CANCELLING' ? 'Stopping…' : 'Stop analysis'}</Button> : null}
       {data.completed_candidates > 0 ? <Button href={`${API}/task/${taskId}/checkpoints`}>Download completed candidates ({data.completed_candidates})</Button> : null}
     </Space>
-    {data.total > 0 ? <><Progress percent={Math.round(100 * data.completed / data.total)} status={data.status === 'RUNNING' ? 'active' : 'normal'} /><p>{data.completed} / {data.total} candidate attempts finished (not overall progress).</p></> : <p style={{ marginTop: 8 }}>This stage has no reliable percentage estimate.</p>}
+    {Number.isFinite(data.elapsed_s) ? <p style={{ marginTop: 8, marginBottom: 0 }}>Elapsed {clock(data.elapsed_s)}{Number.isFinite(data.budget_s) ? ` / limit ${clock(data.budget_s)}` : ''}</p> : null}
+    {data.total > 0 ? <><Progress percent={Math.round(100 * data.completed / data.total)} status={data.status === 'RUNNING' ? 'active' : 'normal'} /><p>{data.stage === 'Screening reference phases' ? `${data.completed} / ${data.total} references screened` : `${data.completed} / ${data.total} candidate attempts finished (not overall progress)`}{Number.isFinite(data.eta_s) ? etaText(data.eta_s) : ''}.</p></> : <p style={{ marginTop: 8 }}>This stage has no reliable percentage estimate.</p>}
     {data.completed_candidates > 0 ? <p>Checkpoints contain completed refinements only, numbered by execution order; final ranking may change.</p> : null}
   </section>;
 }
@@ -81,7 +92,11 @@ export function InstrumentManager({ onRegistered }) {
       const response = await fetch(`${API}/instrument-profiles`, {method:'POST',body:data});
       const result = await response.json();
       if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Check required profile fields.');
-      onRegistered(result); setOpen(false); form.resetFields(); setFiles({}); message.success('Profile registered and selected.');
+      // The profile is already registered on the server; UI follow-up problems must not look like a failed registration.
+      runAfterSuccess([
+        () => onRegistered(result), () => setOpen(false), () => form.resetFields(), () => setFiles({}),
+        () => message.success('Profile registered and selected.'),
+      ]);
     } catch (e) { if (e.message) message.error(e.message); }
     finally { setBusy(false); }
   };

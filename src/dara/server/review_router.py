@@ -123,6 +123,18 @@ def _table(headers: list[str], rows: list[list[str]]) -> str:
 
 
 def _provenance(phase_name: str) -> str:
+    try:
+        from dara.structure_quality import reference_provenance
+
+        info = reference_provenance(phase_name)
+        label = info.get("label")
+        if label:
+            url = info.get("url")
+            if url:
+                return f'<a href="{escape(str(url), quote=True)}">{escape(str(label))}</a>'
+            return escape(str(label))
+    except Exception:  # structure_quality unavailable: use the plain name parser
+        pass
     cod = re.search(r"cod[_-]?(\d+)", phase_name, re.I)
     mp = re.search(r"mp[-_](\d+)", phase_name, re.I)
     if cod:
@@ -217,73 +229,19 @@ def _public_settings(value):
 
 def _render_report(task_id: int, task: dict, document, selection, review: dict) -> str:
     # Local import lets the application register this router without import cycles.
-    from dara.server.api_router import (
-        _fit_quality, _phase_refinement_details, _refined_phase_metadata,
-    )
-    from dara.plot import phase_display_name
-    from dara.xrd import get_xrdml_metadata
+    from dara.server.report.builder import build_report_html
 
-    refinement = _select_refinement(document, selection)
-    phase_details = _phase_refinement_details(refinement)
-    phase_metadata = _refined_phase_metadata(refinement)
-    quality = _fit_quality(refinement)
-    search_settings = getattr(document, "search_kwargs", None) or {}
-    excluded_ranges = (search_settings.get("refinement_params") or {}).get("excluded_ranges")
-    name = task.get("job", {}).get("name") or document.task_label or f"Task {task_id}"
-    if selection == "best" or selection is None:
-        chosen = "Minimum-Rwp final result"
-    else:
-        chosen = f"Candidate source index {selection} (stored result {selection + 1})"
-    adopted = review.get("selection") is not None and (review["selection"] == ("best" if selection is None else selection))
-    state = "User-adopted result" if adopted else "Not marked as the adopted result"
-    conditions = {
-        "Analysis mode": getattr(document, "analysis_mode", None),
-        "Precursor formulas": getattr(document, "precursors", None),
-        "Elements": getattr(document, "elements", None),
-        "Candidate databases": getattr(document, "candidate_sources", None),
-        "Search / analysis settings": getattr(document, "search_kwargs", None),
-        "Final refinement settings": getattr(document, "final_refinement_params", None),
-        "Reaction prediction settings (temperature in K)": getattr(document, "predict_kwargs", None),
-        "Submitted": task.get("submitted_time"),
-        "Completed": task.get("end_time"),
-        "Submitted by": task.get("user"),
-    }
-    metadata = getattr(document.xrd_data, "xrdml_dict", None)
-    if metadata:
-        conditions["Recorded acquisition metadata"] = get_xrdml_metadata(metadata)
-    condition_rows = []
-    for label, value in conditions.items():
-        if value is None or value == [] or value == {}:
-            continue
-        value_text = json.dumps(_public_settings(value), ensure_ascii=False, default=str, indent=2) if isinstance(value, (list, dict)) else str(value)
-        condition_rows.append([escape(label), f"<pre>{escape(value_text)}</pre>"])
-    quality_rows = [[label, escape(_number(quality.get(key)))] for label, key in (("Rwp (%)", "rwp"), ("Rp (%)", "rp"), ("Rexp (%)", "rexp"), ("Goodness of fit: Rwp/Rexp", "gof"), ("χ²", "chi_squared"), ("2θ minimum (°)", "two_theta_min"), ("2θ maximum (°)", "two_theta_max"), ("Fit data points", "data_points"))]
-    phases = []
-    for name_, details in phase_details.items():
-        metadata_ = phase_metadata.get(name_, {})
-        lattice = "<br>".join(f"{escape(key)} = {escape(_parameter(value))}" for key, value in details.get("lattice_parameters", {}).items()) or "—"
-        fraction = _number(details.get("weight_percent"), 6)
-        if details.get("weight_esd_percent") is not None:
-            fraction += " ± " + _number(details["weight_esd_percent"], 2)
-        symbol = metadata_.get("spacegroup_symbol") or "—"
-        number = metadata_.get("spacegroup_number")
-        sg = f"{symbol}" + (f" (#{number})" if number else "")
-        phases.append([phase_display_name(name_), escape(sg), escape(fraction), lattice, _provenance(name_) + f"<br><small>{escape(name_)}</small>"])
-    notes = escape(review.get("notes") or "No review notes recorded.")
-    updated = escape(review.get("updated_at") or "Not saved")
-    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DARA report — {escape(str(name))}</title>
-<style>body{{font:14px/1.5 system-ui,Arial,sans-serif;color:#172033;max-width:1150px;margin:32px auto;padding:0 24px}}h1{{font-size:24px;margin-bottom:8px}}h2{{font-size:18px;margin-top:26px}}table{{border-collapse:collapse;width:100%;margin:12px 0}}th,td{{padding:8px;border:1px solid #cbd5e1;text-align:left;vertical-align:top;overflow-wrap:anywhere}}th{{background:#f1f5f9}}pre{{font:inherit;white-space:pre-wrap;margin:0;overflow-wrap:anywhere}}small,.muted{{color:#475569}}svg{{width:100%;height:auto}}.notes{{white-space:pre-wrap;background:#f8fafc;padding:12px;border:1px solid #cbd5e1}}@media print{{body{{max-width:none;margin:0;padding:0;font-size:10pt}}svg, tr{{break-inside:avoid}}thead{{display:table-header-group}}h2{{break-after:avoid}}a{{color:inherit;text-decoration:none}}}}</style></head><body>
-<h1>DARA XRD analysis report</h1><p><strong>{escape(str(name))}</strong> · Task {task_id}</p>
-<p>{escape(chosen)} · {state}<br>Minimum Rwp retained in the analysis: {_number(getattr(document, 'best_rwp', None))}%</p>
-<p class="muted">Generated {datetime.now(timezone.utc).isoformat()} · Standalone report; open in a browser and use Print → Save as PDF.</p>
-<h2>Fit and residual</h2>{_fit_svg(refinement, excluded_ranges)}
-{'<p class="muted">Shaded angular intervals are excluded from refinement; measured data may still be shown for context.</p>' if excluded_ranges else ''}
-<h2>Fit quality</h2>{_table(['Metric', 'Value'], quality_rows)}
-<h2>Phase quantification and crystallography</h2>{_table(['Phase / formula', 'Space group', 'wt%', 'Reported lattice parameters', 'Reference provenance'], phases)}
-<p class="muted">Weight percentages are normalized among the fitted crystalline phases, not absolute sample fractions or amorphous content. ± values are refinement estimated standard deviations where available, not total measurement uncertainty. Only independently reported lattice parameters are listed; omitted symmetry-constrained parameters are not missing measurements. A low Rwp alone does not establish correct phase identity.</p>
-<h2>Analysis and acquisition conditions</h2>{_table(['Condition', 'Recorded value'], condition_rows)}
-<h2>User review notes</h2><p class="muted">Last saved: {updated}. Notes apply to this task; report selection: {escape(chosen)}.</p><div class="notes">{notes}</div>
-</body></html>'''
+    return build_report_html(task_id, task, document, selection, review)
+
+
+def _report_selection(idx, best: bool, review: dict):
+    if idx is not None and best:
+        raise HTTPException(422, "Choose either idx or best, not both")
+    if idx is not None:
+        return idx
+    if best:
+        return "best"
+    return review["selection"] if review["selection"] is not None else "best"
 
 
 @router.get("/task/{task_id}/report")
@@ -292,7 +250,7 @@ async def download_report(task_id: int, idx: int | None = Query(None, ge=0), bes
         raise HTTPException(422, "Choose either idx or best, not both")
     task, document = _load_completed_task(task_id)
     review = _review_metadata(task)
-    selection = idx if idx is not None else ("best" if best else (review["selection"] if review["selection"] is not None else "best"))
+    selection = _report_selection(idx, best, review)
     html = _render_report(task_id, task, document, selection, review)
     suffix = "best" if selection == "best" else f"candidate_{selection + 1}"
     return Response(
@@ -301,6 +259,50 @@ async def download_report(task_id: int, idx: int | None = Query(None, ge=0), bes
         headers={
             "Content-Disposition": f'attachment; filename="dara_task_{task_id}_{suffix}_report.html"',
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+_FIGURE_MEDIA = {"png": "image/png", "svg": "image/svg+xml"}
+
+
+@router.get("/task/{task_id}/figure.{fmt}")
+async def download_figure(
+    task_id: int,
+    fmt: str,
+    idx: int | None = Query(None, ge=0),
+    best: bool = False,
+    dpi: int = 600,
+    width_mm: float = 170,
+):
+    """Publication-style fit figure (PNG or SVG) of the selected refinement."""
+    if fmt not in _FIGURE_MEDIA:
+        raise HTTPException(404, "Unsupported figure format; use png or svg")
+    if idx is not None and best:
+        raise HTTPException(422, "Choose either idx or best, not both")
+    task, document = _load_completed_task(task_id)
+    review = _review_metadata(task)
+    selection = _report_selection(idx, best, review)
+    refinement = _select_refinement(document, selection)
+    from dara.server.api_router import _counts_like
+    from dara.server.report.figures import fit_figure
+
+    search_settings = getattr(document, "search_kwargs", None) or {}
+    excluded = (search_settings.get("refinement_params") or {}).get("excluded_ranges")
+    try:
+        content = fit_figure(
+            refinement, fmt=fmt, dpi=dpi, width_mm=width_mm, excluded_ranges=excluded,
+            counts_like=_counts_like(document),
+        )
+    except Exception as exc:
+        raise HTTPException(500, f"Figure rendering failed: {exc}") from exc
+    suffix = "best" if selection == "best" else f"candidate_{selection + 1}"
+    return Response(
+        content,
+        media_type=_FIGURE_MEDIA[fmt],
+        headers={
+            "Content-Disposition": f'attachment; filename="dara_task_{task_id}_{suffix}_figure.{fmt}"',
             "X-Content-Type-Options": "nosniff",
         },
     )

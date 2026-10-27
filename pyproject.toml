@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=42", "wheel", "setuptools-git-versioning"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -57,6 +57,10 @@ dependencies = [
     "mp_api>=0.45.0",
     "python-multipart>=0.0.19",
     "uvicorn>=0.34.0",
+    "requests>=2.28",
+    "tqdm>=4.60",
+    "matplotlib>=3.8",
+    "scipy>=1.10",
 ]
 
 [project.optional-dependencies]
@@ -201,16 +205,12 @@ no_implicit_optional = false
 follow_imports = "skip"
 disable_error_code = "annotation-unchecked"
 
-[tool.pytest]
-addopts = "--durations=10"
-
 [tool.pytest.ini_options]
+addopts = "--durations=10"
+markers = ["slow: real BGMN / Materials Project runs (opt-in via DARA_RUN_SLOW=1)"]
 testpaths = "tests"
 
 [tool.setuptools.package-data]
 "dara.data" = ["**"]
 "dara" = ["py.typed"]
 "dara.server.ui.public" = ["**"]
-
-[tool.setuptools-git-versioning]
-enabled = true

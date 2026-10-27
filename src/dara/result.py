@@ -9,9 +9,8 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pymatgen.core import Composition, Lattice, Structure, get_el_sp
-from pymatgen.symmetry.groups import SpaceGroup
 
-from dara.plot import visualize
+from dara.plot import cached_spacegroup, visualize
 from dara.utils import (
     angular_correction,
     get_number,
@@ -88,7 +87,7 @@ class PhaseResult(BaseModel):
         for k in ["a", "b", "c"]:
             if k in lattice_data:
                 lattice_data[k] = lattice_data[k] * 10
-        spacegroup = SpaceGroup.from_int_number(self.spacegroup_no)
+        spacegroup = cached_spacegroup(int(self.spacegroup_no))
         crystal_system = spacegroup.crystal_system
         if crystal_system == "trigonal":
             crystal_system = "hexagonal"

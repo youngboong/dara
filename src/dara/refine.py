@@ -196,6 +196,7 @@ def do_refinement(
     extra_intensity_ratio: float = 0.03,
     intensity_mismatch_height_tolerance: float = 0.40,
     intensity_mismatch_area_tolerance: float = 0.60,
+    bgmn_timeout: float | None = None,
 ) -> RefinementResult:
     """Refine the structure using BGMN.
 
@@ -208,6 +209,7 @@ def do_refinement(
         extra_intensity_ratio: see ``_attach_peak_markers``.
         intensity_mismatch_height_tolerance: see ``_attach_peak_markers``.
         intensity_mismatch_area_tolerance: see ``_attach_peak_markers``.
+        bgmn_timeout: seconds before the BGMN subprocess is killed (``None``: legacy 1200 s).
     """
     pattern_path = Path(pattern_path)
     working_dir = (
@@ -252,7 +254,9 @@ def do_refinement(
     )
 
     bgmn_worker = BGMNWorker()
-    bgmn_worker.run_refinement_cmd(control_file_path, show_progress=show_progress)
+    bgmn_worker.run_refinement_cmd(
+        control_file_path, show_progress=show_progress, timeout=bgmn_timeout
+    )
     result = get_result(control_file_path)
     range_params = {key: value for key, value in refinement_params.items()
                     if key in {"wmin", "wmax", "excluded_ranges"}}
@@ -291,6 +295,7 @@ def do_refinement_no_saving(
     extra_intensity_ratio: float = 0.03,
     intensity_mismatch_height_tolerance: float = 0.40,
     intensity_mismatch_area_tolerance: float = 0.60,
+    bgmn_timeout: float | None = None,
 ) -> RefinementResult:
     """Refine the structure using BGMN in a temporary directory without saving.
 
@@ -303,6 +308,7 @@ def do_refinement_no_saving(
         extra_intensity_ratio: see ``_attach_peak_markers``.
         intensity_mismatch_height_tolerance: see ``_attach_peak_markers``.
         intensity_mismatch_area_tolerance: see ``_attach_peak_markers``.
+        bgmn_timeout: seconds before the BGMN subprocess is killed (``None``: legacy 1200 s).
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         return do_refinement(
@@ -322,4 +328,5 @@ def do_refinement_no_saving(
             extra_intensity_ratio=extra_intensity_ratio,
             intensity_mismatch_height_tolerance=intensity_mismatch_height_tolerance,
             intensity_mismatch_area_tolerance=intensity_mismatch_area_tolerance,
+            bgmn_timeout=bgmn_timeout,
         )

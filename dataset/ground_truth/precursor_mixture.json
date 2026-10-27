@@ -1,0 +1,2625 @@
+{
+ "schema": 1,
+ "set": "precursor_mixture",
+ "description": "Weighed mixtures of 2-3 commercial precursors (Aeris, Cu K-alpha); 2-min and 8-min scans. Ground-truth wt% are the weighed masses encoded in the file names (e.g. 0p3022 = 0.3022 g), renormalised to 100 wt%.",
+ "aliases": {
+  "Li4CO5": {
+   "formula": "Li2CO3",
+   "note": "ICSD 181261 is Li2CO3 mislabelled as Li4CO5 (benchmark sheet note)."
+  }
+ },
+ "samples": [
+  {
+   "id": "In2O3_0p3022-La(OH)3_0p5014-TiO2_0p2004--2min",
+   "pattern": "dataset/precursor_mixture/In2O3_0p3022-La(OH)3_0p5014-TiO2_0p2004--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "In2O3",
+     "La(OH)3",
+     "TiO2"
+    ],
+    "elements": [
+     "H",
+     "In",
+     "La",
+     "O",
+     "Ti"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "In2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3022,
+     "lattice": {},
+     "required": true,
+     "source_label": "In2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.1
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5014,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 49.94
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2004,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 19.96
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "In2O3_0p3022-La(OH)3_0p5014-TiO2_0p2004--8min",
+   "pattern": "dataset/precursor_mixture/In2O3_0p3022-La(OH)3_0p5014-TiO2_0p2004--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "In2O3",
+     "La(OH)3",
+     "TiO2"
+    ],
+    "elements": [
+     "H",
+     "In",
+     "La",
+     "O",
+     "Ti"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "In2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3022,
+     "lattice": {},
+     "required": true,
+     "source_label": "In2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.1
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5014,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 49.94
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2004,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 19.96
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "In2O3_0p5002-MnCO3_0p5000--2min",
+   "pattern": "dataset/precursor_mixture/In2O3_0p5002-MnCO3_0p5000--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "In2O3",
+     "MnCO3"
+    ],
+    "elements": [
+     "C",
+     "In",
+     "Mn",
+     "O"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "In2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5002,
+     "lattice": {},
+     "required": true,
+     "source_label": "In2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 50.01
+    },
+    {
+     "formula": "MnCO3",
+     "spacegroup": 167,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5,
+     "lattice": {},
+     "required": true,
+     "source_label": "MnCO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 49.99
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "In2O3_0p5002-MnCO3_0p5000--8min",
+   "pattern": "dataset/precursor_mixture/In2O3_0p5002-MnCO3_0p5000--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "In2O3",
+     "MnCO3"
+    ],
+    "elements": [
+     "C",
+     "In",
+     "Mn",
+     "O"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "In2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5002,
+     "lattice": {},
+     "required": true,
+     "source_label": "In2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 50.01
+    },
+    {
+     "formula": "MnCO3",
+     "spacegroup": 167,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5,
+     "lattice": {},
+     "required": true,
+     "source_label": "MnCO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 49.99
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "Li2CO3_0p9001-ZrO2_0p1000--2min",
+   "pattern": "dataset/precursor_mixture/Li2CO3_0p9001-ZrO2_0p1000--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Li2CO3",
+     "ZrO2"
+    ],
+    "elements": [
+     "C",
+     "Li",
+     "O",
+     "Zr"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "Li2CO3",
+     "spacegroup": 15,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.9001,
+     "lattice": {},
+     "required": true,
+     "source_label": "Li2CO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 90.001
+    },
+    {
+     "formula": "ZrO2",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.1,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZrO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 9.999
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "Li2CO3_0p9001-ZrO2_0p1000--8min",
+   "pattern": "dataset/precursor_mixture/Li2CO3_0p9001-ZrO2_0p1000--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "Li2CO3",
+     "ZrO2"
+    ],
+    "elements": [
+     "C",
+     "Li",
+     "O",
+     "Zr"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "Li2CO3",
+     "spacegroup": 15,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.9001,
+     "lattice": {},
+     "required": true,
+     "source_label": "Li2CO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 90.001
+    },
+    {
+     "formula": "ZrO2",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.1,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZrO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 9.999
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "NiO_0p1031-La(OH)3_0p2025-TiO2_0p7014--2min",
+   "pattern": "dataset/precursor_mixture/NiO_0p1031-La(OH)3_0p2025-TiO2_0p7014--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "NiO",
+     "La(OH)3",
+     "TiO2"
+    ],
+    "elements": [
+     "H",
+     "La",
+     "Ni",
+     "O",
+     "Ti"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.1031,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 10.238
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2025,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.109
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.7014,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 69.652
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "NiO_0p1031-La(OH)3_0p2025-TiO2_0p7014--8min",
+   "pattern": "dataset/precursor_mixture/NiO_0p1031-La(OH)3_0p2025-TiO2_0p7014--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "NiO",
+     "La(OH)3",
+     "TiO2"
+    ],
+    "elements": [
+     "H",
+     "La",
+     "Ni",
+     "O",
+     "Ti"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.1031,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 10.238
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2025,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.109
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.7014,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 69.652
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "NiO_0p2030-Li2CO3_0p2999-TiO2_0p5025--2min",
+   "pattern": "dataset/precursor_mixture/NiO_0p2030-Li2CO3_0p2999-TiO2_0p5025--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "NiO",
+     "Li2CO3",
+     "TiO2"
+    ],
+    "elements": [
+     "C",
+     "Li",
+     "Ni",
+     "O",
+     "Ti"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.203,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.191
+    },
+    {
+     "formula": "Li2CO3",
+     "spacegroup": 15,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2999,
+     "lattice": {},
+     "required": true,
+     "source_label": "Li2CO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 29.829
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5025,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 49.98
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "NiO_0p2030-Li2CO3_0p2999-TiO2_0p5025--8min",
+   "pattern": "dataset/precursor_mixture/NiO_0p2030-Li2CO3_0p2999-TiO2_0p5025--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "NiO",
+     "Li2CO3",
+     "TiO2"
+    ],
+    "elements": [
+     "C",
+     "Li",
+     "Ni",
+     "O",
+     "Ti"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.203,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.191
+    },
+    {
+     "formula": "Li2CO3",
+     "spacegroup": 15,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2999,
+     "lattice": {},
+     "required": true,
+     "source_label": "Li2CO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 29.829
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5025,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 49.98
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "NiO_0p3035-Bi2O3_0p3016-Li2CO3_0p3997--2min",
+   "pattern": "dataset/precursor_mixture/NiO_0p3035-Bi2O3_0p3016-Li2CO3_0p3997--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "NiO",
+     "Bi2O3",
+     "Li2CO3"
+    ],
+    "elements": [
+     "Bi",
+     "C",
+     "Li",
+     "Ni",
+     "O"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3035,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.205
+    },
+    {
+     "formula": "Bi2O3",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3016,
+     "lattice": {},
+     "required": true,
+     "source_label": "Bi2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.016
+    },
+    {
+     "formula": "Li2CO3",
+     "spacegroup": 15,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3997,
+     "lattice": {},
+     "required": true,
+     "source_label": "Li2CO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 39.779
+    }
+   ],
+   "allowed_extra": [
+    "Bi2CO5"
+   ],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "NiO_0p3035-Bi2O3_0p3016-Li2CO3_0p3997--8min",
+   "pattern": "dataset/precursor_mixture/NiO_0p3035-Bi2O3_0p3016-Li2CO3_0p3997--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "NiO",
+     "Bi2O3",
+     "Li2CO3"
+    ],
+    "elements": [
+     "Bi",
+     "C",
+     "Li",
+     "Ni",
+     "O"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3035,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.205
+    },
+    {
+     "formula": "Bi2O3",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3016,
+     "lattice": {},
+     "required": true,
+     "source_label": "Bi2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.016
+    },
+    {
+     "formula": "Li2CO3",
+     "spacegroup": 15,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3997,
+     "lattice": {},
+     "required": true,
+     "source_label": "Li2CO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 39.779
+    }
+   ],
+   "allowed_extra": [
+    "Bi2CO5"
+   ],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "NiO_0p6007-Bi2O3_0p4008--2min",
+   "pattern": "dataset/precursor_mixture/NiO_0p6007-Bi2O3_0p4008--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "NiO",
+     "Bi2O3"
+    ],
+    "elements": [
+     "Bi",
+     "Ni",
+     "O"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.6007,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 59.98
+    },
+    {
+     "formula": "Bi2O3",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4008,
+     "lattice": {},
+     "required": true,
+     "source_label": "Bi2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.02
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "NiO_0p6007-Bi2O3_0p4008--8min",
+   "pattern": "dataset/precursor_mixture/NiO_0p6007-Bi2O3_0p4008--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "NiO",
+     "Bi2O3"
+    ],
+    "elements": [
+     "Bi",
+     "Ni",
+     "O"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.6007,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 59.98
+    },
+    {
+     "formula": "Bi2O3",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4008,
+     "lattice": {},
+     "required": true,
+     "source_label": "Bi2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.02
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "NiO_0p7028-La(OH)3_0p1010-ZnO_0p2000--2min",
+   "pattern": "dataset/precursor_mixture/NiO_0p7028-La(OH)3_0p1010-ZnO_0p2000--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "NiO",
+     "La(OH)3",
+     "ZnO"
+    ],
+    "elements": [
+     "H",
+     "La",
+     "Ni",
+     "O",
+     "Zn"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.7028,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 70.014
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.101,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 10.062
+    },
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZnO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 19.924
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "NiO_0p7028-La(OH)3_0p1010-ZnO_0p2000--8min",
+   "pattern": "dataset/precursor_mixture/NiO_0p7028-La(OH)3_0p1010-ZnO_0p2000--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "NiO",
+     "La(OH)3",
+     "ZnO"
+    ],
+    "elements": [
+     "H",
+     "La",
+     "Ni",
+     "O",
+     "Zn"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.7028,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 70.014
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.101,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 10.062
+    },
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZnO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 19.924
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "TiO2_0p4009-ZnO_0p6010--2min",
+   "pattern": "dataset/precursor_mixture/TiO2_0p4009-ZnO_0p6010--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "TiO2",
+     "ZnO"
+    ],
+    "elements": [
+     "O",
+     "Ti",
+     "Zn"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4009,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.014
+    },
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.601,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZnO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 59.986
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "TiO2_0p4009-ZnO_0p6010--8min",
+   "pattern": "dataset/precursor_mixture/TiO2_0p4009-ZnO_0p6010--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "TiO2",
+     "ZnO"
+    ],
+    "elements": [
+     "O",
+     "Ti",
+     "Zn"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4009,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.014
+    },
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.601,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZnO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 59.986
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p1012-In2O3_0p2008-TiO2_0p7001--2min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p1012-In2O3_0p2008-TiO2_0p7001--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "In2O3",
+     "TiO2"
+    ],
+    "elements": [
+     "In",
+     "O",
+     "Ti",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.1012,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 10.099
+    },
+    {
+     "formula": "In2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2008,
+     "lattice": {},
+     "required": true,
+     "source_label": "In2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.038
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.7001,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 69.863
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p1012-In2O3_0p2008-TiO2_0p7001--8min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p1012-In2O3_0p2008-TiO2_0p7001--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "In2O3",
+     "TiO2"
+    ],
+    "elements": [
+     "In",
+     "O",
+     "Ti",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.1012,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 10.099
+    },
+    {
+     "formula": "In2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2008,
+     "lattice": {},
+     "required": true,
+     "source_label": "In2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.038
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.7001,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 69.863
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p2012-La(OH)3_0p5004-MnCO3_0p3013--2min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p2012-La(OH)3_0p5004-MnCO3_0p3013--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "La(OH)3",
+     "MnCO3"
+    ],
+    "elements": [
+     "C",
+     "H",
+     "La",
+     "Mn",
+     "O",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2012,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.062
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5004,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 49.895
+    },
+    {
+     "formula": "MnCO3",
+     "spacegroup": 167,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3013,
+     "lattice": {},
+     "required": true,
+     "source_label": "MnCO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.043
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p2012-La(OH)3_0p5004-MnCO3_0p3013--8min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p2012-La(OH)3_0p5004-MnCO3_0p3013--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "La(OH)3",
+     "MnCO3"
+    ],
+    "elements": [
+     "C",
+     "H",
+     "La",
+     "Mn",
+     "O",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2012,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.062
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5004,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 49.895
+    },
+    {
+     "formula": "MnCO3",
+     "spacegroup": 167,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3013,
+     "lattice": {},
+     "required": true,
+     "source_label": "MnCO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.043
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p2013-La(OH)3_0p5000-ZrO2_0p3001--2min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p2013-La(OH)3_0p5000-ZrO2_0p3001--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "La(OH)3",
+     "ZrO2"
+    ],
+    "elements": [
+     "H",
+     "La",
+     "O",
+     "V",
+     "Zr"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2013,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.102
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 49.93
+    },
+    {
+     "formula": "ZrO2",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3001,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZrO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 29.968
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p2013-La(OH)3_0p5000-ZrO2_0p3001--8min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p2013-La(OH)3_0p5000-ZrO2_0p3001--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "La(OH)3",
+     "ZrO2"
+    ],
+    "elements": [
+     "H",
+     "La",
+     "O",
+     "V",
+     "Zr"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2013,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.102
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.5,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 49.93
+    },
+    {
+     "formula": "ZrO2",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3001,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZrO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 29.968
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p3005-NiO_0p4020-TiO2_0p3020--2min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p3005-NiO_0p4020-TiO2_0p3020--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "NiO",
+     "TiO2"
+    ],
+    "elements": [
+     "Ni",
+     "O",
+     "Ti",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3005,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 29.915
+    },
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.402,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.02
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.302,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.065
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p3005-NiO_0p4020-TiO2_0p3020--8min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p3005-NiO_0p4020-TiO2_0p3020--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "NiO",
+     "TiO2"
+    ],
+    "elements": [
+     "Ni",
+     "O",
+     "Ti",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3005,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 29.915
+    },
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.402,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.02
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.302,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.065
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p3015-TiO2_0p6998--2min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p3015-TiO2_0p6998--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "TiO2"
+    ],
+    "elements": [
+     "O",
+     "Ti",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3015,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.111
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.6998,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 69.889
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p3015-TiO2_0p6998--8min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p3015-TiO2_0p6998--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "TiO2"
+    ],
+    "elements": [
+     "O",
+     "Ti",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3015,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 30.111
+    },
+    {
+     "formula": "TiO2",
+     "spacegroup": null,
+     "spacegroup_any_of": [
+      136,
+      141
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.6998,
+     "lattice": {},
+     "required": true,
+     "source_label": "TiO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 69.889
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p4005-NiO_0p6016--2min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p4005-NiO_0p6016--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "NiO"
+    ],
+    "elements": [
+     "Ni",
+     "O",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4005,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 39.966
+    },
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.6016,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 60.034
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p4005-NiO_0p6016--8min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p4005-NiO_0p6016--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "NiO"
+    ],
+    "elements": [
+     "Ni",
+     "O",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4005,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 39.966
+    },
+    {
+     "formula": "NiO",
+     "spacegroup": 225,
+     "spacegroup_any_of": [
+      225,
+      166
+     ],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.6016,
+     "lattice": {},
+     "required": true,
+     "source_label": "NiO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 60.034
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p4013-In2O3_0p4021-La(OH)3_0p2014--2min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p4013-In2O3_0p4021-La(OH)3_0p2014--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "In2O3",
+     "La(OH)3"
+    ],
+    "elements": [
+     "H",
+     "In",
+     "La",
+     "O",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4013,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 39.938
+    },
+    {
+     "formula": "In2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4021,
+     "lattice": {},
+     "required": true,
+     "source_label": "In2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.018
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2014,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.044
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p4013-In2O3_0p4021-La(OH)3_0p2014--8min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p4013-In2O3_0p4021-La(OH)3_0p2014--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "In2O3",
+     "La(OH)3"
+    ],
+    "elements": [
+     "H",
+     "In",
+     "La",
+     "O",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4013,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 39.938
+    },
+    {
+     "formula": "In2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4021,
+     "lattice": {},
+     "required": true,
+     "source_label": "In2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.018
+    },
+    {
+     "formula": "La(OH)3",
+     "spacegroup": 176,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2014,
+     "lattice": {},
+     "required": true,
+     "source_label": "La(OH)3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.044
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p6008-ZnO_0p4010--2min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p6008-ZnO_0p4010--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "ZnO"
+    ],
+    "elements": [
+     "O",
+     "V",
+     "Zn"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.6008,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 59.972
+    },
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.401,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZnO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.028
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p6008-ZnO_0p4010--8min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p6008-ZnO_0p4010--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "ZnO"
+    ],
+    "elements": [
+     "O",
+     "V",
+     "Zn"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.6008,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 59.972
+    },
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.401,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZnO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.028
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p7006-MnCO3_0p3001--2min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p7006-MnCO3_0p3001--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "MnCO3"
+    ],
+    "elements": [
+     "C",
+     "Mn",
+     "O",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.7006,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 70.011
+    },
+    {
+     "formula": "MnCO3",
+     "spacegroup": 167,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3001,
+     "lattice": {},
+     "required": true,
+     "source_label": "MnCO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 29.989
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p7006-MnCO3_0p3001--8min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p7006-MnCO3_0p3001--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "MnCO3"
+    ],
+    "elements": [
+     "C",
+     "Mn",
+     "O",
+     "V"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.7006,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 70.011
+    },
+    {
+     "formula": "MnCO3",
+     "spacegroup": 167,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.3001,
+     "lattice": {},
+     "required": true,
+     "source_label": "MnCO3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 29.989
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p8011-ZrO2_0p2012--2min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p8011-ZrO2_0p2012--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "ZrO2"
+    ],
+    "elements": [
+     "O",
+     "V",
+     "Zr"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.8011,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 79.926
+    },
+    {
+     "formula": "ZrO2",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2012,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZrO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.074
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "V2O5_0p8011-ZrO2_0p2012--8min",
+   "pattern": "dataset/precursor_mixture/V2O5_0p8011-ZrO2_0p2012--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "V2O5",
+     "ZrO2"
+    ],
+    "elements": [
+     "O",
+     "V",
+     "Zr"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "V2O5",
+     "spacegroup": 59,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.8011,
+     "lattice": {},
+     "required": true,
+     "source_label": "V2O5",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 79.926
+    },
+    {
+     "formula": "ZrO2",
+     "spacegroup": 14,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.2012,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZrO2",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 20.074
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "ZnO_0p4006-In2O3_0p6008--2min",
+   "pattern": "dataset/precursor_mixture/ZnO_0p4006-In2O3_0p6008--2min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "ZnO",
+     "In2O3"
+    ],
+    "elements": [
+     "In",
+     "O",
+     "Zn"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4006,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZnO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.004
+    },
+    {
+     "formula": "In2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.6008,
+     "lattice": {},
+     "required": true,
+     "source_label": "In2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 59.996
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "2min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  },
+  {
+   "id": "ZnO_0p4006-In2O3_0p6008--8min",
+   "pattern": "dataset/precursor_mixture/ZnO_0p4006-In2O3_0p6008--8min.xrdml",
+   "submission": {
+    "analysis_mode": "elemental",
+    "precursors": [
+     "ZnO",
+     "In2O3"
+    ],
+    "elements": [
+     "In",
+     "O",
+     "Zn"
+    ],
+    "temperature_c": null,
+    "atmosphere": "air",
+    "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+    "wavelength": "Cu"
+   },
+   "phases": [
+    {
+     "formula": "ZnO",
+     "spacegroup": 186,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.4006,
+     "lattice": {},
+     "required": true,
+     "source_label": "ZnO",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 40.004
+    },
+    {
+     "formula": "In2O3",
+     "spacegroup": 206,
+     "spacegroup_any_of": [],
+     "accept_any_of": [],
+     "weighed_mass_g": 0.6008,
+     "lattice": {},
+     "required": true,
+     "source_label": "In2O3",
+     "source_reference": "weighed precursor (file name)",
+     "note": "",
+     "wt_percent": 59.996
+    }
+   ],
+   "allowed_extra": [],
+   "unknown_phase_present": false,
+   "fully_indexed": true,
+   "reference_fit": null,
+   "scan": "8min",
+   "human_products": "",
+   "source": "file name (weighed fractions); dataset/README.md"
+  }
+ ]
+}

@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Button, Input, message, Modal, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { CheckOutlined, EditOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons';
 import { DEFAULT_CONTROLS, RefinementControlsEditor } from './PracticalControls';
+import { runAfterSuccess } from './submitHelpers.mjs';
 
 const API = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 
@@ -35,8 +36,11 @@ export function useTaskReview(taskId) {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selection: choice, notes }),
       }));
-      setSaved(body); setSelection(body.selection); setError('');
-      message.success('Adopted result and notes saved. The minimum-Rwp result is unchanged.');
+      // Already saved on the server; UI follow-up problems must not look like a failed save.
+      runAfterSuccess([
+        () => setSaved(body), () => setSelection(body.selection), () => setError(''),
+        () => message.success('Adopted result and notes saved. The minimum-Rwp result is unchanged.'),
+      ]);
     } catch (e) { message.error(e.message); }
     finally { setSaving(false); }
   };
