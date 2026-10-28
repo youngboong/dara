@@ -162,6 +162,7 @@ export const EXPORT_FORMATS = [
  */
 export function selectionQuery(selection) {
   if (selection === 'best' || selection === null) return '?best=true';
+  if (typeof selection === 'string' && /^version:[1-9]\d{0,5}$/.test(selection)) return `?sel=${selection}`;
   return Number.isInteger(selection) && selection >= 0 ? `?idx=${selection}` : '';
 }
 

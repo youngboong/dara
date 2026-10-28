@@ -409,10 +409,70 @@ def attach_trace_hints(classified, refinement, patterns) -> dict:
     return classified
 
 
-def _attach(classified, refinement, patterns):
+def _net_profile(x, y_obs, y_bkg, m: int):
+    """Background-subtracted profile, running-mean smoothed over ``m`` points."""
+    net = np.where(np.isfinite(y_obs - y_bkg), y_obs - y_bkg, 0.0)
+    if m > 1:
+        from scipy.ndimage import uniform_filter1d
+
+        net = uniform_filter1d(net, m, mode="nearest")
+    return net
+
+
+def _refined_identities(lst_data) -> set:
     from dara.server.confidence import phase_identity
+
+    return {phase_identity(name) for name in list(getattr(lst_data, "phases_results", None) or {})}
+
+
+def _evaluate_pattern(
+    pattern, *, target_tt, x, net, sigma_s, lo, hi, eps1, eps2, refined, tolerance_deg
+) -> dict | None:
+    """Match the strong sticks of one reference ``pattern`` against the ``target_tt`` positions.
+
+    Returns ``None`` when the pattern is already refined, empty or has no strong stick in
+    ``[lo, hi]``; otherwise the merged sticks and which targets they reach (possibly none).
+    """
     from dara.utils import angular_correction
 
+    formula = str(pattern["formula"])
+    number = pattern.get("spacegroup_number")
+    if (formula, number) in refined:
+        return None
+    tt = np.asarray(pattern["two_theta"], dtype=float).ravel()
+    inten = np.asarray(pattern["intensity"], dtype=float).ravel()
+    if tt.shape != inten.shape or tt.size == 0:
+        return None
+    tt = tt + angular_correction(tt, eps1, eps2)
+    keep = np.isfinite(tt) & np.isfinite(inten) & (tt >= lo) & (tt <= hi) & (inten > 0)
+    if not keep.any():
+        return None
+    position, rel_int = _merged_sticks(tt[keep], inten[keep])
+    strong = rel_int >= HINT_STRONG
+    if not strong.any():
+        return None
+    s_pos, s_int = position[strong], rel_int[strong]
+    hit = np.abs(s_pos[:, None] - target_tt[None, :]) <= tolerance_deg
+    matched_targets = np.flatnonzero(hit.any(axis=0))
+    top = int(np.argmax(rel_int))
+    top_pos = float(position[top])
+    top_ok = bool(np.any(np.abs(top_pos - target_tt) <= tolerance_deg))
+    if not top_ok:
+        w = np.abs(x - top_pos) <= WINDOW_HALF_DEG
+        top_ok = bool(w.any() and sigma_s > 0 and np.max(net[w]) >= HINT_OBSERVED_SIGMA * sigma_s)
+    return {
+        "position": position,
+        "rel_int": rel_int,
+        "strong_mask": strong,
+        "matched_targets": matched_targets,
+        "top_ok": top_ok,
+        "summed": float(np.sum(s_int[hit.any(axis=1)])),
+        "formula": formula,
+        "number": number,
+    }
+
+
+def _attach(classified, refinement, patterns):
     if not isinstance(classified, dict) or not patterns:
         return
     entries = classified.get("missing_classified") or []
@@ -427,57 +487,32 @@ def _attach(classified, refinement, patterns):
     significance = classified.get("missing_significance") or {}
     m = int(significance.get("smoothing_points") or 1)
     sigma_s = float(significance.get("noise_sigma") or 0.0) / math.sqrt(max(m, 1))
-    net = np.where(np.isfinite(y_obs - y_bkg), y_obs - y_bkg, 0.0)
-    if m > 1:
-        from scipy.ndimage import uniform_filter1d
-
-        net = uniform_filter1d(net, m, mode="nearest")
+    net = _net_profile(x, y_obs, y_bkg, m)
 
     lst_data = getattr(refinement, "lst_data", None)
     eps1, eps2 = _lst_param(lst_data, "EPS1"), _lst_param(lst_data, "EPS2")
-    refined = set()
-    for name in list(getattr(lst_data, "phases_results", None) or {}):
-        refined.add(phase_identity(name))
+    refined = _refined_identities(lst_data)
     target_tt = np.array([t["two_theta"] for t in targets], dtype=float)
 
     matches = []
     for pattern in patterns:
         try:
-            formula = str(pattern["formula"])
-            number = pattern.get("spacegroup_number")
-            if (formula, number) in refined:
+            result = _evaluate_pattern(
+                pattern, target_tt=target_tt, x=x, net=net, sigma_s=sigma_s, lo=lo, hi=hi,
+                eps1=eps1, eps2=eps2, refined=refined, tolerance_deg=HINT_TOL_DEG,
+            )
+            if result is None:
                 continue
-            tt = np.asarray(pattern["two_theta"], dtype=float).ravel()
-            inten = np.asarray(pattern["intensity"], dtype=float).ravel()
-            if tt.shape != inten.shape or tt.size == 0:
-                continue
-            tt = tt + angular_correction(tt, eps1, eps2)
-            keep = np.isfinite(tt) & np.isfinite(inten) & (tt >= lo) & (tt <= hi) & (inten > 0)
-            if not keep.any():
-                continue
-            position, rel_int = _merged_sticks(tt[keep], inten[keep])
-            strong = rel_int >= HINT_STRONG
-            if not strong.any():
-                continue
-            s_pos, s_int = position[strong], rel_int[strong]
-            hit = np.abs(s_pos[:, None] - target_tt[None, :]) <= HINT_TOL_DEG
-            matched_targets = np.flatnonzero(hit.any(axis=0))
+            matched_targets = result["matched_targets"]
             n_matched = int(matched_targets.size)
-            need = 1 if s_pos.size == 1 else 2
-            if n_matched < need:
+            need = 1 if int(np.count_nonzero(result["strong_mask"])) == 1 else 2
+            if n_matched < need or not result["top_ok"]:
                 continue
-            top = int(np.argmax(rel_int))
-            top_pos = float(position[top])
-            top_ok = bool(np.any(np.abs(top_pos - target_tt) <= HINT_TOL_DEG))
-            if not top_ok:
-                w = np.abs(x - top_pos) <= WINDOW_HALF_DEG
-                top_ok = bool(w.any() and sigma_s > 0 and np.max(net[w]) >= HINT_OBSERVED_SIGMA * sigma_s)
-            if not top_ok:
-                continue
-            summed = float(np.sum(s_int[hit.any(axis=1)]))
+            formula, number = result["formula"], result["number"]
             matches.append({
                 "rank": (
-                    -n_matched, "." in formula, -int(pattern.get("popularity") or 0), -summed,
+                    -n_matched, "." in formula, -int(pattern.get("popularity") or 0),
+                    -result["summed"],
                 ),
                 "targets": set(int(i) for i in matched_targets),
                 "hint": {
@@ -511,6 +546,136 @@ def _attach(classified, refinement, patterns):
         if len(distinct) >= TRACE_HINTS_MAX:
             break
     classified["trace_hints"] = distinct
+
+
+PREVIEW_STICK_REL = 5.0  # % of the strongest stick: sticks shown as preview ticks
+
+
+def noise_for(refinement, wavelength, counts_like, range_params=None) -> tuple[float, int]:
+    """``(noise_sigma, smoothing_points)`` exactly as the missing-peak classification measures them.
+
+    ``(0.0, 1)`` when the profile cannot be analysed (no noise estimate: nothing is penalized
+    as "unobserved").
+    """
+    try:
+        result = _classify(refinement, [], wavelength, counts_like, range_params)
+        significance = (result or {}).get("missing_significance") or {}
+        return (
+            float(significance.get("noise_sigma") or 0.0),
+            int(significance.get("smoothing_points") or 1),
+        )
+    except Exception:
+        logger.debug("Noise estimate failed", exc_info=True)
+        return 0.0, 1
+
+
+def rank_structures_for_peaks(
+    two_theta,
+    refinement,
+    patterns: list,
+    *,
+    noise_sigma: float | None,
+    smoothing_points: int = 1,
+    tolerance_deg: float = HINT_TOL_DEG,
+    limit: int = 20,
+    include_refined: bool = False,
+    range_params: dict | None = None,
+) -> list:
+    """Rank reference ``patterns`` by how well their strong sticks explain ``two_theta``.
+
+    Same displacement correction, window and strong-stick threshold as the trace hints.
+    ``score = matched / n_targets - 0.5 * strong_unobserved / n_strong``; strong sticks that
+    match a target count as observed. Never raises (``[]`` on error).
+    """
+    try:
+        return _rank(
+            two_theta, refinement, patterns, noise_sigma, smoothing_points, tolerance_deg,
+            limit, include_refined, range_params,
+        )
+    except Exception:
+        logger.debug("Structure ranking failed", exc_info=True)
+        return []
+
+
+def _rank(
+    two_theta, refinement, patterns, noise_sigma, smoothing_points, tolerance_deg, limit,
+    include_refined, range_params,
+):
+    from dara.analysis_range import analysis_mask
+
+    targets = np.asarray(list(two_theta), dtype=float).ravel()
+    targets = targets[np.isfinite(targets)]
+    arrays = _profile_arrays(refinement)
+    if targets.size == 0 or arrays is None or not patterns:
+        return []
+    x, y_obs, _, y_bkg = arrays
+    lo, hi = float(np.nanmin(x)), float(np.nanmax(x))
+    m = max(int(smoothing_points or 1), 1)
+    sigma_s = float(noise_sigma or 0.0) / math.sqrt(m)
+    net = _net_profile(x, y_obs, y_bkg, m)
+    lst_data = getattr(refinement, "lst_data", None)
+    eps1, eps2 = _lst_param(lst_data, "EPS1"), _lst_param(lst_data, "EPS2")
+    refined = set() if include_refined else _refined_identities(lst_data)
+    params = _clean_range_params(range_params)
+
+    ranked = []
+    for pattern in patterns:
+        try:
+            result = _evaluate_pattern(
+                pattern, target_tt=targets, x=x, net=net, sigma_s=sigma_s, lo=lo, hi=hi,
+                eps1=eps1, eps2=eps2, refined=refined, tolerance_deg=tolerance_deg,
+            )
+            if result is None or result["matched_targets"].size == 0:
+                continue
+            position, rel_int = result["position"], result["rel_int"]
+            strong = result["strong_mask"] & analysis_mask(position, **params)
+            s_pos = position[strong]
+            n_strong = int(s_pos.size)
+            if n_strong == 0:
+                continue
+            on_target = (np.abs(s_pos[:, None] - targets[None, :]) <= tolerance_deg).any(axis=1)
+            unobserved = 0
+            if sigma_s > 0:
+                for pos, near in zip(s_pos, on_target):
+                    if near:
+                        continue
+                    w = np.abs(x - pos) <= WINDOW_HALF_DEG
+                    if not (w.any() and np.max(net[w]) >= HINT_OBSERVED_SIGMA * sigma_s):
+                        unobserved += 1
+            matched_targets = result["matched_targets"]
+            score = round(float(matched_targets.size) / targets.size - 0.5 * unobserved / n_strong, 4)
+            formula, number = result["formula"], result["number"]
+            popularity = int(pattern.get("popularity") or 0)
+            shown = rel_int >= PREVIEW_STICK_REL
+            ranked.append(((-score, -int(matched_targets.size), "." in formula, -popularity), {
+                "name": str(pattern.get("name")),
+                "formula": formula,
+                "spacegroup_number": number,
+                "spacegroup_symbol": pattern.get("spacegroup_symbol")
+                or (_spacegroup_label(number) if number is not None else None),
+                "pattern_source": pattern.get("source"),
+                "matched": [float(targets[i]) for i in matched_targets],
+                "strong_unobserved": unobserved,
+                "n_strong": n_strong,
+                "score": score,
+                "sticks": [
+                    [round(float(p), 3), round(float(r), 1)]
+                    for p, r in zip(position[shown], rel_int[shown])
+                ],
+            }))
+        except Exception:
+            logger.debug("Reference pattern skipped", exc_info=True)
+    ranked.sort(key=lambda item: item[0])
+    out, seen = [], set()
+    for _, entry in ranked:
+        key = (entry["formula"], entry["spacegroup_number"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(entry)
+        if len(out) >= max(int(limit), 1):
+            break
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -609,6 +774,12 @@ def submit_background(key, job) -> bool:
     return True
 
 
+def has_pending() -> bool:
+    """True while any background job is queued or running (hints may still appear)."""
+    with _LOCK:
+        return bool(_PENDING)
+
+
 def wait_idle(timeout: float = 30.0) -> bool:
     """Wait until no background job is queued or running (tests, benchmark)."""
     deadline = time.monotonic() + timeout
@@ -688,6 +859,7 @@ def _simulate_cod_pool(elements, precursors, wavelength_a, two_theta_range) -> l
                 "spacegroup_number": item["sg"],
                 "spacegroup_symbol": _spacegroup_label(item["sg"]) if item["sg"] else None,
                 "source": "cod",
+                "code": item["code"],
                 "popularity": item["popularity"],
                 "two_theta": np.asarray(tt, dtype=float),
                 "intensity": np.asarray(intensity, dtype=float),

@@ -483,8 +483,16 @@ def _mass_balance_section(block: dict | None) -> list[str]:
     ]
 
 
-def build_report_html(task_id: int, task: dict, document, selection, review: dict) -> str:
-    """Return the complete report as one standalone HTML document."""
+def build_report_html(
+    task_id: int, task: dict, document, selection, review: dict, *,
+    selection_label: str | None = None, selection_key: str | None = None,
+) -> str:
+    """Return the complete report as one standalone HTML document.
+
+    ``selection_label`` / ``selection_key`` describe a re-refinement version whose document view
+    is passed as ``document`` with selection ``"best"`` (the label replaces the wording of the
+    minimum-Rwp result; the key is compared with the adopted review selection).
+    """
     from dara.plot import phase_display_name
     from dara.server import api_router, review_router
     from dara.server.confidence import (
@@ -505,12 +513,14 @@ def build_report_html(task_id: int, task: dict, document, selection, review: dic
     counts_like = api_router._counts_like(document)
     name = task.get("job", {}).get("name") or getattr(document, "task_label", None) or f"Task {task_id}"
     is_final = selection is None or selection == "best"
-    if is_final:
+    if selection_label:
+        chosen = selection_label
+    elif is_final:
         chosen = "Minimum-Rwp final result"
     else:
         chosen = f"Candidate source index {selection} (stored result {selection + 1})"
     adopted = review.get("selection") is not None and (
-        review["selection"] == ("best" if selection is None else selection)
+        review["selection"] == (selection_key or ("best" if selection is None else selection))
     )
     state = "User-adopted result" if adopted else "Not marked as the adopted result"
 

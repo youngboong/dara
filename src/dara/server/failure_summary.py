@@ -54,6 +54,18 @@ _RULES: list[tuple[str, re.Pattern, str, str]] = [
         "suspicious CIFs and check the instrument profile.",
     ),
     (
+        # Peak detection has its own fixed limit; the screening time limit does not apply to it.
+        "eflech_timeout",
+        re.compile(
+            r"^.*eflech.*timed out after.*$|^.*TimeoutExpired.*eflech.*$",
+            re.I | re.M,
+        ),
+        "Peak detection (EFLECH) timed out",
+        "The peak search exceeded its fixed time limit, so a longer screening time limit will not help. "
+        "Narrow the 2θ range, exclude noisy regions, or check the pattern for very dense or noisy data, "
+        "then rerun.",
+    ),
+    (
         "timeout",
         re.compile(r"TimeoutExpired|timed out after", re.I),
         "A calculation step timed out",
@@ -106,8 +118,76 @@ def _last_line(text: str) -> str:
     return lines[-1]
 
 
+REMEDY_LABELS = {
+    "timeout": "Retry with longer time limits",
+    "mp_key": "Retry without Materials Project",
+    "network": "Retry without Materials Project",
+    "memory": "Retry with fewer MP structures and the candidate pre-filter",
+    "no_candidates": "Retry with COD enabled and more MP structures",
+    "final_refinement_failed": "Retry with lattice refinement limited to 3 %",
+}
+
+
+def _number(value, default):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if number == number and number > 0 else default
+
+
+def remedy_changes(code: str, settings: dict) -> dict | None:
+    """New values for the ``_rerun_settings()["settings"]`` keys, or ``None`` if no remedy applies.
+
+    Pure: ``settings`` is not modified. ``settings["_additional_cif_count"]`` (optional) is the
+    number of uploaded reference CIFs that the rerun keeps.
+    """
+    if code not in REMEDY_LABELS or not isinstance(settings, dict):
+        return None
+    use_mp = bool(settings.get("use_mp"))
+    use_cod = bool(settings.get("use_cod"))
+    if code == "timeout":
+        changes: dict = {
+            "screening_timeout_s": min(
+                7200, 2 * _number(settings.get("screening_timeout_s"), 1200)
+            ),
+        }
+        minutes = _number(settings.get("max_analysis_minutes"), None)
+        if minutes is not None:
+            changes["max_analysis_minutes"] = min(1440, 1.5 * minutes)
+        return changes
+    if code in {"mp_key", "network"}:
+        if settings.get("analysis_mode") == "reaction" or not use_mp:
+            return None
+        changes = {"use_mp": False}
+        if not use_cod and not int(settings.get("_additional_cif_count") or 0):
+            changes["use_cod"] = True
+        return changes
+    if code == "memory":
+        changes = {"candidate_prefilter": True}
+        if use_mp:
+            current = int(_number(settings.get("max_mp_structures"), 100))
+            changes["max_mp_structures"] = min(50, current)
+        return changes
+    if code == "no_candidates":
+        changes = {"use_cod": True}
+        if use_mp:
+            current = int(_number(settings.get("max_mp_structures"), 100))
+            changes["max_mp_structures"] = max(300, current)
+        return changes
+    return {"refinement_controls": {"lattice": "refine", "lattice_percent": 3}}
+
+
+def _remedy(code: str) -> dict | None:
+    label = REMEDY_LABELS.get(code)
+    return {"label": label} if label else None
+
+
 def summarize_failure(error_text: str | None) -> dict | None:
-    """Return ``{"code", "title", "hint", "detail"}`` or ``None`` for empty input."""
+    """Return ``{"code", "title", "hint", "detail", "remedy"}`` or ``None`` for empty input.
+
+    ``remedy`` is ``{"label"}`` when :func:`remedy_changes` can propose a fix, else ``None``.
+    """
     if not error_text or not str(error_text).strip():
         return None
     text = str(error_text)
@@ -118,7 +198,10 @@ def summarize_failure(error_text: str | None) -> dict | None:
         if match:
             if "{0}" in title:
                 title = title.format(match.group(1))
-            return {"code": code, "title": title, "hint": hint, "detail": detail}
+            return {
+                "code": code, "title": title, "hint": hint, "detail": detail,
+                "remedy": _remedy(code),
+            }
     typed = _LAST_LINE.match(last)
     title = f"Analysis failed: {typed.group(1)}" if typed else "Analysis failed"
     return {
@@ -126,4 +209,5 @@ def summarize_failure(error_text: str | None) -> dict | None:
         "title": title,
         "hint": "See the technical details below.",
         "detail": detail,
+        "remedy": None,
     }

@@ -9,15 +9,32 @@ import {STATE_COLOR} from './results';
 import { buildRefinementView, isTraceSelected, legendKey } from '../components/refinementPlotState.mjs';
 import { viewChangeFromRelayout } from '../components/plotNavigation.mjs';
 import { formatParameterWithEsd, latticeParameterRows } from '../components/latticeParameters.mjs';
-import { AdoptButton, RefineSelectionButton, ReportDownloadButton, ReviewPanel, useTaskReview } from '../components/ResultWorkflows';
+import { AdoptButton, RefineSelectionButton, ReportDownloadButton, RetryActions, ReviewPanel, useTaskReview } from '../components/ResultWorkflows';
 import { TaskProgress } from '../components/PracticalControls';
 import CandidateComparison from '../components/CandidateComparison';
 import FitCautions from '../components/FitCautionsPanel';
 import { cautionSortValue, cautionTagColor, cautionTooltip, countCautions } from '../components/fitCautions.mjs';
 import { levelRank, missingCell, unexplainedSummary, unexplainedTooltipLines } from '../components/confidence.mjs';
 import { ConfidenceBanner, DisplacementTag, FigureExportActions, OverallTag, ScreeningTags, VerdictTag } from '../components/ConfidenceViews';
+import VersionsPanel, { useVersions } from '../components/VersionsPanel';
+import QuickRefineProgress, { NOT_AVAILABLE, postJson, requestJson, useQuickRefine } from '../components/QuickRefineProgress';
+import PeakCandidatesDrawer from '../components/PeakCandidatesDrawer';
+import FitCompare from '../components/FitCompare';
+import BackgroundEditor from '../components/BackgroundEditor';
+import useKeyboardShortcuts, { FIT_MODAL_CLASS, HELP_MODAL_CLASS } from '../components/useKeyboardShortcuts';
+import { SHORTCUT_HELP } from '../components/keyboardShortcuts.mjs';
+import {
+  collectHints, hintText, hintsPending, observedPeak, peakFromClick, peakShapes, phaseGroupNames, previewTrace, updatePeakSelection,
+} from '../components/peakSelection.mjs';
+import { appendStoredFit, compareHref } from '../components/fitOverlay.mjs';
+import {
+  alternativeOfVerdict, baselineRequest, deltaStrip, deltaText, DRIFT_NOTE, formatSelection, parseSelection,
+  plotQuery, refSourceForHint, removeRequest, selectionLabel, showsDriftNote, swapKind, swapRequest,
+} from '../components/versions.mjs';
 
 const { Text } = Typography;
+const HINT_POLL_MS = 3000;
+const HINT_POLL_MAX = 20; // 60 s
 
 const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 
@@ -164,7 +181,7 @@ const Plotly = Loadable({
 const plotRequests = new Map();
 
 function plotUrl(taskId, plotId) {
-  return plotId === null ? `${URL}/task/${taskId}/plot` : `${URL}/task/${taskId}/plot?idx=${plotId}`;
+  return `${URL}/task/${taskId}/plot${plotQuery(plotId === null ? 'best' : plotId)}`;
 }
 
 function loadPlot(taskId, plotId) {
@@ -195,7 +212,9 @@ function preloadPlot(taskId, plotId) {
 }
 
 
-function RefinementPlot({ task_id, plot_id, excludedRanges = [] }) {
+const RefinementPlot = React.forwardRef(function RefinementPlot({
+  task_id, plot_id, excludedRanges = [], peaks = [], onPeakClick, previewSticks = null, onGroups,
+}, ref) {
   const [plot, setPlot] = React.useState(undefined);
   const [error, setError] = React.useState('');
   const [scale, setScale] = React.useState('linear');
@@ -210,18 +229,37 @@ function RefinementPlot({ task_id, plot_id, excludedRanges = [] }) {
   const lastLegendKey = React.useRef(null);
   const sameLegendClicked = React.useRef(false);
   const resetView = () => { setXRange(null); setYRange(null); setResetKey(value => value + 1); };
+  // Keyboard shortcuts act through this handle; it always reads the latest state.
+  const latest = React.useRef({});
+  latest.current = { plot, xRange };
+  React.useImperativeHandle(ref, () => ({
+    reset: () => { setXRange(null); setYRange(null); setResetKey(value => value + 1); },
+    toggleFitY: () => { setFitY(value => !value); setYRange(null); },
+    togglePhase: name => {
+      const current = latest.current.plot;
+      const index = (current?.data || []).findIndex(trace => trace.legendgroup === name && trace.meta === 'phase-profile');
+      if (index < 0) return;
+      const trace = current.data[index];
+      const key = legendKey(trace, index);
+      setSelection(previous => ({ ...previous, [key]: !isTraceSelected(trace, index, previous) }));
+      setYRange(null);
+    },
+    getViewRange: () => latest.current.xRange || latest.current.plot?.layout?.xaxis?.range || null,
+  }), []);
   React.useEffect(() => {
     setPlot(undefined);
     setError('');
     setSelection({});
     setYRange(null);
     setXRange(null);
+    if (onGroups) onGroups([]);
     if (task_id === undefined || plot_id === undefined) return;
     let active = true;
     loadPlot(task_id, plot_id)
-      .then(response => { if (active) setPlot(response); })
+      .then(response => { if (active) { setPlot(response); if (onGroups) onGroups(phaseGroupNames(response)); } })
       .catch(error => { if (active) setError(error.message); });
     return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task_id, plot_id]);
   if (error) return <Alert type="error" showIcon message={error} />;
   if (!plot) return <Spin />;
@@ -249,6 +287,17 @@ function RefinementPlot({ task_id, plot_id, excludedRanges = [] }) {
     setYRange(null);
     return false;
   };
+  const handleClick = event => {
+    if (!onPeakClick) return;
+    const point = event?.points?.[0];
+    const trace = point ? plot.data[point.curveNumber] : null;
+    if (!trace) return;
+    const peak = peakFromClick(plot, trace.name, point.x);
+    if (peak !== null) onPeakClick(peak, Boolean(event.event?.shiftKey));
+  };
+  const data = previewSticks?.length
+    ? [...view.data, previewTrace(previewSticks, observedPeak(plot) * 0.8, { floor: scale === 'log' ? 1 : 0 })]
+    : view.data;
   return <>
     <Space wrap style={{ marginBottom: 8 }}>
       <Text>Intensity scale</Text>
@@ -261,19 +310,20 @@ function RefinementPlot({ task_id, plot_id, excludedRanges = [] }) {
       <Button onClick={resetView}>Reset zoom</Button>
     </Space>
     <div style={{ marginBottom: 8 }}>
-      <Text type="secondary">Left-drag to pan, right-drag to zoom into a box, mouse wheel to zoom 2θ, double-click or Reset zoom to show the whole pattern. Click a phase in the legend to show its profile and Bragg positions; hover for 2θ, d-spacing and hkl. The lower panel shows observed − calculated.</Text>
+      <Text type="secondary">Left-drag to pan, right-drag to zoom into a box, mouse wheel to zoom 2θ, double-click or Reset zoom to show the whole pattern. Click a phase in the legend to show its profile and Bragg positions; hover for 2θ, d-spacing and hkl. The lower panel shows observed − calculated.{onPeakClick ? ' Click a missing-peak marker or an observed point to search references for that peak (Shift+click to select several).' : ''} Press ? for shortcuts.</Text>
     </div>
-    <Plotly key={`${task_id}-${plot_id}`} data={view.data}
+    <Plotly key={`${task_id}-${plot_id}`} data={data}
       layout={{ ...view.layout, autosize: true,
         shapes: [...(view.layout.shapes || []), ...excludedRanges.flatMap(([x0, x1]) => [
           { type: 'rect', xref: 'x', yref: 'y domain', x0, x1, y0: 0, y1: 1, fillcolor: 'rgba(130,130,130,0.15)', line: { width: 0 }, layer: 'below' },
           { type: 'rect', xref: 'x2', yref: 'y2 domain', x0, x1, y0: 0, y1: 1, fillcolor: 'rgba(130,130,130,0.15)', line: { width: 0 }, layer: 'below' },
-        ])],
+        ]), ...peakShapes(peaks)],
         dragmode: 'pan',
         uirevision: `${task_id}-${plot_id}-${resetKey}` }}
       onLegendClick={toggleLegend}
       onLegendDoubleClick={isolateLegend}
       onDoubleClick={resetView}
+      onClick={handleClick}
       onRelayout={event => {
         const change = viewChangeFromRelayout(event);
         if ('xRange' in change) setXRange(change.xRange);
@@ -283,10 +333,10 @@ function RefinementPlot({ task_id, plot_id, excludedRanges = [] }) {
         // Ranges are React state: Plotly's own reset/autoscale buttons would only
         // restore the state they were last given, so Reset zoom replaces them.
         modeBarButtonsToRemove: ['zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d'],
-        toImageButtonOptions: { format: 'svg', filename: `dara_${task_id}_${plot_id ?? 'best'}`, width: 1600, height: 900 } }}
+        toImageButtonOptions: { format: 'svg', filename: `dara_${task_id}_${String(plot_id ?? 'best').replace(':', '_')}`, width: 1600, height: 900 } }}
       useResizeHandler style={{ height: '760px', width: '100%' }} />
   </>;
-}
+});
 
 const COMMON_PHASES = {
   'Al2O3:167': { name: 'Corundum', structure: 'Trigonal' },
@@ -475,7 +525,7 @@ function parameterText(name, parameter) {
   return value ? `${name} = ${value}` : null;
 }
 
-function PhaseRefinementTable({ phases = [], metadata = {}, details = {}, confidence = null }) {
+function PhaseRefinementTable({ phases = [], metadata = {}, details = {}, confidence = null, rowActions = null }) {
   const dataSource = phases.map(phase => ({ phase, ...(details?.[phase] || {}) }));
   const verdictColumn = confidence?.phases ? [{
     title: <Tooltip title="Evidence-based assessment of whether each phase is supported by the data. Hover a tag for the reasons."><span>Verdict</span></Tooltip>,
@@ -509,14 +559,98 @@ function PhaseRefinementTable({ phases = [], metadata = {}, details = {}, confid
       { title: 'Crystallite size', render: (_, row) => row.grain_sizes?.length
         ? row.grain_sizes.map(value => `${Number(value.value).toFixed(1)}${value.esd == null ? '' : ` ± ${Number(value.esd).toFixed(1)}`} ${value.unit}`).join('; ')
         : 'Not refined/reported' },
+      ...(rowActions ? [{ title: 'Actions', key: 'row-actions', width: 160, render: (_, row) => rowActions(row) }] : []),
     ]} />;
 }
 
 
+function normalizePlotId(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === 'best') return null;
+  const parsed = parseSelection(value);
+  if (parsed === null) return undefined;
+  if (parsed === 'best') return null;
+  return typeof parsed === 'number' ? parsed : `version:${parsed.version}`;
+}
+
+function DeltaStrip({ rows, driftNote }) {
+  const shown = rows.filter(row => row.a !== null || row.b !== null);
+  if (!shown.length) return null;
+  return <div style={{ marginBottom: 8 }}>
+    <Space wrap size={[4, 4]}>
+      <Text type="secondary">Change from the base fit:</Text>
+      {shown.map(row => <Tag key={row.key} color={row.delta === null || row.key.startsWith('wt:') ? 'default' : row.better ? 'green' : row.delta > 0 ? 'orange' : 'default'}>
+        {`${row.label} ${deltaText(row)}`}
+      </Tag>)}
+    </Space>
+    {driftNote ? <div><Text type="secondary" style={{ fontSize: 12 }}>{DRIFT_NOTE}</Text></div> : null}
+  </div>;
+}
+
+function HintList({ diagnostics, onAdd, busy }) {
+  const hints = collectHints(diagnostics);
+  if (!hints.length) return null;
+  return <div style={{ marginTop: 8 }} aria-label="Trace phase hints">
+    {hints.map(hint => {
+      const target = refSourceForHint(hint);
+      return <div key={hint.phase} style={{ marginBottom: 4 }}>
+        <Space wrap size="small">
+          <Text>{hintText(hint)}</Text>
+          <Tooltip title={!target ? 'No local CIF is available for this reference.' : busy ? 'A re-refinement is already running.' : 'Add this phase and refine again as a new version'}>
+            <span><Button size="small" disabled={!target || busy} onClick={() => onAdd(hint, target)}>Add and re-refine</Button></span>
+          </Tooltip>
+        </Space>
+      </div>;
+    })}
+  </div>;
+}
+
+function ShortcutHelp({ open, onClose }) {
+  return <Modal title="Keyboard shortcuts" open={open} onCancel={onClose} footer={null} keyboard={false}
+    wrapClassName={HELP_MODAL_CLASS} width={420}>
+    <Table size="small" pagination={false} rowKey="keys" dataSource={SHORTCUT_HELP}
+      columns={[{ title: 'Keys', dataIndex: 'keys', width: 110, render: keys => <code>{keys}</code> }, { title: 'Action', dataIndex: 'action' }]} />
+  </Modal>;
+}
+
 function TaskDetail({ data, task_id }) {
-  const [plot_id, setPlotId] = React.useState(undefined);
+  const [plot_id, setPlotIdRaw] = React.useState(undefined);
+  const setPlotId = React.useCallback(value => setPlotIdRaw(normalizePlotId(value)), []);
   const [showAlternatives, setShowAlternatives] = React.useState(false);
   const review = useTaskReview(task_id);
+  const store = useVersions(task_id);
+  const [versionDetails, setVersionDetails] = React.useState({});
+  const [versionError, setVersionError] = React.useState('');
+  const [compare, setCompare] = React.useState(null);
+  const [peaks, setPeaks] = React.useState([]);
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [preview, setPreview] = React.useState(null);
+  const [helpOpen, setHelpOpen] = React.useState(false);
+  const [phaseGroups, setPhaseGroups] = React.useState([]);
+  const plotRef = React.useRef(null);
+  const plotIdRef = React.useRef(plot_id);
+  plotIdRef.current = plot_id;
+  const peaksRef = React.useRef(peaks);
+  peaksRef.current = peaks;
+  const refreshVersions = store.refresh;
+
+  const handleVersion = React.useCallback(async (n, job, meta = {}) => {
+    const list = await refreshVersions();
+    const item = list.find(entry => entry.version === n);
+    const rwpText = item?.rwp != null && Number.isFinite(Number(item.rwp)) ? ` (Rwp ${Number(item.rwp).toFixed(2)} %)` : '';
+    if (meta.afterDone === 'compare') {
+      message.success(`Version v${n} ready${rwpText}`);
+      setCompare({ a: meta.base ?? 'best', b: `version:${n}` });
+    } else if (plotIdRef.current !== undefined) {
+      message.success(`Version v${n} ready${rwpText}`);
+      setPlotId(`version:${n}`);
+    } else {
+      message.success(<span>{`Version v${n} ready${rwpText} `}<a onClick={() => setPlotId(`version:${n}`)}>View</a></span>);
+    }
+  }, [refreshVersions, setPlotId]);
+  const quick = useQuickRefine(task_id, { onVersion: handleVersion });
+  const quickShown = quick.available !== false && store.available !== false;
+
   const firstPlotId = data.all_results[0]?.source_index ?? (data.all_results.length ? 0 : null);
   React.useEffect(() => {
     const warm = () => preloadPlot(task_id, firstPlotId);
@@ -530,9 +664,135 @@ function TaskDetail({ data, task_id }) {
   const referenceMetadata = Object.assign({}, data.final_result.phase_metadata,
     ...data.all_results.map(result => result.phase_metadata));
   const renderReference = reference => <PhaseIdentity reference={reference} metadata={referenceMetadata[reference]} />;
-  const displayedResult = plot_id === null
-    ? data.final_result
-    : data.all_results.find((result, index) => (result.source_index ?? index) === plot_id);
+
+  const currentSel = plot_id === null || plot_id === undefined ? 'best' : plot_id;
+  const versionNumber = typeof plot_id === 'string' ? (parseSelection(plot_id)?.version ?? null) : null;
+  const versionData = versionNumber ? versionDetails[versionNumber] : null;
+  const baseParsed = versionData ? parseSelection(versionData.origin?.base ?? 'best') : null;
+  const baseVersionNumber = baseParsed && typeof baseParsed === 'object' ? baseParsed.version : null;
+  React.useEffect(() => {
+    const wanted = [versionNumber, baseVersionNumber].filter(n => n && !versionDetails[n]);
+    if (!wanted.length) return undefined;
+    let active = true;
+    setVersionError('');
+    wanted.forEach(n => {
+      requestJson(`/task/${task_id}/versions/${n}`)
+        .then(body => { if (active) setVersionDetails(previous => ({ ...previous, [n]: body })); })
+        .catch(error => { if (active) setVersionError(error.missing ? NOT_AVAILABLE : error.message); });
+    });
+    return () => { active = false; };
+  }, [task_id, versionNumber, baseVersionNumber, versionDetails]);
+  React.useEffect(() => {
+    // A different fit has different peaks: drop the selection and any tick preview.
+    setPeaks([]);
+    setPreview(null);
+    setDrawerOpen(false);
+  }, [plot_id]);
+
+  const displayedResult = plot_id === undefined ? undefined
+    : plot_id === null ? data.final_result
+      : versionNumber ? versionData?.final_result
+        : data.all_results.find((result, index) => (result.source_index ?? index) === plot_id);
+  const findSummary = sel => {
+    const parsed = parseSelection(sel);
+    if (parsed === 'best' || parsed === null) return data.final_result;
+    if (typeof parsed === 'number') return data.all_results.find((result, index) => (result.source_index ?? index) === parsed);
+    return versionDetails[parsed.version]?.final_result;
+  };
+  const baseSummary = versionData ? findSummary(versionData.origin?.base ?? 'best') : null;
+  const deltaRows = versionData?.final_result && baseSummary ? deltaStrip(baseSummary, versionData.final_result) : [];
+  const displayedPhases = displayedResult ? (displayedResult.highlighted_phases || displayedResult.phases || []) : [];
+  // Explicit background polynomial degree of the displayed fit (null: BGMN chooses it).
+  const baseDegree = versionNumber ? (versionData?.background?.degree ?? null)
+    : (data.final_refinement_params?.background_degree ?? null);
+
+  const runQuick = (body, meta = {}) => {
+    if (quick.busy) {
+      message.info('A re-refinement is already running for this task.');
+      return;
+    }
+    quick.start({ base: currentSel, ...body }, { base: currentSel, afterDone: 'view', ...meta });
+  };
+  const addHint = (hint, target) => runQuick({
+    phases: [target], origin: 'add_hint', label: `Added ${hint.formula || hint.phase} (hint)`,
+  });
+  // The API nests the alternatives under `verdict.evidence`.
+  const alternativeOf = phase => alternativeOfVerdict(displayedResult?.confidence?.phases?.[phase]);
+  const rebaseline = () => {
+    if (quick.busy) {
+      message.info('A re-refinement is already running for this task.');
+      return;
+    }
+    quick.start(baselineRequest(), { base: 'best', afterDone: 'compare' });
+  };
+  const rowActions = row => {
+    const alternative = alternativeOf(row.phase);
+    const swap = alternative ? swapRequest({ phase: row.phase }, alternative, data.all_results, displayedPhases, displayedResult?.phase_metadata) : null;
+    const kind = alternative ? swapKind(alternative) : null;
+    return <Space size="small" wrap>
+      {swap ? <Tooltip title={kind === 'model'
+        ? `Replace this phase with the other structure model of the same compound from candidate ${alternative.candidate_number ?? ''}, refine again, then compare`
+        : `Switch to the phase set of candidate ${alternative.candidate_number ?? ''}, refine again, then compare`}>
+        <Button size="small" disabled={quick.busy} onClick={() => runQuick(swap, { afterDone: 'compare' })}>{kind === 'model' ? 'Swap' : 'Switch'}</Button>
+      </Tooltip> : null}
+      {displayedPhases.length >= 2 ? <Tooltip title="Refine again without this phase, then compare">
+        <Button size="small" disabled={quick.busy} onClick={() => runQuick(removeRequest(row.phase), { afterDone: 'compare' })}>Remove</Button>
+      </Tooltip> : null}
+    </Space>;
+  };
+
+  const onPeakClick = (peak, shift) => {
+    const next = updatePeakSelection(peaksRef.current, peak, { shift });
+    setPeaks(next);
+    setDrawerOpen(next.length > 0);
+    if (!next.length) setPreview(null);
+  };
+  const clearPeaks = () => { setPeaks([]); setPreview(null); setDrawerOpen(false); };
+  const addCandidate = candidate => {
+    setDrawerOpen(false);
+    setPreview(null);
+    runQuick({
+      phases: [{ ref: candidate.ref, source: candidate.source }], origin: 'add_peak_search',
+      label: `Added ${candidate.formula || String(candidate.ref).replace(/_\d+_\(.*$/, '')} (peak search)`,
+    });
+  };
+
+  const options = [
+    'best',
+    ...data.all_results.map((result, index) => result.source_index ?? index),
+    ...store.versions.filter(item => item.version > 1).map(item => `version:${item.version}`),
+  ];
+  const keyContext = React.useRef({});
+  keyContext.current = { options, current: currentSel, phaseGroups, peakSelectionCount: peaks.length, helpOpen };
+  useKeyboardShortcuts(plot_id !== undefined && !compare, keyContext, {
+    select: action => setPlotId(action.value === 'best' ? null : action.value),
+    'toggle-phase': action => plotRef.current?.togglePhase(action.name),
+    reset: () => plotRef.current?.reset(),
+    'fit-y': () => plotRef.current?.toggleFitY(),
+    help: () => setHelpOpen(true),
+    'close-help': () => setHelpOpen(false),
+    'clear-peaks': clearPeaks,
+    close: () => setPlotId(undefined),
+  });
+  const addToComparison = () => {
+    try {
+      const list = appendStoredFit(window.localStorage, task_id, currentSel);
+      message.success(<span>Added to comparison. <a href={compareHref(list)}>Open comparison</a></span>, 6);
+    } catch (_) {
+      message.warning('Could not store the comparison list in this browser.');
+    }
+  };
+  const modalTitle = plot_id === undefined ? 'Fit'
+    : plot_id === null ? 'Best fit'
+      : versionNumber ? selectionLabel(plot_id, { versions: store.versions })
+        : `Candidate ${(data.all_results.findIndex((r, i) => (r.source_index ?? i) === plot_id)) + 1} — refinement`;
+  const selectOptions = [
+    { label: 'Best fit', options: [{ value: 'best', label: 'Best fit' }] },
+    { label: 'Candidates', options: data.all_results.map((r, i) => ({ value: r.source_index ?? i, label: `Candidate ${i + 1} — Rwp ${r.rwp}%` })) },
+    ...(store.versions.some(item => item.version > 1) ? [{ label: 'Versions',
+      options: store.versions.filter(item => item.version > 1).map(item => ({ value: `version:${item.version}`,
+        label: `v${item.version} — ${item.label || 'Re-refinement'}${item.rwp != null ? ` — Rwp ${Number(item.rwp).toFixed(2)}%` : ''}` })) }] : []),
+  ];
 
   return (
     <>
@@ -548,7 +808,7 @@ function TaskDetail({ data, task_id }) {
       </TitleContriner>
       <Divider />
       <ConfidenceBanner confidence={data.final_result?.confidence} />
-      <ReviewPanel taskId={task_id} data={data} review={review} onView={setPlotId} />
+      <ReviewPanel taskId={task_id} data={data} review={review} onView={setPlotId} versions={store.versions} />
       <Descriptions bordered column={2} size='small'>
         <Descriptions.Item label="Pattern file name" span={2}>{data.task_label}</Descriptions.Item>
         <Descriptions.Item label="Best_Rwp" span={2}><Tag color="green">{data.best_rwp} %</Tag></Descriptions.Item>
@@ -621,6 +881,10 @@ function TaskDetail({ data, task_id }) {
       <div style={{ marginTop: 10 }}>
         <PhaseRefinementTable phases={data.final_result.phases} metadata={data.final_result.phase_metadata} details={data.final_result.phase_details} confidence={data.final_result.confidence} />
       </div>
+      <VersionsPanel taskId={task_id} store={store} review={review}
+        onRebaseline={quickShown ? rebaseline : null} rebaselineBusy={quick.busy}
+        onView={setPlotId} onCompare={(a, b) => setCompare({ a, b })}
+        extra={quickShown ? <QuickRefineProgress job={quick.job} onCancel={quick.cancel} onDismiss={quick.dismiss} /> : null} />
       <ResultTitleContainer>
         <h3 style={{ marginTop: "16px" }}>{`Distinct candidate phase sets (${data.all_results.length} shown, up to 5)`}</h3>
         <div>
@@ -647,7 +911,11 @@ function TaskDetail({ data, task_id }) {
           { title: 'Phases / wt%', render: (_, row) => <Space direction="vertical">{row.highlighted_phases.map(phase => <span key={phase}><PhaseIdentity reference={phase} compact /> {row.weight_percent?.[phase] != null ? `${Number(row.weight_percent[phase]).toFixed(2)} wt%` : ''}</span>)}</Space> },
           { title: 'Rwp (%)', dataIndex: 'rwp', sorter: (a,b) => a.rwp-b.rwp, defaultSortOrder: 'ascend', render: (value,row) => <>{value} <Text type="secondary">{row.is_final_refined ? 'Final' : 'Screening'}</Text></> },
           { title: 'GOF', sorter: (a,b) => (a.fit_quality?.gof ?? Infinity)-(b.fit_quality?.gof ?? Infinity), render: (_,row) => formatMetric(row.fit_quality?.gof) },
-          { title: 'Missing', sorter: (a,b) => missingCell(a.peak_diagnostics).sortValue-missingCell(b.peak_diagnostics).sortValue, render: (_,row) => missingCell(row.peak_diagnostics).text },
+          { title: 'Missing', sorter: (a,b) => missingCell(a.peak_diagnostics).sortValue-missingCell(b.peak_diagnostics).sortValue, render: (_,row) => {
+            const text = missingCell(row.peak_diagnostics).text;
+            const hints = quickShown ? collectHints(row.peak_diagnostics) : [];
+            return hints.length ? <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{[...hints.map(hintText), '(open the fit view to add)'].join('\n')}</div>}><span>{text}</span></Tooltip> : text;
+          } },
           ...[['extra','Extra'],['intensity_mismatch','Intensity mismatch']].map(([key,title]) => ({ title, sorter: (a,b) => (a.peak_diagnostics?.counts?.[key] ?? Infinity)-(b.peak_diagnostics?.counts?.[key] ?? Infinity), render: (_,row) => row.peak_diagnostics?.counts?.[key] ?? '—' })),
           { title: <Tooltip title="Automated review flags for this candidate; hover a count to read them. These are not a verdict.">Cautions</Tooltip>,
             sorter: (a,b) => cautionSortValue(a.cautions)-cautionSortValue(b.cautions),
@@ -717,18 +985,30 @@ function TaskDetail({ data, task_id }) {
           )
         }
       </Descriptions>
-      <Modal title={plot_id === null ? 'Best fit' : `Candidate ${(data.all_results.findIndex((r,i) => (r.source_index ?? i) === plot_id)) + 1} — refinement`} open={plot_id !== undefined} onCancel={() => setPlotId(undefined)} footer={[]} width={"95vw"}>
-        <Select aria-label="Displayed candidate" style={{ width: 300, marginBottom: 12 }} value={plot_id === null ? 'best' : plot_id}
-          onChange={value => setPlotId(value === 'best' ? null : value)}
-          options={[{value:'best',label:'Best fit'}, ...data.all_results.map((r,i) => ({ value:r.source_index ?? i,label:`Candidate ${i+1} — Rwp ${r.rwp}%` }))]} />
+      <Modal title={modalTitle} open={plot_id !== undefined} onCancel={() => setPlotId(undefined)} footer={[]} width={"95vw"}
+        keyboard={false} wrapClassName={FIT_MODAL_CLASS}>
+        <Space wrap style={{ marginBottom: 12 }}>
+          <Select aria-label="Displayed candidate" style={{ width: 360 }} value={currentSel}
+            onChange={value => setPlotId(value === 'best' ? null : value)} options={selectOptions} />
+          <Tooltip title="Left and right arrow keys step through the fits; press ? for all shortcuts"><Text type="secondary">← / → to switch fits</Text></Tooltip>
+        </Space>
+        {quickShown ? <QuickRefineProgress job={quick.job} onCancel={quick.cancel} onDismiss={quick.dismiss} /> : null}
+        {versionError ? <Alert type="error" showIcon message={versionError} style={{ marginBottom: 12 }} /> : null}
+        {versionNumber && !versionData && !versionError ? <Spin /> : null}
         {displayedResult ? <>
           <Space wrap style={{ marginBottom: 12 }}>
-            <AdoptButton review={review} selection={plot_id === null ? 'best' : plot_id} />
-            <RefineSelectionButton taskId={task_id} selection={plot_id === null ? 'best' : plot_id}
-              phases={displayedResult.highlighted_phases || displayedResult.phases || []} renderPhase={renderReference} />
-            <ReportDownloadButton taskId={task_id} selection={plot_id === null ? 'best' : plot_id} disabled={review.loading || review.saving || review.dirty || !!review.error}>This fit's report</ReportDownloadButton>
-            <FigureExportActions taskId={task_id} selection={plot_id === null ? 'best' : plot_id} />
+            <AdoptButton review={review} selection={currentSel} />
+            {versionNumber ? null : <RefineSelectionButton taskId={task_id} selection={currentSel}
+              phases={displayedResult.highlighted_phases || displayedResult.phases || []} renderPhase={renderReference} />}
+            {quickShown ? <BackgroundEditor busy={quick.busy} disabled={quick.busy} baseDegree={baseDegree}
+              getView={() => plotRef.current?.getViewRange?.() || null}
+              onSubmit={(background, label) => runQuick({ phases: [], background, origin: 'background', label })} /> : null}
+            <ReportDownloadButton taskId={task_id} selection={currentSel} disabled={review.loading || review.saving || review.dirty || !!review.error}>This fit's report</ReportDownloadButton>
+            <FigureExportActions taskId={task_id} selection={currentSel} />
+            <Tooltip title="Add this fit to the comparison list used by the Compare page"><Button onClick={addToComparison}>Add to comparison</Button></Tooltip>
+            <Button onClick={() => setHelpOpen(true)}>Shortcuts (?)</Button>
           </Space>
+          {versionNumber ? <DeltaStrip rows={deltaRows} driftNote={showsDriftNote(versionData)} /> : null}
           <div style={{ marginBottom: 12 }}>
             <FitQualitySummary quality={displayedResult.fit_quality} />
             <div style={{ marginTop: 4 }}>
@@ -736,22 +1016,41 @@ function TaskDetail({ data, task_id }) {
               <DisplacementTag confidence={displayedResult.confidence} />
             </div>
             <FitCautions cautions={displayedResult.cautions} />
+            {quickShown ? <HintList diagnostics={displayedResult.peak_diagnostics} busy={quick.busy} onAdd={addHint} /> : null}
           </div>
-          <PhaseRefinementTable phases={displayedResult.highlighted_phases || displayedResult.phases || []}
-            metadata={displayedResult.phase_metadata} details={displayedResult.phase_details} confidence={displayedResult.confidence} />
+          <PhaseRefinementTable phases={displayedPhases}
+            metadata={displayedResult.phase_metadata} details={displayedResult.phase_details} confidence={displayedResult.confidence}
+            rowActions={quickShown ? rowActions : null} />
           <Divider />
         </> : null}
-        <RefinementPlot task_id={task_id} plot_id={plot_id} excludedRanges={data.additional_search_options?.refinement_params?.excluded_ranges || []} />
+        {peaks.length ? <Space wrap style={{ marginBottom: 8 }}>
+          <Text type="secondary">Selected peaks:</Text>
+          {peaks.map(peak => <Tag key={peak} closable color="volcano"
+            onClose={event => { event.preventDefault(); onPeakClick(peak, true); }}>{`${peak.toFixed(2)}°`}</Tag>)}
+          <Button size="small" onClick={() => setDrawerOpen(true)}>Show candidates</Button>
+          <Button size="small" onClick={clearPeaks}>Clear</Button>
+        </Space> : null}
+        <RefinementPlot ref={plotRef} task_id={task_id} plot_id={plot_id}
+          excludedRanges={[...(data.additional_search_options?.refinement_params?.excluded_ranges || []), ...(versionData?.background?.excluded_ranges || [])]}
+          peaks={peaks} previewSticks={preview?.sticks || null} onGroups={setPhaseGroups}
+          onPeakClick={quickShown ? onPeakClick : undefined} />
       </Modal>
+      <PeakCandidatesDrawer taskId={task_id} sel={currentSel} peaks={peaks} open={drawerOpen && peaks.length > 0 && plot_id !== undefined}
+        onClose={() => setDrawerOpen(false)} onPreview={setPreview} previewRef={preview?.key} onAdd={addCandidate} busy={quick.busy} />
+      <FitCompare taskId={task_id} a={compare?.a} b={compare?.b} open={Boolean(compare)} onClose={() => setCompare(null)}
+        adopting={review.saving} onAdoptB={async sel => { await review.save(sel); setCompare(null); }}
+        onViewB={sel => { setCompare(null); setPlotId(sel); }} />
+      <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
     </>
   )
 }
 
-function TaskDetailedUnfinished({ data }) {
+function TaskDetailedUnfinished({ data, taskId }) {
   const { status, submitted_on, start_time, end_time, error_tb, error_summary } = data;
   return (<>
     {error_summary ? <Alert type="error" showIcon style={{ marginBottom: 12 }}
       message={error_summary.title} description={error_summary.hint} /> : null}
+    {status === 'FIZZLED' ? <RetryActions taskId={taskId} errorSummary={error_summary} /> : null}
     <Descriptions bordered column={1} size='small'>
     <Descriptions.Item label="Name" span={1}>{data.task_label}</Descriptions.Item>
     <Descriptions.Item label="Status" span={1}><Tag color={STATE_COLOR[status]}>{status}</Tag></Descriptions.Item>
@@ -806,6 +1105,34 @@ function TaskPage({ location }) {
       .then(data => setData(data));
   }, [task_id, statusRevision]);
 
+  // Trace hints are simulated in the background after the first load; poll the task summary
+  // (every 3 s, for at most 60 s) until the server reports no pending hints.
+  const hintsArePending = Boolean(data && data.status === 'COMPLETED' && hintsPending(data));
+  React.useEffect(() => {
+    if (!hintsArePending) return undefined;
+    let cancelled = false;
+    let timer = null;
+    let attempts = 0;
+    const step = () => {
+      timer = setTimeout(async () => {
+        attempts += 1;
+        let more = true;
+        try {
+          const response = await fetch(`${URL}/task/${task_id}`);
+          if (response.ok) {
+            const next = await response.json();
+            if (cancelled) return;
+            if (next && next.status === 'COMPLETED') setData(next);
+            more = hintsPending(next);
+          }
+        } catch (_) { /* keep the current data; try again until the time is up */ }
+        if (!cancelled && more && attempts < HINT_POLL_MAX) step();
+      }, HINT_POLL_MS);
+    };
+    step();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [task_id, hintsArePending]);
+
   return (
     <Layout hasSider={false} title="Result">
       <Container>
@@ -833,7 +1160,7 @@ function TaskPage({ location }) {
           data && data.status === "COMPLETED" ? <TaskDetail data={data} task_id={task_id} /> : <></> 
         }
         {
-          data && data.status !== "COMPLETED" ? <TaskDetailedUnfinished data={data} /> : <></>
+          data && data.status !== "COMPLETED" ? <TaskDetailedUnfinished data={data} taskId={task_id} /> : <></>
         }
       </Container>
     </Layout>

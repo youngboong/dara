@@ -14,6 +14,7 @@ import pybaselines as pb
 from sklearn.cluster import AgglomerativeClustering
 
 from dara.bgmn.download_bgmn import download_bgmn
+from dara.bgmn_worker import ensure_bgmn_env
 from dara.generate_control_file import (
     copy_instrument_files,
     trim_pattern,
@@ -45,8 +46,7 @@ class EflechWorker:
             logger.warning("BGMN executable not found. Downloading BGMN.")
             download_bgmn()
 
-        os.environ["EFLECH"] = self.bgmn_folder.as_posix()
-        os.environ["PATH"] += os.pathsep + self.bgmn_folder.as_posix()
+        ensure_bgmn_env(self.bgmn_folder)
 
     def run_peak_detection(
         self,

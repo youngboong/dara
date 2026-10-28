@@ -3,6 +3,7 @@ import { Alert, Button, Input, message, Modal, Select, Space, Table, Tag, Toolti
 import { CheckOutlined, EditOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons';
 import { DEFAULT_CONTROLS, RefinementControlsEditor } from './PracticalControls';
 import { runAfterSuccess } from './submitHelpers.mjs';
+import { NOT_AVAILABLE, postJson, requestJson } from './QuickRefineProgress';
 
 const API = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 
@@ -53,14 +54,15 @@ export function ReportDownloadButton({ taskId, selection, children = 'Download r
   const download = async () => {
     setLoading(true);
     try {
-      const query = selection === 'best' ? '?best=true' : Number.isInteger(selection) ? `?idx=${selection}` : '';
+      const query = selection === 'best' ? '?best=true' : Number.isInteger(selection) ? `?idx=${selection}`
+        : typeof selection === 'string' && /^version:[1-9]\d{0,5}$/.test(selection) ? `?sel=${selection}` : '';
       const response = await fetch(`${API}/task/${taskId}/report${query}`);
       if (!response.ok) await responseJson(response);
       const blob = await response.blob();
       const objectUrl = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = objectUrl;
-      anchor.download = `dara_task_${taskId}_${selection ?? 'adopted'}_report.html`;
+      anchor.download = `dara_task_${taskId}_${String(selection ?? 'adopted').replace(':', '_')}_report.html`;
       document.body.appendChild(anchor); anchor.click(); anchor.remove();
       setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
       message.success('Report downloaded. Open it in a browser to print or save as PDF.');
@@ -70,13 +72,20 @@ export function ReportDownloadButton({ taskId, selection, children = 'Download r
   return <Button icon={<FileTextOutlined />} {...props} loading={loading} onClick={download}>{children}</Button>;
 }
 
-export function ReviewPanel({ taskId, data, review, onView }) {
-  const candidates = data.all_results.map((candidate, index) => ({
-    value: candidate.source_index ?? index,
-    label: `Candidate ${index + 1} — Rwp ${candidate.rwp}%`,
-  }));
+export function ReviewPanel({ taskId, data, review, onView, versions = [] }) {
+  const candidates = [
+    ...data.all_results.map((candidate, index) => ({
+      value: candidate.source_index ?? index,
+      label: `Candidate ${index + 1} — Rwp ${candidate.rwp}%`,
+    })),
+    ...versions.filter(item => item.version > 1).map(item => ({
+      value: `version:${item.version}`,
+      label: `v${item.version} — ${item.label || 'Re-refinement'}${item.rwp != null ? ` — Rwp ${Number(item.rwp).toFixed(2)}%` : ''}`,
+    })),
+  ];
   const savedLabel = review.saved.selection === 'best' ? 'Minimum-Rwp best fit'
-    : candidates.find(item => item.value === review.saved.selection)?.label || 'Not adopted yet';
+    : candidates.find(item => item.value === review.saved.selection)?.label
+      || (typeof review.saved.selection === 'string' ? review.saved.selection.replace('version:', 'Version ') : 'Not adopted yet');
   return <section aria-label="Result review" style={{ marginBottom: 20, padding: 16, border: '1px solid #d9d9d9', borderRadius: 6 }}>
     <h3>Adopted result &amp; lab notes</h3>
     {review.error ? <Alert type="error" showIcon message={review.error} /> : null}
@@ -165,4 +174,58 @@ export function RefineSelectionButton({ taskId, selection = 'best', phases = [],
           { title: 'Starting candidate', dataIndex: 'reference', render: ref => phases.includes(ref) ? <Tag>Included</Tag> : null }]} />
     </Modal>
   </>;
+}
+
+/** Queue a new analysis from a FIZZLED task. Navigates to the new task on success. */
+export async function retryTask(taskId, applyRemedy) {
+  try {
+    const body = await postJson(`/task/${taskId}/retry`, { apply_remedy: Boolean(applyRemedy) });
+    if (body?.wf_id == null) throw new Error('The server did not return the new task.');
+    message.success(`Retry queued as task ${body.wf_id}.`);
+    window.location.href = `/task/?id=${body.wf_id}`;
+  } catch (e) {
+    message.error(e.missing ? NOT_AVAILABLE : e.message);
+  }
+}
+
+const changeText = value => (value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value));
+
+/** Retry buttons of a failed task: suggested fix (after a confirmation of the changes) and unchanged. */
+export function RetryActions({ taskId, errorSummary }) {
+  const [busy, setBusy] = React.useState(false);
+  const remedy = errorSummary?.remedy;
+  const retryWithFix = async () => {
+    setBusy(true);
+    try {
+      const plan = await requestJson(`/task/${taskId}/retry-plan`);
+      if (plan.supported === false || !plan.changes) {
+        message.info(plan.reason || 'No automatic fix applies to this failure. Use “Retry unchanged”.');
+        return;
+      }
+      Modal.confirm({
+        title: `${plan.label || remedy?.label || 'Retry with suggested fix'}?`,
+        width: 520,
+        content: <div>
+          <p>A new task is queued with these changes; the failed task is kept.</p>
+          <ul>{Object.entries(plan.changes).map(([key, value]) => <li key={key}><code>{key}</code>{' → '}<code>{changeText(value)}</code></li>)}</ul>
+        </div>,
+        okText: 'Retry with fix',
+        cancelText: 'Cancel',
+        onOk: () => retryTask(taskId, true),
+      });
+    } catch (e) {
+      message.error(e.missing ? NOT_AVAILABLE : e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const retryUnchanged = async () => {
+    setBusy(true);
+    await retryTask(taskId, false);
+    setBusy(false);
+  };
+  return <Space wrap style={{ marginBottom: 12 }}>
+    {remedy?.label ? <Button type="primary" loading={busy} onClick={retryWithFix}>{`Retry with suggested fix (${remedy.label})`}</Button> : null}
+    <Button type={remedy?.label ? 'default' : 'primary'} loading={busy} onClick={retryUnchanged}>Retry unchanged</Button>
+  </Space>;
 }

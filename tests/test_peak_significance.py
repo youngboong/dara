@@ -629,6 +629,7 @@ def test_candidate_references_are_simulated_by_the_background_worker(monkeypatch
     assert threads == []  # nothing was simulated on the request thread
     assert first["missing_classified"][0]["class"] == "significant"
     assert first["missing_classified"][0]["hint"] is None and first["trace_hints"] == []
+    assert first["hints_pending"] is True  # the UI polls until the hints arrive
 
     gate.set()
     assert ps.wait_idle(30)
@@ -638,6 +639,7 @@ def test_candidate_references_are_simulated_by_the_background_worker(monkeypatch
     )
     assert later["trace_hints"][0]["formula"] == "Fe2O3"
     assert later["missing_classified"][0]["hint"]["formula"] == "Fe2O3"
+    assert "hints_pending" not in later  # complete: the UI stops polling
     assert threads == ["dara-trace-hints"]  # memoized, not simulated again
 
     # sync mode (benchmark / offline) simulates on the calling thread

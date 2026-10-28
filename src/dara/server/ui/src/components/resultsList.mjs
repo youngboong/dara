@@ -1,16 +1,19 @@
+import { adoptedTag } from './versions.mjs';
+
 /** Two-decimal number or an em dash. */
 export function formatFixed(value, digits = 2) {
   const number = Number(value);
   return value === null || value === undefined || !Number.isFinite(number) ? '—' : number.toFixed(digits);
 }
 
-/** Label for the "Adopted" column: `"best"`, a stored source index, or nothing. */
+/** Label for the "Adopted" column: `"best"`, a stored source index, `"version:n"`, or nothing. */
 export function adoptedLabel(adopted) {
   if (adopted === 'best') return { text: 'Best fit', color: 'green' };
   if (Number.isInteger(adopted) && adopted >= 0) {
     return { text: `Candidate (stored #${adopted + 1})`, color: 'blue' };
   }
-  return null;
+  const version = typeof adopted === 'string' ? adoptedTag(adopted) : null;
+  return version ? { text: version, color: 'geekblue' } : null;
 }
 
 /** Comma-joined phase labels, shortened with an ellipsis after `limit` phases. */

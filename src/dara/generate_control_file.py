@@ -93,6 +93,7 @@ def generate_control_file(
     eps1: float | str = 0.0,
     eps2: float | str = "0_-0.05^0.05",
     wavelength: Literal["Cu", "Co", "Cr", "Fe", "Mo"] | float = "Cu",
+    background_degree: int | None = None,
 ) -> Path:
     """
     Generate a control file for BGMN.
@@ -111,8 +112,17 @@ def generate_control_file(
         wavelength: the wavelength to use. If a float is provided, it is used as the
             wavelength in nm (synchrotron radiation). If a string is provided, it is
             the target material in X-ray tubes.
+        background_degree: optional number of background polynomial parameters written as
+            native BGMN ``RU=<n>`` (2..20). ``None`` keeps BGMN's automatic choice.
 
     """
+    if background_degree is not None:
+        if (
+            isinstance(background_degree, bool)
+            or not isinstance(background_degree, int)
+            or not 2 <= background_degree <= 20
+        ):
+            raise ValueError("background_degree must be an integer between 2 and 20.")
     if working_dir is None:
         control_file_path = pattern_path.parent / f"{pattern_path.stem}.sav"
     else:
@@ -164,6 +174,7 @@ def generate_control_file(
     {f"WMIN={wmin}" if wmin is not None else ""}
     {f"WMAX={wmax}" if wmax is not None else ""}
     {cut_lines}
+    {f"RU={background_degree}" if background_degree is not None else ""}
     % Phases
     {phases_str}
     % Measured data

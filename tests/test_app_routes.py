@@ -52,7 +52,7 @@ def test_static_mount_is_last_so_api_routes_stay_reachable():
     assert api_groups and max(api_groups) < mount_index
 
 
-def test_optional_router_list_names_all_four_modules():
+def test_optional_router_list_names_all_modules():
     import dara.server.app as app_module
 
     assert set(app_module._OPTIONAL_ROUTERS) == {
@@ -60,4 +60,6 @@ def test_optional_router_list_names_all_four_modules():
         "dara.server.reference_library_router",
         "dara.server.mp_router",
         "dara.server.series_router",
+        "dara.server.peak_candidates_router",
+        "dara.server.retry_router",
     }

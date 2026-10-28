@@ -267,6 +267,9 @@ class _PeakContext:
     range_params: dict
     hint_mode: str
     job_key: object = None
+    #: Set by ``_reference_patterns``: background simulations that could add trace hints are
+    #: still outstanding, so a later request may return more hints.
+    hints_pending: bool = field(default=False, repr=False)
     _cod: object = field(default=None, repr=False)
     _cod_done: bool = field(default=False, repr=False)
 
@@ -391,6 +394,7 @@ def _reference_patterns(document, refinement, ctx: _PeakContext) -> list[dict]:
     later request. ``sync`` mode (benchmark, offline) simulates them immediately.
     """
     patterns: list[dict] = []
+    ctx.hints_pending = False
     window = ctx.measured_range(refinement)
     if ctx.wavelength is None or window is None:
         return patterns
@@ -429,7 +433,11 @@ def _reference_patterns(document, refinement, ctx: _PeakContext) -> list[dict]:
         })
     if todo:
         _simulate_references_in_background(todo, ctx, window)
-    patterns.extend(ctx.cod_patterns(refinement) or [])
+        ctx.hints_pending = True
+    cod = ctx.cod_patterns(refinement)
+    if cod is None and background and ctx.wavelength is not None and peak_significance.has_pending():
+        ctx.hints_pending = True  # the COD pool is still being simulated
+    patterns.extend(cod or [])
     return patterns
 
 
@@ -465,9 +473,12 @@ def _classified_peak_diagnostics(
                     document=ctx.document, wavelength=ctx.wavelength,
                     counts_like=ctx.counts_like, range_params=ctx.range_params,
                     hint_mode=mode, job_key=ctx.job_key,
+                    hints_pending=ctx.hints_pending,
                 )
             patterns = _reference_patterns(document, refinement, ctx)
             classified = peak_significance.attach_trace_hints(classified, refinement, patterns)
+            if ctx.hints_pending:
+                classified["hints_pending"] = True
         return {**diag, **classified}
     except Exception:
         logger.debug("Missing-peak classification failed", exc_info=True)
@@ -2112,6 +2123,19 @@ async def delete_result(task_id: int):
     with get_result_store() as result_store:
         result_store.remove_docs({"uuid": job["uuid"]})
     _plot_json.cache_clear()
+    # Quick re-refinements: cancel running/queued jobs first, then drop versions and caches.
+    from dara.server import quick_refine, versions
+
+    try:
+        quick_refine.discard_task(job["uuid"])
+    except ValueError:
+        pass  # legacy non-UUID record: nothing was cached for it
+    except Exception:  # noqa: BLE001 - leftovers must not turn a successful delete into an error
+        logger.warning("Could not clean the quick-refine cache of task %s", task_id, exc_info=True)
+    try:
+        versions.delete_task_versions(job["uuid"])
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not delete the versions of task %s", task_id, exc_info=True)
     from dara.server.task_control_router import task_directory
     try:
         checkpoint_dir = task_directory(job["uuid"])
@@ -2157,12 +2181,46 @@ def _plot_json(uuid: str, idx: int | None) -> str:
     return figure.to_json()
 
 
+@lru_cache(maxsize=24)
+def _version_plot_json(uuid: str, number: int) -> str:
+    """Plot of a saved re-refinement version (numbers are never reused, so this is immutable)."""
+    from dara.server import versions
+
+    record = versions.load_version(uuid, number)
+    figure = versions.version_refinement(record).visualize()
+    try:
+        from dara.search.candidate_cost import wavelength_angstrom
+
+        with get_result_store() as result_store:
+            stored = result_store.query_one({"uuid": uuid})
+        spec = (((stored or {}).get("output") or {}).get("search_kwargs") or {}).get("wavelength", "Cu")
+        figure.update_layout(meta={"wavelength_angstrom": round(wavelength_angstrom(spec), 6)})
+    except Exception:
+        logger.debug("Plot wavelength unavailable", exc_info=True)
+    return figure.to_json()
+
+
 @router.get("/task/{task_id}/plot")
-async def plot(task_id: int, idx: int | None = Query(None, ge=0)):
+async def plot(task_id: int, idx: int | None = Query(None, ge=0), sel: str | None = Query(None)):
     with get_worker_store() as worker_store:
         task = worker_store.query_one({"index": task_id}, ["uuid", "status"])
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    sel = sel if isinstance(sel, str) else None  # direct calls leave the Query default object
+    if sel is not None:
+        from dara.server import versions
+
+        if idx is not None:
+            raise HTTPException(status_code=422, detail="Choose either idx or sel, not both")
+        parsed = versions.parse_selection(sel)
+        if isinstance(parsed, tuple):
+            payload = _version_plot_json(task["uuid"], parsed[1])
+            return Response(
+                content=payload,
+                media_type="application/json",
+                headers={"Cache-Control": "private, max-age=3600"},
+            )
+        idx = None if parsed == "best" else parsed
     payload = _plot_json(task["uuid"], idx)
     # Returning the serialized figure directly avoids FastAPI JSON-encoding the
     # JSON string a second time (extra copies, escaping and client-side parse).

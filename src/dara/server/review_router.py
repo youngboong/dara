@@ -11,13 +11,13 @@ import math
 import re
 from datetime import datetime, timezone
 from html import escape
-from typing import Literal
+from typing import Annotated, Literal
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 from monty.json import MontyDecoder
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints
 
 from dara.server.utils import get_result_store, get_worker_store
 
@@ -27,7 +27,12 @@ router = APIRouter(prefix="/api")
 class ReviewUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    selection: Literal["best"] | StrictInt | None = None
+    selection: (
+        Literal["best"]
+        | StrictInt
+        | Annotated[str, StringConstraints(pattern=r"^version:[1-9]\d{0,5}$")]
+        | None
+    ) = None
     notes: str = Field(default="", max_length=10000)
 
 
@@ -54,7 +59,14 @@ def _review_metadata(task: dict) -> dict:
     }
 
 
-def _select_refinement(document, selection):
+def _select_refinement(document, selection, task=None):
+    if isinstance(selection, str) and selection.startswith("version:"):
+        from dara.server import versions
+
+        parsed = versions.parse_selection(selection)
+        if parsed != "best":
+            return versions.resolve_refinement(document, task, parsed)[0]
+        selection = "best"
     if selection is None or selection == "best":
         refinement = document.final_result
         if refinement is None:
@@ -76,10 +88,16 @@ async def get_review(task_id: int):
 @router.put("/task/{task_id}/review")
 async def save_review(task_id: int, update: ReviewUpdate):
     task, document = _load_completed_task(task_id)
-    if update.selection is not None:
-        _select_refinement(document, update.selection)
+    selection = update.selection
+    if isinstance(selection, str) and selection.startswith("version:"):
+        from dara.server import versions
+
+        parsed = versions.parse_selection(selection)
+        selection = "best" if parsed == "best" else versions.format_selection(parsed)
+    if selection is not None:
+        _select_refinement(document, selection, task)
     review = {
-        "selection": update.selection,
+        "selection": selection,
         "notes": update.notes,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -231,28 +249,61 @@ def _render_report(task_id: int, task: dict, document, selection, review: dict) 
     # Local import lets the application register this router without import cycles.
     from dara.server.report.builder import build_report_html
 
+    if _is_version_selection(selection):
+        from dara.server import versions
+
+        number = versions.parse_selection(selection)[1]
+        record = versions.load_version(task["uuid"], number)
+        view = versions.document_view(document, task, record)
+        label = f"Version {number} \u2014 {record.get('label') or 'Re-refinement'}"
+        job_view = versions.version_job_view(task, f"v{number}", record.get("overrides"))
+        return build_report_html(
+            task_id, job_view, view, "best", review,
+            selection_label=label, selection_key=f"version:{number}",
+        )
     return build_report_html(task_id, task, document, selection, review)
 
 
-def _report_selection(idx, best: bool, review: dict):
+def _report_selection(idx, best: bool, review: dict, sel: str | None = None):
+    """Precedence: ``idx`` > ``best`` > ``sel`` > the adopted review selection."""
+    sel = sel if isinstance(sel, str) else None  # direct calls leave the Query default object
     if idx is not None and best:
         raise HTTPException(422, "Choose either idx or best, not both")
     if idx is not None:
         return idx
     if best:
         return "best"
+    if sel is not None:
+        from dara.server import versions
+
+        return versions.format_selection(versions.parse_selection(sel))
     return review["selection"] if review["selection"] is not None else "best"
 
 
+def _is_version_selection(selection) -> bool:
+    return isinstance(selection, str) and selection.startswith("version:")
+
+
+def _selection_suffix(selection) -> str:
+    if _is_version_selection(selection):
+        return "version_" + selection.split(":", 1)[1]
+    return "best" if selection == "best" else f"candidate_{selection + 1}"
+
+
 @router.get("/task/{task_id}/report")
-async def download_report(task_id: int, idx: int | None = Query(None, ge=0), best: bool = False):
+async def download_report(
+    task_id: int,
+    idx: int | None = Query(None, ge=0),
+    best: bool = False,
+    sel: str | None = Query(None),
+):
     if idx is not None and best:
         raise HTTPException(422, "Choose either idx or best, not both")
     task, document = _load_completed_task(task_id)
     review = _review_metadata(task)
-    selection = _report_selection(idx, best, review)
+    selection = _report_selection(idx, best, review, sel)
     html = _render_report(task_id, task, document, selection, review)
-    suffix = "best" if selection == "best" else f"candidate_{selection + 1}"
+    suffix = _selection_suffix(selection)
     return Response(
         html,
         media_type="text/html",
@@ -275,6 +326,7 @@ async def download_figure(
     best: bool = False,
     dpi: int = 600,
     width_mm: float = 170,
+    sel: str | None = Query(None),
 ):
     """Publication-style fit figure (PNG or SVG) of the selected refinement."""
     if fmt not in _FIGURE_MEDIA:
@@ -283,13 +335,18 @@ async def download_figure(
         raise HTTPException(422, "Choose either idx or best, not both")
     task, document = _load_completed_task(task_id)
     review = _review_metadata(task)
-    selection = _report_selection(idx, best, review)
-    refinement = _select_refinement(document, selection)
+    selection = _report_selection(idx, best, review, sel)
+    refinement = _select_refinement(document, selection, task)
     from dara.server.api_router import _counts_like
     from dara.server.report.figures import fit_figure
 
     search_settings = getattr(document, "search_kwargs", None) or {}
     excluded = (search_settings.get("refinement_params") or {}).get("excluded_ranges")
+    if _is_version_selection(selection):
+        from dara.server import versions
+
+        _, meta = versions.resolve_refinement(document, task, selection)
+        excluded = (meta.get("refinement_params") or {}).get("excluded_ranges")
     try:
         content = fit_figure(
             refinement, fmt=fmt, dpi=dpi, width_mm=width_mm, excluded_ranges=excluded,
@@ -297,7 +354,7 @@ async def download_figure(
         )
     except Exception as exc:
         raise HTTPException(500, f"Figure rendering failed: {exc}") from exc
-    suffix = "best" if selection == "best" else f"candidate_{selection + 1}"
+    suffix = _selection_suffix(selection)
     return Response(
         content,
         media_type=_FIGURE_MEDIA[fmt],

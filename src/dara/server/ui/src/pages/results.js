@@ -5,6 +5,7 @@ import { Button, Input, Popconfirm, Space, Table, Tag, Tooltip, message } from '
 import { DeleteOutlined, DownloadOutlined, LineChartOutlined, TableOutlined } from '@ant-design/icons';
 import { parseComparisonTaskIds } from '../components/patternComparison.mjs';
 import { runAfterSuccess } from '../components/submitHelpers.mjs';
+import { retryTask } from '../components/ResultWorkflows';
 import { adoptedLabel, formatFixed, phasesLabel, phasesTooltip, tasksQuery } from '../components/resultsList.mjs';
 
 const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
@@ -99,9 +100,19 @@ function ResultsPage({ location }) {
       key: 'state',
       render: (text, entry) => {
         const tag = <Tag color={STATE_COLOR[text] ? STATE_COLOR[text] : 'grey'} key={text}>{text}</Tag>
-        return text === 'FIZZLED' && entry.error_summary?.title
+        const shown = text === 'FIZZLED' && entry.error_summary?.title
           ? <Tooltip title={entry.error_summary.title}>{tag}</Tooltip>
           : tag
+        return text === 'FIZZLED' ? <Space size={4}>
+          {shown}
+          <Popconfirm
+            title={`Retry task ${entry.fw_id} with unchanged settings?`}
+            description="A new task is queued; the failed task is kept."
+            okText="Retry"
+            cancelText="Cancel"
+            onConfirm={() => retryTask(entry.fw_id, false)}
+          ><Button type="link" size="small" style={{ padding: 0 }}>Retry</Button></Popconfirm>
+        </Space> : shown
       }
     },
     {

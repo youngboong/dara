@@ -247,6 +247,12 @@ class MemoryStore:
             None,
         )
 
+    def count(self, criteria):
+        return sum(
+            all(document.get(key) == value for key, value in criteria.items())
+            for document in self.documents
+        )
+
     def remove_docs(self, criteria):
         self.documents[:] = [
             document
@@ -258,14 +264,19 @@ class MemoryStore:
 def test_delete_result_removes_job_and_document(monkeypatch):
     jobs = MemoryStore([{"index": 7, "uuid": "abc", "status": "COMPLETED"}])
     results = MemoryStore([{"uuid": "abc", "output": {}}])
+    stored_versions = MemoryStore([{"uuid": "abc", "index": 2}, {"uuid": "other", "index": 2}])
     monkeypatch.setattr(api_router, "get_worker_store", lambda: jobs)
     monkeypatch.setattr(api_router, "get_result_store", lambda: results)
+    # never touch the real ~/.dara-server stores from a test
+    from dara.server import versions as versions_module
+    monkeypatch.setattr(versions_module, "get_versions_store", lambda: stored_versions)
 
     response = asyncio.run(api_router.delete_result(7))
 
     assert response == {"message": "deleted", "task_id": 7}
     assert jobs.documents == []
     assert results.documents == []
+    assert stored_versions.documents == [{"uuid": "other", "index": 2}]
 
 
 @pytest.mark.parametrize("status", ["READY", "RUNNING"])

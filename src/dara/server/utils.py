@@ -50,5 +50,10 @@ def get_result_store() -> MontyStore:
     return get_store("results")
 
 
+def get_versions_store():
+    """Store of re-refinement versions (``uuid`` = task uuid, ``index`` = version number)."""
+    return get_store("versions")
+
+
 def get_job_store(docs_store: Store) -> JobStore:
     return JobStore(docs_store=docs_store)

@@ -81,6 +81,7 @@ def _attach_peak_markers(
     intensity_mismatch_height_tolerance: float = 0.40,
     intensity_mismatch_area_tolerance: float = 0.60,
     refinement_params: dict | None = None,
+    observed_peaks: Any = None,
 ) -> None:
     """Run the full peak-matching pipeline and store results on *result* in-place.
 
@@ -105,6 +106,11 @@ def _attach_peak_markers(
             ``find_intensity_mismatch_peaks`` as ``height_tolerance``.
         intensity_mismatch_area_tolerance: passed through to
             ``find_intensity_mismatch_peaks`` as ``area_tolerance``.
+        observed_peaks: optional pre-computed observed peaks (DataFrame with
+            ``2theta``/``intensity`` columns, an array whose first two columns are those,
+            or a zero-argument callable returning either). When given, ``detect_peaks``
+            is skipped; the result must be what ``detect_peaks`` would return for the
+            same pattern/range settings.
     """
     from dara.peak_detection import detect_peaks
     from dara.search.peak_matcher import (
@@ -116,9 +122,16 @@ def _attach_peak_markers(
 
     range_params = {key: value for key, value in (refinement_params or {}).items()
                     if key in {"wmin", "wmax", "excluded_ranges"}}
-    edf      = detect_peaks(str(pattern_path), wavelength=wavelength,
-                            instrument_profile=str(instrument_profile), **range_params)
-    obs_raw  = edf[["2theta", "intensity"]].values
+    if observed_peaks is not None:
+        observed = observed_peaks() if callable(observed_peaks) else observed_peaks
+        if hasattr(observed, "columns"):
+            obs_raw = observed[["2theta", "intensity"]].values
+        else:
+            obs_raw = np.asarray(observed, dtype=float)[:, :2]
+    else:
+        edf      = detect_peaks(str(pattern_path), wavelength=wavelength,
+                                instrument_profile=str(instrument_profile), **range_params)
+        obs_raw  = edf[["2theta", "intensity"]].values
     calc_raw = result.peak_data[["2theta", "intensity"]].values
 
     px    = np.asarray(result.plot_data.x)
@@ -197,6 +210,8 @@ def do_refinement(
     intensity_mismatch_height_tolerance: float = 0.40,
     intensity_mismatch_area_tolerance: float = 0.60,
     bgmn_timeout: float | None = None,
+    observed_peaks: Any = None,
+    cancel_event: Any = None,
 ) -> RefinementResult:
     """Refine the structure using BGMN.
 
@@ -210,6 +225,8 @@ def do_refinement(
         intensity_mismatch_height_tolerance: see ``_attach_peak_markers``.
         intensity_mismatch_area_tolerance: see ``_attach_peak_markers``.
         bgmn_timeout: seconds before the BGMN subprocess is killed (``None``: legacy 1200 s).
+        observed_peaks: optional pre-computed observed peaks (see ``_attach_peak_markers``).
+        cancel_event: optional ``threading.Event``; when set the BGMN process is killed.
     """
     pattern_path = Path(pattern_path)
     working_dir = (
@@ -254,9 +271,17 @@ def do_refinement(
     )
 
     bgmn_worker = BGMNWorker()
-    bgmn_worker.run_refinement_cmd(
-        control_file_path, show_progress=show_progress, timeout=bgmn_timeout
-    )
+    if cancel_event is None:
+        bgmn_worker.run_refinement_cmd(
+            control_file_path, show_progress=show_progress, timeout=bgmn_timeout
+        )
+    else:
+        bgmn_worker.run_refinement_cmd(
+            control_file_path,
+            show_progress=show_progress,
+            timeout=bgmn_timeout,
+            cancel_event=cancel_event,
+        )
     result = get_result(control_file_path)
     range_params = {key: value for key, value in refinement_params.items()
                     if key in {"wmin", "wmax", "excluded_ranges"}}
@@ -264,6 +289,7 @@ def do_refinement(
         result.peak_data = result.peak_data.loc[
             analysis_mask(result.peak_data["2theta"], **range_params)
         ].reset_index(drop=True)
+    marker_extra = {} if observed_peaks is None else {"observed_peaks": observed_peaks}
     _attach_peak_markers(
         result, pattern_path, wavelength, instrument_profile,
         use_residual=use_residual,
@@ -275,6 +301,7 @@ def do_refinement(
         intensity_mismatch_height_tolerance=intensity_mismatch_height_tolerance,
         intensity_mismatch_area_tolerance=intensity_mismatch_area_tolerance,
         refinement_params=refinement_params,
+        **marker_extra,
     )
     return result
 
