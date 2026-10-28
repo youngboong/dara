@@ -7,6 +7,7 @@ import Loadable from 'react-loadable'
 import parse from 'html-react-parser';
 import {STATE_COLOR} from './results';
 import { buildRefinementView, isTraceSelected, legendKey } from '../components/refinementPlotState.mjs';
+import { viewChangeFromRelayout } from '../components/plotNavigation.mjs';
 import { formatParameterWithEsd, latticeParameterRows } from '../components/latticeParameters.mjs';
 import { AdoptButton, RefineSelectionButton, ReportDownloadButton, ReviewPanel, useTaskReview } from '../components/ResultWorkflows';
 import { TaskProgress } from '../components/PracticalControls';
@@ -204,13 +205,17 @@ function RefinementPlot({ task_id, plot_id, excludedRanges = [] }) {
   const [resetKey, setResetKey] = React.useState(0);
   const [selection, setSelection] = React.useState({});
   const [yRange, setYRange] = React.useState(null);
+  const [xRange, setXRange] = React.useState(null);
+  const [fitY, setFitY] = React.useState(true);
   const lastLegendKey = React.useRef(null);
   const sameLegendClicked = React.useRef(false);
+  const resetView = () => { setXRange(null); setYRange(null); setResetKey(value => value + 1); };
   React.useEffect(() => {
     setPlot(undefined);
     setError('');
     setSelection({});
     setYRange(null);
+    setXRange(null);
     if (task_id === undefined || plot_id === undefined) return;
     let active = true;
     loadPlot(task_id, plot_id)
@@ -221,7 +226,7 @@ function RefinementPlot({ task_id, plot_id, excludedRanges = [] }) {
   if (error) return <Alert type="error" showIcon message={error} />;
   if (!plot) return <Spin />;
   const view = buildRefinementView(plot, {
-    selection, showDiagnostics, showPhaseProfiles, showReflections, scale, yRange,
+    selection, showDiagnostics, showPhaseProfiles, showReflections, scale, yRange, xRange, fitY,
   });
   const toggleLegend = event => {
     const index = event.curveNumber;
@@ -252,26 +257,32 @@ function RefinementPlot({ task_id, plot_id, excludedRanges = [] }) {
       <Text>Phase profiles</Text><Switch checked={showPhaseProfiles} onChange={setShowPhaseProfiles} />
       <Text>Bragg positions</Text><Switch checked={showReflections} onChange={value => { setShowReflections(value); setYRange(null); }} />
       <Text>Diagnostics</Text><Switch checked={showDiagnostics} onChange={setShowDiagnostics} />
-      <Button onClick={() => { setYRange(null); setResetKey(value => value + 1); }}>Reset zoom</Button>
+      <Text>Fit intensity to view</Text><Switch checked={fitY} onChange={value => { setFitY(value); setYRange(null); }} />
+      <Button onClick={resetView}>Reset zoom</Button>
     </Space>
     <div style={{ marginBottom: 8 }}>
-      <Text type="secondary">Click a phase in the legend to show its profile and Bragg positions. Hover for 2θ and hkl; drag to zoom. The lower panel shows observed − calculated.</Text>
+      <Text type="secondary">Left-drag to pan, right-drag to zoom into a box, mouse wheel to zoom 2θ, double-click or Reset zoom to show the whole pattern. Click a phase in the legend to show its profile and Bragg positions; hover for 2θ and hkl. The lower panel shows observed − calculated.</Text>
     </div>
-    <Plotly key={`${task_id}-${plot_id}-${resetKey}`} data={view.data}
+    <Plotly key={`${task_id}-${plot_id}`} data={view.data}
       layout={{ ...view.layout, autosize: true,
         shapes: [...(view.layout.shapes || []), ...excludedRanges.flatMap(([x0, x1]) => [
           { type: 'rect', xref: 'x', yref: 'y domain', x0, x1, y0: 0, y1: 1, fillcolor: 'rgba(130,130,130,0.15)', line: { width: 0 }, layer: 'below' },
           { type: 'rect', xref: 'x2', yref: 'y2 domain', x0, x1, y0: 0, y1: 1, fillcolor: 'rgba(130,130,130,0.15)', line: { width: 0 }, layer: 'below' },
         ])],
+        dragmode: 'pan',
         uirevision: `${task_id}-${plot_id}-${resetKey}` }}
       onLegendClick={toggleLegend}
       onLegendDoubleClick={isolateLegend}
+      onDoubleClick={resetView}
       onRelayout={event => {
-        if (event['yaxis.autorange']) setYRange(null);
-        else if (event['yaxis.range[0]'] !== undefined && event['yaxis.range[1]'] !== undefined)
-          setYRange([event['yaxis.range[0]'], event['yaxis.range[1]']]);
+        const change = viewChangeFromRelayout(event);
+        if ('xRange' in change) setXRange(change.xRange);
+        if ('yRange' in change) setYRange(change.yRange);
       }}
-      config={{ responsive: true, displaylogo: false,
+      config={{ responsive: true, displaylogo: false, scrollZoom: true, doubleClick: false,
+        // Ranges are React state: Plotly's own reset/autoscale buttons would only
+        // restore the state they were last given, so Reset zoom replaces them.
+        modeBarButtonsToRemove: ['zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d'],
         toImageButtonOptions: { format: 'svg', filename: `dara_${task_id}_${plot_id ?? 'best'}`, width: 1600, height: 900 } }}
       useResizeHandler style={{ height: '760px', width: '100%' }} />
   </>;

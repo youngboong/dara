@@ -34,21 +34,55 @@ function positiveTicks(lower, upper) {
   return ticks;
 }
 
+function cloneLayout(layout) {
+  // Plotly writes zoom ranges back into the layout objects it is given. The
+  // cached server layout is shared between renders (and xaxis2 "matches" x),
+  // so a shallow copy let an old 2θ zoom survive "Reset zoom".
+  return typeof structuredClone === 'function' ? structuredClone(layout) : JSON.parse(JSON.stringify(layout));
+}
+
+function intensityStats(plot, isShown, xRange) {
+  const [lo, hi] = xRange ? [Math.min(...xRange), Math.max(...xRange)] : [-Infinity, Infinity];
+  let maximum = -Infinity;
+  let minimum = Infinity;
+  let smallestPositive = Infinity;
+  plot.data.forEach((trace, index) => {
+    if (['reflection', 'difference', 'diagnostic'].includes(trace.meta) || !isShown(trace, index)) return;
+    const xs = numbers(trace.x);
+    numbers(trace.y).forEach((value, i) => {
+      if (!Number.isFinite(value) || xs[i] < lo || xs[i] > hi) return;
+      maximum = Math.max(maximum, value);
+      minimum = Math.min(minimum, value);
+      if (value > 0) smallestPositive = Math.min(smallestPositive, value);
+    });
+  });
+  return { maximum, minimum, smallestPositive };
+}
+
 export function buildRefinementView(plot, {
   selection = {}, showDiagnostics = true, showPhaseProfiles = true,
-  showReflections = true, scale = 'linear', yRange = null,
+  showReflections = true, scale = 'linear', yRange = null, xRange = null, fitY = true,
 } = {}) {
-  const intensity = plot.data.filter(t => !['reflection', 'difference', 'diagnostic'].includes(t.meta))
-    .flatMap(t => numbers(t.y)).filter(Number.isFinite);
-  let maximum = 1;
-  let minimum = 0;
-  let smallestPositive = Infinity;
-  for (const value of intensity) {
-    maximum = Math.max(maximum, value);
-    minimum = Math.min(minimum, value);
-    if (value > 0) smallestPositive = Math.min(smallestPositive, value);
+  const baseLayout = cloneLayout(plot.layout);
+  const shown = (trace, index) => {
+    if (!isTraceSelected(trace, index, selection)) return false;
+    return trace.meta !== 'phase-profile' || showPhaseProfiles;
+  };
+  // Scale the intensity axis to the visible 2θ window when zoomed, so weak
+  // peaks fill the panel; fall back to the whole pattern.
+  let fitted = Boolean(fitY && xRange);
+  let stats = fitted ? intensityStats(plot, shown, xRange) : intensityStats(plot, () => true, null);
+  if (!Number.isFinite(stats.maximum)) {
+    fitted = false;
+    stats = intensityStats(plot, () => true, null);
   }
+  let maximum = Number.isFinite(stats.maximum) ? stats.maximum : 1;
+  let minimum = fitted ? stats.minimum : Math.min(0, stats.minimum);
+  if (!fitted) maximum = Math.max(1, maximum);
+  let smallestPositive = stats.smallestPositive;
+  if (!Number.isFinite(minimum)) minimum = 0;
   if (!Number.isFinite(smallestPositive)) smallestPositive = 1;
+  const span = Math.max(maximum - minimum, 1e-9);
   const rows = [];
   const annotations = [];
   const data = plot.data.map((trace, index) => {
@@ -63,7 +97,7 @@ export function buildRefinementView(plot, {
     const row = rows.length;
     const position = scale === 'log'
       ? smallestPositive / (4 ** (row + 1))
-      : minimum - maximum * 0.095 * (row + 1);
+      : minimum - (fitted ? span : maximum) * 0.095 * (row + 1);
     rows.push(trace.legendgroup);
     const label = trace.name.replace(/ \([^)]* wt%\)$/, '');
     annotations.push({
@@ -74,19 +108,25 @@ export function buildRefinementView(plot, {
     });
     return { ...trace, visible, x: numbers(trace.x), y: numbers(trace.x).map(() => position) };
   });
+  const unit = fitted ? span : maximum;
   const defaultRange = scale === 'log'
     ? [Math.log10(smallestPositive) - (rows.length + 0.5) * Math.log10(4), Math.log10(maximum) + 0.04]
-    : [minimum - maximum * (rows.length ? 0.095 * (rows.length + 0.55) : 0.035), maximum * 1.05];
+    : [minimum - unit * (rows.length ? 0.095 * (rows.length + 0.55) : 0.035), maximum + unit * 0.05];
   const range = yRange || defaultRange;
-  const yaxis = { ...plot.layout.yaxis, type: scale, range, autorange: false,
+  const yaxis = { ...baseLayout.yaxis, type: scale, range, autorange: false,
+    // While the intensity axis follows the 2θ window, wheel/pan act on 2θ only.
+    fixedrange: Boolean(fitY && !yRange),
     // Hide only the upper panel's negative intensity ticks. Residuals retain
     // their signed values and automatic tick labels.
     tickmode: scale === 'log' ? 'auto' : 'array',
     tickvals: scale === 'log' ? undefined : positiveTicks(Math.min(...range), Math.max(...range)),
     ticktext: undefined,
   };
-  const layout = { ...plot.layout, annotations, yaxis,
-    xaxis: { ...plot.layout.xaxis, showticklabels: true, title: { text: '2θ [°]', standoff: 8 } },
-  };
-  return { data, layout, rows };
+  const fullX = baseLayout.xaxis?.range;
+  const xView = xRange ? [Math.min(...xRange), Math.max(...xRange)] : fullX;
+  const xaxis = { ...baseLayout.xaxis, showticklabels: true, title: { text: '2θ [°]', standoff: 8 } };
+  if (xView) Object.assign(xaxis, { range: xView, autorange: false });
+  const layout = { ...baseLayout, annotations, yaxis, xaxis };
+  if (layout.xaxis2 && xView) Object.assign(layout.xaxis2, { range: xView, autorange: false });
+  return { data, layout, rows, fullXRange: fullX || null };
 }
