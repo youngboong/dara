@@ -59,3 +59,29 @@ assert.deepEqual(viewChangeFromRelayout({ 'xaxis.range': [1, 2], 'yaxis.range': 
 assert.deepEqual(viewChangeFromRelayout({ 'xaxis.autorange': true, 'yaxis.autorange': true }), { xRange: null, yRange: null });
 assert.deepEqual(viewChangeFromRelayout({ dragmode: 'pan' }), {});
 console.log('Reset clears 2θ zoom, fit-to-view intensity, box zoom payload and relayout mapping passed.');
+
+// d-spacing on hover (Bragg's law, Cu Kα1).
+import { addDSpacingHover, dSpacing } from '../src/dara/server/ui/src/components/plotNavigation.mjs';
+import { comparisonTraces } from '../src/dara/server/ui/src/components/patternComparison.mjs';
+const cu = 1.540598;
+assert(Math.abs(dSpacing(28.443, cu) - 3.1355) < 1e-3); // Si (111)
+const hovered = addDSpacingHover([
+  { name: 'Observed', x: [20, 40], y: [1, 2] },
+  { name: 'Hkl', x: [30], y: [0], customdata: [[1, 1, 1, 50]], hovertemplate: '2θ %{x:.4f}°<br>hkl (%{customdata[0]})' },
+  { name: 'Diff', x: [20], y: [0], hovertemplate: '2θ %{x:.4f}°<br>Obs − calc: %{y:.5g}' },
+  { name: 'Hidden', x: [20], y: [0], hoverinfo: 'none' },
+], cu);
+assert.equal(hovered[0].customdata.length, 2);
+assert(hovered[0].hovertemplate.includes('d %{customdata:.4f} Å'));
+assert.deepEqual(hovered[1].customdata[0].slice(0, 4), [1, 1, 1, 50]);
+assert(hovered[1].hovertemplate.includes('d %{customdata[4]:.4f} Å'));
+assert(hovered[2].hovertemplate.startsWith('2θ %{x:.4f}°<br>d %{customdata:.4f} Å'));
+assert.equal(hovered[3].customdata, undefined);
+assert.equal(addDSpacingHover(hovered, 0), hovered); // unknown wavelength: unchanged
+const withMeta = buildRefinementView({ ...plot, layout: { ...plot.layout, meta: { wavelength_angstrom: cu } } });
+assert(withMeta.data[0].hovertemplate.includes('d %{customdata'));
+const traces = comparisonTraces([{ task_id: 1, name: 'a', angles: [28.443], intensities: [5], wavelength_angstrom: cu },
+  { task_id: 2, name: 'b', angles: [28.443], intensities: [5] }]);
+assert(Math.abs(traces[0].customdata[0][1] - 3.1355) < 1e-3);
+assert.deepEqual(traces[1].customdata, [5]); // no wavelength: unchanged behaviour
+console.log('d-spacing hover passed.');

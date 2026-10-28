@@ -21,6 +21,7 @@ TABLE_COLUMNS: list[str] = [
     "rwp", "rexp", "gof", "chi_squared", "durbin_watson", "missing_peaks",
     "missing_peaks_significant", "missing_peaks_minor", "extra_peaks", "two_theta_min",
     "two_theta_max", "cautions", "provenance", "verdict", "overall_confidence",
+    "mass_balance_deviation",
 ]
 MULTI_TASK_EXTRA_COLUMNS = ["user", "submitted_on"]
 RHOMBOHEDRAL_GROUPS = {146, 148, 155, 160, 161, 166, 167}
@@ -142,6 +143,8 @@ def _rows_for_result(
     confidence = result.get("confidence") if isinstance(result.get("confidence"), dict) else {}
     overall_level = ((confidence.get("overall") or {}).get("level")) or ""
     phase_verdicts = confidence.get("phases") or {}
+    mass_balance = result.get("mass_balance") if isinstance(result.get("mass_balance"), dict) else {}
+    mass_balance_deviation = mass_balance.get("max_deviation")
     phases = list(details) or list(result.get("highlighted_phases") or result.get("phases") or [])
     rows = []
     for phase in phases:
@@ -181,6 +184,7 @@ def _rows_for_result(
             "provenance": _provenance(phase),
             "verdict": ((phase_verdicts.get(phase) or {}).get("level")) or "",
             "overall_confidence": overall_level,
+            "mass_balance_deviation": mass_balance_deviation,
         }
         for key, column in (
             ("a", "a_angstrom"), ("b", "b_angstrom"), ("c", "c_angstrom"),

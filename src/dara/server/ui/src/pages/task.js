@@ -261,7 +261,7 @@ function RefinementPlot({ task_id, plot_id, excludedRanges = [] }) {
       <Button onClick={resetView}>Reset zoom</Button>
     </Space>
     <div style={{ marginBottom: 8 }}>
-      <Text type="secondary">Left-drag to pan, right-drag to zoom into a box, mouse wheel to zoom 2θ, double-click or Reset zoom to show the whole pattern. Click a phase in the legend to show its profile and Bragg positions; hover for 2θ and hkl. The lower panel shows observed − calculated.</Text>
+      <Text type="secondary">Left-drag to pan, right-drag to zoom into a box, mouse wheel to zoom 2θ, double-click or Reset zoom to show the whole pattern. Click a phase in the legend to show its profile and Bragg positions; hover for 2θ, d-spacing and hkl. The lower panel shows observed − calculated.</Text>
     </div>
     <Plotly key={`${task_id}-${plot_id}`} data={view.data}
       layout={{ ...view.layout, autosize: true,

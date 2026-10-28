@@ -86,6 +86,19 @@ async def measured_pattern(task_id: int):
         "angles": angles,
         "intensities": intensities,
         "wavelength": wavelength,
+        "wavelength_angstrom": _wavelength_angstrom(settings.get("wavelength")),
         "source": source,
         "dropped_points": dropped,
     }
+
+
+def _wavelength_angstrom(spec):
+    """Kα1 wavelength (Å) for hover d-spacings; None when not recorded."""
+    if spec is None:
+        return None
+    try:
+        from dara.search.candidate_cost import wavelength_angstrom
+
+        return round(wavelength_angstrom(spec), 6)
+    except Exception:
+        return None

@@ -543,7 +543,7 @@ function Submission() {
           </Form.Item>
           <Form.Item label={analysisMode === 'known_mixture' ? 'Phases to refine' : 'Precursor / expected formulas'}
             name="precursor_formulas" rules={[{ required: analysisMode !== 'elemental', message: 'Please input chemical formulas.' }]}
-            tooltip="In elemental mode this is optional, but listed phases are guaranteed candidates.">
+            tooltip="In elemental mode this is optional, but listed phases are guaranteed candidates. Optional amounts enable the mass-balance check: a molar coefficient before the formula (Fe2O3, 2 TiO2) or a weighed mass after a colon (In2O3:0.3022g, TiO2:0.2004g).">
             <Input placeholder="In2O3, La(OH)3, TiO2" />
           </Form.Item>
           <Form.Item label="Temperature (°C)" name="temperature" hidden={analysisMode !== 'reaction'}

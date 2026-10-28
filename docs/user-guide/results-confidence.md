@@ -12,12 +12,31 @@ that determined it.
 
 | Level | Meaning | Conditions |
 | --- | --- | --- |
-| High confidence | The fit statistics and the phase evidence raise no flag | GOF ≤ 3 and at most 1 missing peak, and no phase is weak or ambiguous |
-| Check recommended | At least one point deserves a look | Any phase is ambiguous or weak, GOF above 3, 2 to 4 missing peaks, or a displacement warning |
-| Expert review recommended | Interpretation needs an experienced analyst | Any phase of 5 wt% or more has weak evidence, 5 or more peaks are missing, Rwp above 25 %, GOF above 4, severe specimen displacement, or half or more of the final refinements failed |
+| High confidence | The fit statistics and the phase evidence raise no flag | GOF ≤ 3, no significant unexplained peak, and no phase is weak or ambiguous |
+| Check recommended | At least one point deserves a look | Any phase is ambiguous or weak, GOF above 3, 1 to 3 significant unexplained peaks, a displacement warning, or a mass-balance warning |
+| Expert review recommended | Interpretation needs an experienced analyst | Any phase of 5 wt% or more has weak evidence, 4 or more significant unexplained peaks (or their heights sum to 20 % of the strongest peak), Rwp above 25 %, GOF above 4, severe specimen displacement, or half or more of the final refinements failed |
 
 The same overall tag appears for every candidate in the candidate table (sortable), so
 alternative phase sets can be compared on the same scale.
+
+## Unexplained peaks
+
+Observed peaks that the calculated pattern does not reproduce are graded by size, not
+counted. The height is the smoothed obs − calc residual at the peak, relative to the
+strongest observed peak above background; S/N is that height over the noise level.
+
+| Class | Rule | Effect on the overall level |
+| --- | --- | --- |
+| significant | ≥ 2 % of the strongest peak and S/N ≥ 8 | 1–3 → Check recommended; 4 or more, or heights summing to ≥ 20 % → Expert review recommended |
+| minor | between noise and significant | None; listed as information |
+| instrument | within 0.15° of a Cu Kβ or W Lα1 satellite of a strong reflection and ≤ 5 % of it | None; the line is named in the reason |
+| noise | < 0.5 % of the strongest peak or S/N < 3 | None |
+
+When minor or significant peaks line up with strong reflections of a candidate, input or
+locally cached COD structure (after the specimen-displacement correction), the reason
+adds "Positions are consistent with trace …". This is a hint for a re-refinement, not a
+change to the result. The Fit diagnostics tag on the task page shows the counts per class,
+and the report lists every unexplained peak with its class and interpretation.
 
 ## Phase verdicts
 
@@ -56,6 +75,46 @@ A large displacement shifts all peak positions together. Lattice parameters and 
 matching from such a fit should be treated with care until the specimen height and the
 instrument profile have been checked. A broad background hump that the background model
 may have absorbed is reported as a caution.
+
+## Mass balance check
+
+A fit can look excellent and still quantify wrongly, or identify a phase whose chemistry
+does not match the sample. When the precursor amounts are known, DARA compares the element
+ratio implied by the refined weight fractions with the element ratio of the precursors.
+
+Enter amounts in the **Precursor / expected formulas** field (plain formulas keep working
+exactly as before and simply skip the check):
+
+| Entry | Meaning |
+| --- | --- |
+| `Fe2O3, 2 TiO2` (also `2TiO2`, `2*TiO2`) | Molar coefficients; an entry without a coefficient counts as 1 |
+| `In2O3:0.3022g, TiO2:0.2004g` (also `mg`, `mol`, `mmol`) | Weighed amounts; every entry then needs an amount |
+| `Fe2O3, TiO2` | No amounts: the check is skipped (a plain list never implies 1:1) |
+
+Without amounts in the field, DARA reads them from the pattern file name only when every
+listed precursor matches exactly one formula of the name: `2Fe3O4-3Y2O3_1000C_60min`
+(coefficients, missing coefficient = 1) or `In2O3_0p3022-TiO2_0p2004--8min` (grams,
+`p` = decimal point). The message then says that the amounts were read from the file name.
+
+Only elements that cannot leave the sample are compared: O, H, C and N (and the open
+element in reaction mode) are excluded, and at least two elements must remain. The
+metric is the largest absolute difference between an element's mole fraction in the
+precursors and in the refined phases. The weight-fraction e.s.d. widens the tolerance by
+two standard deviations.
+
+| Largest deviation | Result |
+| --- | --- |
+| up to 0.10 | No message |
+| 0.10 to 0.20 | Info caution; listed as a reason without changing the overall level |
+| above 0.20 | Warning caution; the overall level becomes at least Check recommended |
+
+Example: precursors Fe2O3 + 2 TiO2 (Fe:Ti = 1:1) reacted to Fe2TiO5 + TiO2 must give
+75 wt% Fe2TiO5 and 25 wt% TiO2. A fit reporting 26.8/73.2 implies Fe:Ti = 0.18:0.82 (deviation
+0.32) and is flagged. A deviation can also come from an unidentified or amorphous phase,
+volatile loss or an incomplete reaction with a missing phase, so the caution does not say
+which phase is wrong. The thresholds were set on the 20 pairwise-reaction ground truths:
+12 expert refinements stay below 0.07, five lie between 0.11 and 0.17 (unidentified
+material or a phase missing from the model) and three exceed 0.29.
 
 ## Candidate screening
 

@@ -10,6 +10,8 @@ export function comparisonTraces(patterns, { normalize = true, offset = 110 } = 
     const peak = pattern.intensities.reduce((maximum, value) => Math.max(maximum, Math.abs(value)), 0);
     const scale = normalize && peak > 0 ? 100 / peak : 1;
     const displacement = index * offset;
+    const wavelength = Number(pattern.wavelength_angstrom);
+    const withD = wavelength > 0;
     return {
       type: 'scatter',
       mode: 'lines',
@@ -17,9 +19,14 @@ export function comparisonTraces(patterns, { normalize = true, offset = 110 } = 
       meta: `#${pattern.task_id} ${pattern.name}`,
       x: pattern.angles,
       y: pattern.intensities.map(value => value * scale + displacement),
-      customdata: pattern.intensities,
+      // Each sample uses its own wavelength for d (Bragg's law).
+      customdata: withD
+        ? pattern.intensities.map((value, i) => [value, wavelength / (2 * Math.sin((pattern.angles[i] * Math.PI) / 360))])
+        : pattern.intensities,
       line: { width: 1.25 },
-      hovertemplate: '2θ %{x:.4f}°<br>Measured intensity %{customdata:.4g}<extra>%{meta}</extra>',
+      hovertemplate: withD
+        ? '2θ %{x:.4f}°<br>d %{customdata[1]:.4f} Å<br>Measured intensity %{customdata[0]:.4g}<extra>%{meta}</extra>'
+        : '2θ %{x:.4f}°<br>Measured intensity %{customdata:.4g}<extra>%{meta}</extra>',
     };
   });
 }

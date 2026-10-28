@@ -49,4 +49,15 @@ async def compare_candidates(task_id: int, left: int = Query(..., ge=0), right: 
             "left_only": [ai[key] for key in ai.keys()-bi.keys()],
             "right_only": [bi[key] for key in bi.keys()-ai.keys()],
             "common": [ai[key] for key in ai.keys() & bi.keys()],
-            "regions": regions, "left_rwp": a.lst_data.rwp, "right_rwp": b.lst_data.rwp}
+            "regions": regions, "left_rwp": a.lst_data.rwp, "right_rwp": b.lst_data.rwp,
+            "wavelength_angstrom": _wavelength_angstrom((document.search_kwargs or {}).get("wavelength"))}
+
+
+def _wavelength_angstrom(spec):
+    """Kα1 wavelength (Å) for hover d-spacings; None when unknown."""
+    try:
+        from dara.search.candidate_cost import wavelength_angstrom
+
+        return round(wavelength_angstrom(spec if spec is not None else "Cu"), 6)
+    except Exception:
+        return None

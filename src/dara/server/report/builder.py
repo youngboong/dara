@@ -450,6 +450,39 @@ def _unexplained_peaks_section(diagnostics) -> list[str]:
         return []
 
 
+def _mass_balance_section(block: dict | None) -> list[str]:
+    """Short mass-balance paragraph and element table (nothing when it was not evaluated)."""
+    if not block or block.get("status") != "evaluated":
+        return []
+    source = (
+        "read from the pattern file name" if block.get("source") == "filename"
+        else "entered with the submission"
+    )
+    verdict = {
+        "ok": "agree within the tolerance",
+        "caution": "differ moderately",
+        "warning": "differ strongly",
+    }.get(block.get("level"), "were compared")
+    excluded = ", ".join(block.get("excluded_elements") or [])
+    text = (
+        f"Mass balance: the element ratio implied by the refined weight fractions "
+        f"({block['observed_ratio']}) and the ratio of the precursor amounts {source} "
+        f"({block['expected_ratio']}) {verdict}; the largest deviation of an element mole "
+        f"fraction is {block['max_deviation']:.2f}. Volatile elements ({excluded}) are not "
+        "compared. A deviation can indicate an unidentified or amorphous phase, volatile loss, "
+        "or a quantification problem."
+    )
+    rows = [
+        [escape(row["element"]), f"{row['expected']:.3f}", f"{row['observed']:.3f}",
+         f"{row['deviation']:+.3f}"]
+        for row in block.get("elements") or []
+    ]
+    return [
+        f"<p>{escape(text)}</p>",
+        H.table(["Element", "Precursors (mole fraction)", "Refined phases", "Deviation"], rows),
+    ]
+
+
 def build_report_html(task_id: int, task: dict, document, selection, review: dict) -> str:
     """Return the complete report as one standalone HTML document."""
     from dara.plot import phase_display_name
@@ -508,6 +541,16 @@ def build_report_html(task_id: int, task: dict, document, selection, review: dic
     ):
         if extra is not None:
             cautions.append(extra)
+    mass_balance: dict = {}
+    try:
+        amounts, source = api_router._mass_balance_amounts(task, document)
+        mass_balance = api_router._mass_balance_block(
+            amounts, source,
+            {phase: (details or {}).get("weight_percent") for phase, details in phase_details.items()},
+            phase_details, getattr(document, "predict_kwargs", None) or {}, cautions, confidence,
+        )
+    except Exception:
+        mass_balance = {}
 
     raw_lst = getattr(getattr(refinement, "lst_data", None), "raw_lst", None)
     counts = raw_lst_counts(raw_lst)
@@ -723,6 +766,7 @@ def build_report_html(task_id: int, task: dict, document, selection, review: dic
             parts.append(f"<p>{escape(displacement['message'])}</p>")
     else:
         parts.append("<p>The confidence assessment could not be computed for this result.</p>")
+    parts.extend(_mass_balance_section(mass_balance))
     parts.extend(_unexplained_peaks_section(diagnostics))
     if cautions:
         parts.append(

@@ -50,6 +50,8 @@ from dara.server.fit_cautions import (
     lattice_range_resolver,
     search_cautions,
 )
+from dara.server import mass_balance as mass_balance_module
+from dara.server.mass_balance import split_precursor_entries
 from dara.server.table_export import (
     MULTI_TASK_EXTRA_COLUMNS,
     TABLE_COLUMNS,
@@ -589,7 +591,9 @@ def _rerun_settings(record: dict, kwargs: dict, pattern) -> dict:
         "user": record.get("user", ""),
         "analysis_mode": mode,
         "elements": kwargs.get("elements") or context.get("elements") or [],
-        "precursor_formulas": kwargs.get("precursors") or context.get("precursors") or [],
+        "precursor_formulas": (
+            saved.get("precursor_input") or kwargs.get("precursors") or context.get("precursors") or []
+        ),
         "instrument_profile": search.get("instrument_profile", "Aeris-fds-Pixcel1d-Medipix3"),
         "wavelength": search.get("wavelength", "Cu"),
         "temperature": predict.get("temp", 1073) - 273,
@@ -728,6 +732,13 @@ def build_submission_job(
                 elements, precursor_formulas = precursor_formulas, []
         if analysis_mode not in {"reaction", "elemental", "known_mixture"}:
             raise HTTPException(status_code=400, detail="Invalid analysis mode")
+        # Optional amounts ("2 TiO2", "TiO2:0.2g") feed only the mass-balance check;
+        # every existing consumer keeps receiving plain formulas.
+        precursor_input = list(precursor_formulas)
+        try:
+            precursor_formulas, precursor_amounts = split_precursor_entries(precursor_formulas)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid precursor formulas: {exc}")
 
         if library_ids:
             try:
@@ -902,6 +913,9 @@ def build_submission_job(
             "screening_timeout_s": screening_timeout_s,
             "max_analysis_minutes": max_analysis_minutes,
         }
+        if precursor_amounts:
+            job.metadata["submission_settings"]["precursor_input"] = precursor_input
+            job.metadata["submission_settings"]["precursor_amounts"] = precursor_amounts
         if instrument_profile.startswith("user-"):
             from dara.instrument_profiles import registered_profiles, registered_profile_path
 
@@ -1174,6 +1188,7 @@ async def _estimate_submission(request: EstimateRequest) -> dict:
         else _parse_string_list(request.elements)
     )
     try:
+        precursors, _ = split_precursor_entries(precursors)
         [Composition(p) for p in precursors]
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid precursor formulas")
@@ -1531,6 +1546,47 @@ def _confidence_blocks(
         return None, none_blocks
 
 
+def _mass_balance_amounts(job: dict, document) -> tuple[list[dict] | None, str | None]:
+    """Precursor amounts from the submission, else from the pattern file name (never raises)."""
+    try:
+        raw_job = job.get("job") or {}
+        saved = (raw_job.get("metadata") or {}).get("submission_settings") or {}
+        return mass_balance_module.resolve_amounts(
+            saved.get("precursor_amounts"),
+            getattr(document, "precursors", None) or [],
+            saved.get("filename") or raw_job.get("name"),
+        )
+    except Exception:
+        logger.debug("Precursor amounts could not be resolved", exc_info=True)
+        return None, None
+
+
+def _mass_balance_block(
+    amounts, source, weight_percent, phase_details, predict_kwargs, cautions, confidence
+) -> dict:
+    """Mass-balance JSON for one refinement; appends its caution and confidence reason."""
+    block = mass_balance_module.mass_balance(
+        amounts,
+        weight_percent,
+        weight_esd={
+            name: (details or {}).get("weight_esd_percent")
+            for name, details in (phase_details or {}).items()
+        },
+        open_element=(predict_kwargs or {}).get("open_elem"),
+        source=source or "input",
+    )
+    message = mass_balance_module.mass_balance_message(block)
+    if message:
+        cautions.append({
+            "code": "mass_balance",
+            "level": "warning" if block["level"] == "warning" else "info",
+            "message": message,
+            "phase": None,
+        })
+        mass_balance_module.apply_to_confidence(confidence, block)
+    return block
+
+
 def summarize_document(job: dict, document, *, persist_summary: bool = True) -> dict:
     """Return the COMPLETED-task payload served by GET /api/task/{id}.
 
@@ -1679,6 +1735,16 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
         ):
             if extra is not None:
                 cautions.append(extra)
+    mass_amounts, mass_source = _mass_balance_amounts(job, d)
+    final_mass_balance = _mass_balance_block(
+        mass_amounts, mass_source, weight_percent, final_phase_details, predict_kwargs,
+        final_cautions, final_confidence,
+    )
+    for i, entry in enumerate(all_results):
+        entry["mass_balance"] = _mass_balance_block(
+            mass_amounts, mass_source, entry["weight_percent"], entry["phase_details"],
+            predict_kwargs, entry["cautions"], candidate_confidence[i],
+        )
     # Search-level cautions describe the whole run, so they belong to the final result only.
     final_cautions.extend(
         search_cautions(
@@ -1703,6 +1769,7 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
             "phase_details": final_phase_details,
             "peak_diagnostics": final_peak_diagnostics,
             "cautions": final_cautions,
+            "mass_balance": final_mass_balance,
             **({"confidence": final_confidence} if final_confidence is not None else {}),
         },
         "all_results": all_results,
@@ -2079,6 +2146,14 @@ def _plot_json(uuid: str, idx: int | None) -> str:
         )
     else:
         raise HTTPException(status_code=404, detail="Index out of range")
+    # Kα1 wavelength lets the browser show d-spacings next to 2θ on hover.
+    try:
+        from dara.search.candidate_cost import wavelength_angstrom
+
+        spec = (getattr(document, "search_kwargs", None) or {}).get("wavelength", "Cu")
+        figure.update_layout(meta={"wavelength_angstrom": round(wavelength_angstrom(spec), 6)})
+    except Exception:
+        logger.debug("Plot wavelength unavailable", exc_info=True)
     return figure.to_json()
 
 

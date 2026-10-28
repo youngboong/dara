@@ -1,3 +1,5 @@
+import { addDSpacingHover } from './plotNavigation.mjs';
+
 // Keep legend selection in React state: Plotly's internal visibility is lost
 // whenever a toolbar action supplies a fresh data array.
 export function legendKey(trace, index) {
@@ -34,6 +36,16 @@ function positiveTicks(lower, upper) {
   return ticks;
 }
 
+const withDCache = new WeakMap();
+
+// Hover shows d-spacing when the server sent the Kα1 wavelength (layout.meta).
+function withDSpacing(plot) {
+  const wavelength = Number(plot.layout?.meta?.wavelength_angstrom);
+  if (!(wavelength > 0)) return plot;
+  if (!withDCache.has(plot)) withDCache.set(plot, { ...plot, data: addDSpacingHover(plot.data, wavelength) });
+  return withDCache.get(plot);
+}
+
 function cloneLayout(layout) {
   // Plotly writes zoom ranges back into the layout objects it is given. The
   // cached server layout is shared between renders (and xaxis2 "matches" x),
@@ -63,6 +75,7 @@ export function buildRefinementView(plot, {
   selection = {}, showDiagnostics = true, showPhaseProfiles = true,
   showReflections = true, scale = 'linear', yRange = null, xRange = null, fitY = true,
 } = {}) {
+  plot = withDSpacing(plot);
   const baseLayout = cloneLayout(plot.layout);
   const shown = (trace, index) => {
     if (!isTraceSelected(trace, index, selection)) return false;

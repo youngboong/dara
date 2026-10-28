@@ -3,10 +3,12 @@ import { Alert, Button, InputNumber, Space, Spin, Switch, Table, Typography } fr
 import Loadable from 'react-loadable';
 import Layout from '../components/Layout';
 import { comparisonTraces, measuredAngularBounds, parseComparisonTaskIds } from '../components/patternComparison.mjs';
+import { viewChangeFromRelayout } from '../components/plotNavigation.mjs';
+import { NAVIGATION_CONFIG, NAVIGATION_HELP } from '../components/usePlotView';
 
 const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 const Plotly = Loadable({
-  loader: () => import('react-plotly.js'),
+  loader: () => import('../components/RefinementPlotly'),
   loading: ({ timedOut }) => timedOut ? <Alert type="error" message="Could not load the plot. Refresh to retry." /> : <Spin />,
   timeout: 20000,
 });
@@ -73,7 +75,7 @@ export default function ComparePage({ location }) {
   return <Layout hasSider={false} title="Pattern comparison">
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Space wrap><Typography.Title level={3} style={{ margin: 0 }}>Compare measured patterns</Typography.Title><Button href="/results">Back to Results</Button></Space>
-      <Typography.Text type="secondary">Original measured patterns, not calculated fits. Drag to zoom, double-click to reset; click a legend item to hide or show a sample. Controls change the view only.</Typography.Text>
+      <Typography.Text type="secondary">Original measured patterns, not calculated fits. {NAVIGATION_HELP} Click a legend item to hide or show a sample. Controls change the view only.</Typography.Text>
       {errors.map(error => <Alert key={error} type="error" message={error} showIcon />)}
       {!loading && patterns.length < 2 && <Alert type="info" showIcon message="Select at least two completed tasks in Results to compare samples." />}
       {(wavelengths.size > 1 || missingRadiation) && patterns.length > 1 && <Alert type="warning" showIcon message="Check the radiation before comparing peak positions." description="The saved analysis wavelengths differ or are not recorded for every sample. Equal 2θ does not imply equal d-spacing when wavelengths differ." />}
@@ -91,9 +93,14 @@ export default function ComparePage({ location }) {
           xaxis: { title: '2θ (°)', range, autorange: !range, showline: true, mirror: true, ticks: 'outside', zeroline: false },
           yaxis: { title: normalize ? 'Normalized intensity + offset' : 'Measured intensity + offset', showline: true, ticks: 'outside', zeroline: false },
           legend: { orientation: 'h', x: 0, y: -0.18, xanchor: 'left', yanchor: 'top' },
-          hovermode: 'closest', dragmode: 'zoom', uirevision: `${taskQuery}-${viewRevision}`,
+          hovermode: 'closest', dragmode: 'pan', uirevision: `${taskQuery}-${viewRevision}`,
         }}
-        config={{ responsive: true, displaylogo: false, scrollZoom: false, toImageButtonOptions: { format: 'svg', filename: 'dara-pattern-comparison' } }}
+        onRelayout={event => {
+          const change = viewChangeFromRelayout(event);
+          if (change.xRange) { setRange(change.xRange); setMinimum(Number(Math.min(...change.xRange).toFixed(3))); setMaximum(Number(Math.max(...change.xRange).toFixed(3))); }
+        }}
+        onDoubleClick={resetView}
+        config={{ responsive: true, displaylogo: false, ...NAVIGATION_CONFIG, toImageButtonOptions: { format: 'svg', filename: 'dara-pattern-comparison' } }}
         style={{ width: '100%' }} useResizeHandler
       />}
       {patterns.length > 0 && <Table size="small" rowKey="task_id" dataSource={patterns} pagination={false} scroll={{ x: 640 }} columns={[
