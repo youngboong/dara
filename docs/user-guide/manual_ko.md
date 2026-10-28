@@ -10,11 +10,11 @@
 | 01 개요 | DARA의 용도, 사용 대상, 화면 구성 |
 | 02 준비물 | 필수·선택 준비물, MP API 키, GEQ, CIF 확보 방법 |
 | 03 설치와 실행 | START.cmd, 첫 실행 과정, 자동 종료, 여러 창 |
-| 04 분석 제출 | 분석 모드, 원소·전구체, DB, 속도 조절, 장비·파장, CIF |
+| 04 분석 제출 | 분석 모드, 원소·전구체, 전구체 양 입력, DB, 속도 조절, 장비·파장, CIF |
 | 05 시리즈 분석 | 여러 패턴 일괄 제출과 추세 그래프 |
-| 06 결과 보기 | 결과 목록, 신뢰도 배너, 상별 판정, 미설명 피크, 재정밀화 |
+| 06 결과 보기 | 결과 목록, 신뢰도 배너, 상별 판정, 미설명 피크, 재정밀화, 그래프 조작, 질량 균형 |
 | 07 보고서와 내보내기 | 논문형 보고서, 그림, CSV, 외부 프로그램용 파일 |
-| 08 결과 해석 시 주의 | 상대 wt%, 비정질, 계산 구조, 검토 원칙 |
+| 08 결과 해석 시 주의 | 상대 wt%, 비정질, 계산 구조, 질량 균형 해석, 검토 원칙 |
 | 09 문제 해결 | 자주 겪는 상황과 대처 |
 
 ## 01 개요
@@ -147,9 +147,35 @@ Included elements에는 원소 기호(Bi, Fe, O), 화학식 칸에는 화학식(
 
 COD(experimental)는 실험 구조, MP(computed supplement)는 계산 구조 보충용. MP E-hull cutoff 기본값 0.05 eV/atom, Maximum MP structures 기본값 100. 값을 늘리면 후보와 계산 시간이 함께 늘어남. 이 값은 상이 존재할 확률과 무관함.
 
+## 04 분석 제출 · 전구체 양 입력
+
+![그림 2. Precursor / expected formulas 칸에 몰 계수를 넣은 예(위)와 칸 도움말(아래). 양을 적으면 결과에서 질량 균형 점검이 켜짐.](images/submit-precursor-amounts.png){height=250}
+
+(1) Included elements: 원소 기호 입력(예: Fe, Ti, O).
+(2) Precursor / expected formulas: 전구체와 양 입력. 예시는 Fe2O3 1몰, TiO2 2몰.
+(3) 도움말 아이콘. 마우스를 올리면 입력 형식 안내가 뜸.
+(4) 도움말 내용: 화학식 앞 몰 계수(Fe2O3, 2 TiO2) 또는 콜론 뒤 칭량 질량(In2O3:0.3022g, TiO2:0.2004g).
+
+### 양 표기법
+
+Precursor / expected formulas 칸에 전구체 양을 함께 적으면 결과의 상 분율로 질량 균형을 점검함(06장 질량 균형 점검 참조). 양을 적지 않으면 지금까지처럼 화학식만 쓰이고 점검은 건너뜀.
+
+<!-- widths: 175,312 -->
+| 입력 예 | 의미 |
+| --- | --- |
+| Fe2O3, 2 TiO2 (2TiO2, 2*TiO2도 가능) | 몰 계수. 계수가 없는 항목은 1로 계산 |
+| 2Fe3O4, 3 Y2O3 | 몰 계수. 숫자와 화학식을 붙여 써도 됨 |
+| In2O3:0.3022g, TiO2:0.2004g | 칭량 질량. 단위는 g, mg, mol, mmol. 단위를 생략하면 g |
+| Fe2O3, TiO2 | 양 없음. 점검 건너뜀. 1:1로 가정하지 않음 |
+
+- 질량이나 몰수를 적을 때는 모든 항목에 적어야 함. 일부만 적으면 양을 모르는 것으로 보고 점검 생략.
+- 한 항목에 계수와 질량을 함께 쓰면 오류("Give either a coefficient or an amount, not both").
+- 칸에 양이 없으면 파일 이름에서 양을 읽음. 2Fe3O4-3Y2O3_1000C_60min은 몰 계수(숫자가 없으면 1), In2O3_0p3022-TiO2_0p2004--8min은 그램(p는 소수점)으로 해석. 칸에 적은 전구체가 이름 속 화학식과 하나씩 정확히 대응할 때만 사용. 이때 결과 메시지에 "amounts read from the file name"이 붙음.
+- 칸에 적은 양이 파일 이름보다 우선함. 파일 이름의 비율이 실제 칭량과 다르면 칸에 직접 적을 것.
+
 ## 04 분석 제출 · 속도와 장비 조건
 
-![그림 2. Submit 화면 아래쪽. 예상 실행 시간, 장비 프로파일, Final refinement controls, 파장, 2θ 범위, CIF 입력.](images/submit-estimate.png){height=460}
+![그림 3. Submit 화면 아래쪽. 예상 실행 시간, 장비 프로파일, Final refinement controls, 파장, 2θ 범위, CIF 입력.](images/submit-estimate.png){height=460}
 
 (1) 예상 후보 수와 Estimated run time 안내. 조건을 바꾸면 갱신됨.
 (2) Instrument profile: 장비 조건 선택. 맞는 항목이 없으면 Register instrument profile로 등록.
@@ -176,7 +202,7 @@ COD(experimental)는 실험 구조, MP(computed supplement)는 계산 구조 보
 
 Instrument profile에서 실제 장비 조건을 선택. 목록에는 operator verified / unverified가 함께 표시됨. 맞는 항목이 없으면 Register instrument profile에서 Compiled GEQ (required)와 Matching GER (optional)을 올려 등록. 등록은 파일을 들여오는 일이고 교정은 아니므로 표준시료 피팅으로 따로 확인 필요. 실험실 광원은 Wavelength에서 Cu, Co, Cr, Fe 등 선택. Synchrotron을 켜면 Wavelength (nm)에 직접 입력(1 Å = 0.1 nm).
 
-![그림 3. Register instrument profile 창. GEQ·GER 파일과 장비 정보를 넣어 프로파일 등록.](images/instrument-registration.png){height=400}
+![그림 4. Register instrument profile 창. GEQ·GER 파일과 장비 정보를 넣어 프로파일 등록.](images/instrument-registration.png){height=400}
 
 (1) 파일을 들여오는 것은 자동 교정이 아니라는 안내.
 (2) Instrument / profile name, Geometry, slits and detector, Radiation (e.g. Cu Kα): 필수 입력.
@@ -227,7 +253,7 @@ Reference library CIFs는 서버에 저장해 두고 여러 작업에서 다시 
 
 ## 06 결과 보기
 
-![그림 4. Results 목록. 상태, Best Rwp, GOF, 최종 상, 채택 여부를 한눈에 봄.](images/results.png){height=270}
+![그림 5. Results 목록. 상태, Best Rwp, GOF, 최종 상, 채택 여부를 한눈에 봄.](images/results.png){height=270}
 
 (1) Filter file name / Filter username: 파일 이름·사용자로 검색.
 (2) Compare selected / Export table: 체크한 작업 겹쳐 보기, 결과 표 CSV 저장.
@@ -254,7 +280,7 @@ Reference library CIFs는 서버에 저장해 두고 여러 작업에서 다시 
 
 ## 06 결과 보기 · 신뢰도 판정
 
-![그림 5. High confidence 예시(Task 9). minor 미설명 피크 3개는 판정에 영향 없음, 위치가 미량 Fe2O3와 맞는다는 힌트가 붙음.](images/task-high.png){height=300}
+![그림 6. High confidence 예시(Task 9). minor 미설명 피크 3개는 판정에 영향 없음, 위치가 미량 Fe2O3와 맞는다는 힌트가 붙음.](images/task-high.png){height=300}
 
 (1) Copy conditions & rerun: 같은 패턴·조건으로 Submit 화면 열기.
 (2) Download all results: 계산 산출물 전체 ZIP.
@@ -271,7 +297,7 @@ Reference library CIFs는 서버에 저장해 두고 여러 작업에서 다시 
 | 등급 | 조건(하나라도 해당하면 그 등급) |
 | --- | --- |
 | High confidence | 아래 두 등급 조건에 하나도 해당하지 않음. GOF 3 이하, significant 미설명 피크 없음, 모든 상 Confident. |
-| Check recommended | Ambiguous 또는 Weak evidence 상 존재(5 wt% 미만), GOF 3 초과, significant 피크 1~3개, 시료 변위 Warning, 넓은 배경 언덕, 선별 시간 초과 참조 존재, 최대 분석 시간에 걸려 중단. |
+| Check recommended | Ambiguous 또는 Weak evidence 상 존재(5 wt% 미만), GOF 3 초과, significant 피크 1~3개, 시료 변위 Warning, 넓은 배경 언덕, 선별 시간 초과 참조 존재, 최대 분석 시간에 걸려 중단, 질량 균형 편차 0.20 초과. |
 | Expert review recommended | 5 wt% 이상 상이 Weak evidence, significant 피크 4개 이상 또는 높이 합 20% 이상, Rwp 25% 초과, GOF 4 초과, 시료 변위 Severe, 최종 정밀화 절반 이상 실패, 참조 25% 이상 미선별. |
 
 ### 상별 판정(Verdict)
@@ -286,7 +312,7 @@ Reference library CIFs는 서버에 저장해 두고 여러 작업에서 다시 
 
 ## 06 결과 보기 · 피크, 주의, 변위
 
-![그림 6. Check recommended 예시(Task 23). significant 미설명 피크 2개(31.93°, 46.58°)가 등급을 낮춤. 점선 위치는 중간 표 생략.](images/task-check.png){height=320}
+![그림 7. Check recommended 예시(Task 23). significant 미설명 피크 2개(31.93°, 46.58°)가 등급을 낮춤. 점선 위치는 중간 표 생략.](images/task-check.png){height=320}
 
 (1) Check recommended 배너.
 (2) 등급을 낮춘 이유: significant 미설명 피크 2개(31.93°, 46.58°).
@@ -319,7 +345,7 @@ BGMN의 EPS2를 장비 프로파일의 고니오미터 반경으로 환산해 mm
 
 ## 06 결과 보기 · 후보 비교와 재정밀화
 
-![그림 7. 작업 페이지 아래쪽. 상별 판정·정량·격자 표와 Candidate comparison 표.](images/task-high-lower.png){height=330}
+![그림 8. 작업 페이지 아래쪽. 상별 판정·정량·격자 표와 Candidate comparison 표.](images/task-high-lower.png){height=330}
 
 (1) Edit phases: 상 선택 재정밀화 창 열기.
 (2) Verdict: 상별 판정(Confident, Ambiguous, Weak evidence).
@@ -336,7 +362,7 @@ Candidate comparison 표는 Rwp, GOF, Missing, Extra, Intensity mismatch, Cautio
 
 Adopted result & lab notes에서 과학적으로 맞다고 판단한 후보를 고르고 메모를 적은 뒤 Save review. 자동 최저 Rwp 결과와 채택 결과는 따로 저장됨. View adopted fit으로 채택한 피팅을 다시 확인.
 
-![그림 8. Edit phases → Select phases & re-refine. 체크한 상만 함께 정밀화함.](images/phase-selection.png){height=380}
+![그림 9. Edit phases → Select phases & re-refine. 체크한 상만 함께 정밀화함.](images/phase-selection.png){height=380}
 
 (1) 화학식이나 COD / MP 참조 ID로 목록 거르기.
 (2) Final refinement controls: 새 작업에 쓸 최종 정밀화 조건.
@@ -349,9 +375,76 @@ Adopted result & lab notes에서 과학적으로 맞다고 판단한 후보를 �
 
 Final refined phase parameters의 Edit phases를 누르면 저장된 참조 상 목록이 열림. 넣을 상만 체크하고 Run as new task. 원래 패턴, 장비, 2θ 범위, 제외 구간, 최종 정밀화 설정을 그대로 쓰며 DB 검색은 반복하지 않음. 원래 결과는 유지되고 새 작업이 생김. 미량상 힌트가 나온 상을 추가하거나 의심스러운 상을 빼서 비교할 때 유용함.
 
+## 06 결과 보기 · 피팅 그래프 조작
+
+![그림 10. View fit 창의 피팅 그래프(Task 9). 오른쪽 버튼으로 끌어 확대 상자를 그리는 중인 장면.](images/fit-navigation.png){height=330}
+
+(1) Fit intensity to view: 기본 켜짐. 보이는 2θ 구간에 맞춰 강도 축을 자동 조정.
+(2) Reset zoom: 전체 패턴으로 복귀. 그래프를 더블클릭해도 같음.
+(3) 조작 안내 문구. 마우스 조작, 범례 클릭, hover 정보 요약.
+(4) 오른쪽 버튼 끌기로 그린 확대 상자(파란 점선). 버튼을 놓으면 그 범위로 확대, 끄는 중에 Esc를 누르면 취소.
+(5) 아래 패널(관측-계산). 여기서 그린 상자는 2θ 범위만 바꿈.
+(6) 그림 저장(카메라) 버튼. Plotly 도구 모음에는 이 버튼만 남음.
+
+### 마우스 조작
+
+작업 페이지의 View fit, Visualize final result, Visualize result 창과 Compare two candidate fits 창, Results의 Compare selected로 여는 패턴 비교 화면이 같은 방식으로 움직임.
+
+<!-- widths: 150,337 -->
+| 동작 | 결과 |
+| --- | --- |
+| 왼쪽 버튼 끌기 | 그래프 이동(pan) |
+| 오른쪽 버튼 끌기 | 확대 상자 그리기. 위 패널은 2θ와 강도 범위를 함께 지정, 아래 관측-계산 패널은 2θ만 지정. Esc로 취소 |
+| 마우스 휠 | 2θ 확대·축소. Fit intensity to view를 끈 상태와 두 비교 창에서는 강도 축도 함께 확대 |
+| 더블클릭, Reset zoom | 전체 패턴 보기로 복귀. 비교 화면은 Reset view |
+
+- Fit intensity to view가 켜져 있으면 확대·이동할 때마다 보이는 구간의 최대 강도에 맞춰 세로축이 다시 잡힘. 약한 피크를 자세히 볼 때 유용함. 끄면 강도 축이 고정되고 휠과 끌기로 세로축도 함께 움직임.
+- 위 패널에서 상자로 강도 범위를 직접 정하면 그 범위가 유지됨. 자동 맞춤으로 돌아가려면 Reset zoom.
+- Plotly 기본 도구 모음의 확대·이동·초기화 버튼은 없앴음. 그림 저장(카메라) 버튼만 남아 있음.
+- 범례에서 상 이름을 누르면 그 상의 프로파일과 Bragg 위치가 표시됨.
+
+![그림 11. hover 정보. 관측점(위)과 Rutile의 Bragg 반사 표시(아래)에 마우스를 올린 실제 화면(Task 9, Cu Kα1).](images/fit-hover-d.png){height=430}
+
+(1) 관측점 hover: 2θ, d, 관측 강도. 27.7461°는 Cu Kα1(1.5406 Å)에서 d 3.2126 Å.
+(2) Rutile의 Bragg 반사 표시(세로 눈금). 범례에서 상을 눌러야 나타남.
+(3) Bragg 반사 hover: 2θ, d, hkl (1 1 0), 상대 반사 강도, 참조 구조 이름.
+
+### d 간격 표시
+
+그래프 위 점에 마우스를 올리면 "2θ …°"와 함께 "d … Å"가 표시됨. d는 Bragg 식 d = λ / (2 sin θ)로 계산하며 λ는 분석에 쓴 Kα1 파장. Bragg 반사 표시에서는 hkl과 d가 같이 나옴. 패턴 비교 화면에서는 시료마다 자기 분석 파장으로 d를 계산하므로 파장이 다른 시료도 d로 바로 비교 가능. 파장이 기록되지 않은 작업은 d가 빠지고 2θ만 표시됨.
+
+## 06 결과 보기 · 질량 균형 점검
+
+![그림 12. 질량 균형 caution 예시(Task 22, 2Fe3O4-3Y2O3). 신뢰도 배너 이유(위)와 Review cautions(아래). 점선 위치는 중간 표 생략.](images/task-mass-balance.png){height=200}
+
+(1) 신뢰도 배너. caution 수준이라 등급은 High confidence 그대로임.
+(2) 배너 이유 목록에 붙은 "Mass balance: …" 문장. 상 분율로 계산한 Fe:Y = 0.67:0.33, 파일 이름의 전구체 비율 0.50:0.50, 최대 편차 0.17.
+(3) Review cautions의 같은 내용(info).
+
+### 점검 방식
+
+정밀화된 wt%를 원소 몰분율로 바꿔 전구체의 원소 몰분율과 비교함. 피팅이 좋아 보여도 정량이 틀렸거나 화학 조성이 맞지 않는 상이 들어간 경우를 잡아내는 점검.
+
+- 비교 대상은 시료 밖으로 빠져나가기 어려운 원소. O, H, C, N과 Reaction check의 열린 원소는 제외. 남는 원소가 2개 이상이어야 계산함.
+- 지표는 원소별 몰분율 차이 중 가장 큰 절댓값(최대 편차).
+- wt% 표준편차를 반영해 편차에서 2σ만큼 여유를 둔 뒤 등급을 정함.
+- 전구체 양은 Submit 화면의 Precursor / expected formulas 입력이 우선이고, 없으면 파일 이름에서 읽음(04장 전구체 양 입력 참조). 둘 다 없으면 점검 생략.
+
+<!-- widths: 110,377 -->
+| 최대 편차 | 결과 |
+| --- | --- |
+| 0.10 이하 | 메시지 없음(ok) |
+| 0.10~0.20 | caution. info 수준의 Review cautions와 배너 이유 한 줄 추가. 등급은 바뀌지 않음 |
+| 0.20 초과 | warning. Review cautions 경고와 배너 이유 추가. 종합 등급은 최소 Check recommended |
+
+- 이 점검만으로 등급이 Expert review recommended까지 올라가지는 않음.
+- 예: Fe2O3 + 2 TiO2(Fe:Ti = 1:1)가 Fe2TiO5 + TiO2로 반응했다면 75 wt% Fe2TiO5, 25 wt% TiO2가 나와야 함. 26.8/73.2로 정량된 결과는 Fe:Ti = 0.18:0.82(편차 0.32)라 warning.
+- 문턱값 근거: 쌍 반응 기준 시료 20개의 전문가 정밀화 중 12개는 0.07 미만, 5개는 0.11~0.17(미동정 물질이나 모델에 빠진 상), 3개는 0.29 초과.
+- 결과는 보고서의 질량 균형 문단과 표(그림 15), Table (CSV)와 Export table의 mass_balance_deviation 열에도 남음.
+
 ## 07 보고서와 내보내기
 
-![그림 9. 논문형 영문 보고서(HTML) 앞부분. Summary, Experimental and methods, 기록된 조건 순으로 이어짐.](images/report.png){height=330}
+![그림 13. 논문형 영문 보고서(HTML) 앞부분. Summary, Experimental and methods, 기록된 조건 순으로 이어짐.](images/report.png){height=330}
 
 (1) 제목과 작업 정보: Task 번호, 생성 시각, 최저 Rwp.
 (2) Summary: 종합 판정과 상별 정량 요약.
@@ -362,12 +455,18 @@ Final refined phase parameters의 Edit phases를 누르면 저장된 참조 상 
 
 Best-fit report는 최저 Rwp 결과, Report (saved choice)는 채택한 후보(없으면 최저 Rwp)를 보고서로 내보냄. 인터넷 없이 열리는 단일 HTML 파일이며 Summary, Experimental and methods, Results, 표, 그림, 참고문헌으로 구성. 방법 문단에는 DARA·BGMN 버전, 파장, 고니오미터 반경, 데이터 범위, 정밀화 변수가 문장으로 들어가 논문 초안에 옮기기 쉬움. PDF가 필요하면 브라우저에서 열고 Ctrl+P → PDF로 저장.
 
-![그림 10. 보고서 Results의 표 부분(피팅 그림은 그림 11과 같아 생략).](images/report-tables.png){height=450}
+![그림 14. 보고서 Results의 표 부분(피팅 그림은 그림 16과 같아 생략).](images/report-tables.png){height=450}
 
 (1) Fit statistics: Rwp, Rp, Rexp, GOF, χ², Durbin–Watson, 2θ 범위, 데이터 점 수.
 (2) Phase quantification and crystallography: 상별 wt% ± esd, 격자상수, 판정, 참조 구조.
 (3) Confidence assessment and review cautions: 상별 판정 근거 표.
 (4) Unexplained observed peaks: 미설명 피크의 위치, 상대 높이, S/N, 등급.
+
+![그림 15. 보고서의 질량 균형 문단과 원소 표(Task 22). 자동 점검 표에도 mass_balance 행이 들어감.](images/report-mass-balance.png){height=300}
+
+(1) Mass balance 문단: 상 분율과 전구체의 원소 비, 판정(differ moderately), 최대 편차, 제외한 휘발 원소.
+(2) 원소별 비교 표: Precursors (mole fraction), Refined phases, Deviation.
+(3) 자동 점검 표의 mass_balance 행(Level info).
 
 ### 그림과 표
 
@@ -389,7 +488,7 @@ Best-fit report는 최저 Rwp 결과, Report (saved choice)는 채택한 후보(
 
 Download all results는 계산 산출물 전체(.lst 포함)를 ZIP으로 묶음. 원본 측정 파일, 사용한 CIF, 장비 조건, 보고서와 함께 시료별 폴더에 보관하면 재검토가 쉬움. 서버 데이터는 사용자 홈의 .dara-server 폴더에 있으며 Git 저장소와 별개임.
 
-![그림 11. Figure (PNG) 출력 예시.](images/figure.png){height=330}
+![그림 16. Figure (PNG) 출력 예시.](images/figure.png){height=330}
 
 (1) 범례: Observed, Calculated, Background, Difference.
 (2) 관측(검은색)과 계산(빨간색) 패턴. 가장 강한 반사 부근 예시.
@@ -415,6 +514,20 @@ MP 구조는 실험 구조보다 격자가 몇 % 어긋나는 일이 흔함. DAR
 
 후보는 COD, MP, 사용자가 넣은 CIF에서만 나옴. 어디에도 없는 상은 탐색 불가. significant 미설명 피크가 남으면 원소 목록 누락이나 새로운 상 가능성을 검토.
 
+### 질량 균형 편차 해석
+
+질량 균형 caution이나 warning은 어디가 틀렸는지 알려 주지 않음. 비율이 어긋났다는 사실만 알려 주므로 원인은 직접 좁혀야 함.
+
+- 휘발 손실: 고온에서 Bi, Pb, Li, Na, K 같은 원소가 일부 날아가면 실제 조성이 전구체 비율과 달라짐. 이런 원소가 있는 계에서는 편차 자체가 실제 현상일 수 있음.
+- 비정질·미동정 상: wt%는 모델에 넣은 결정상끼리 정규화한 값. 비정질이나 DB에 없는 상에 들어간 원소는 계산에서 빠지므로 남은 상의 원소 비가 치우침. 배경 언덕, significant 미설명 피크와 함께 확인.
+- 미반응·누락 상: 반응이 끝나지 않아 남은 전구체나 중간상이 모델에 없으면 편차가 커짐. 미량상 힌트가 있으면 Edit phases로 넣고 재정밀화해 비교.
+- 정량 문제: 우선 배향, 미세흡수, 잘못된 구조 모델, 비슷한 상끼리 강도를 나눠 갖는 현상 때문에 wt%가 틀릴 수 있음. 판정이 Ambiguous인 상이 있거나 Durbin–Watson 주의가 함께 뜨면 이쪽을 먼저 의심.
+- 입력 문제: 전구체 양이 실제 칭량과 다르면 맞는 결과도 어긋나 보임. 아래 파일 이름 규칙 확인.
+
+### 파일 이름의 1:1 규칙
+
+Precursor / expected formulas에 양이 없으면 파일 이름에서 양을 읽음. 이때 숫자 없는 화학식은 계수 1로 처리하므로 Fe2O3-TiO2_800C_60min.xrdml 같은 이름은 Fe2O3:TiO2 = 1:1(몰)로 해석됨. 반면 칸에 "Fe2O3, TiO2"만 적은 경우는 1:1로 가정하지 않고 점검을 건너뜀. 실제 혼합비가 1:1이 아닌데 이름에 계수를 적지 않았다면 잘못된 비율로 점검되어 근거 없는 경고가 뜰 수 있음. 둘 중 하나로 해결: 파일 이름에 계수나 질량을 넣거나(예: Fe2O3-2TiO2_..., In2O3_0p3022-TiO2_0p2004_...), 제출 때 칸에 양을 직접 적기(칸 입력이 우선).
+
 ### 자동 결과는 검토 대상
 
 High confidence도 정답 보증이 아님. 시료 이력, 합성 조건, 가능하면 다른 분석법(SEM-EDS, XRF 등) 결과와 대조. 낮은 Rwp 하나로 상 조합을 확정하지 말고 미설명 피크, 강도 차이, 판정 근거를 함께 볼 것. 최종 판단과 채택 근거는 lab notes에 남겨 둘 것.
@@ -435,6 +548,7 @@ High confidence도 정답 보증이 아님. 시료 이력, 합성 조건, 가능
 | No candidate structures were found | 원소 목록, COD/MP 스위치 확인. 그래도 없으면 참조 CIF 업로드. |
 | BGMN refinement program failed | 이상한 CIF나 프로파일·파장 불일치가 흔한 원인. 의심 CIF를 빼고 장비 프로파일 확인. |
 | The parallel worker (Ray) could not start | 다른 DARA 창을 닫거나 PC 재시작. 보안 프로그램이 로컬 포트를 막는지 확인. |
+| 질량 균형 경고가 뜸 | 배너나 Review cautions에 "Mass balance: …"가 보이면 먼저 전구체 양이 맞는지 확인. 파일 이름에서 읽었다는 표시가 있으면 이름 속 계수가 실제 칭량과 같은지 점검. 다르면 Copy conditions & rerun에서 Precursor / expected formulas에 양을 적어 다시 제출. 입력이 맞다면 08장 질량 균형 편차 해석 참조. |
 | 피팅이 나쁨 | 파장, 장비 프로파일, 원소 목록, 후보 CIF, 분석 범위 순으로 점검. Rwp를 낮추려고 중요한 피크를 제외 구간으로 지우지 말 것. |
 
 ### 폴더 안내
