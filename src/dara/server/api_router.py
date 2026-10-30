@@ -197,11 +197,14 @@ def _phase_refinement_details(refinement) -> dict[str, dict]:
             }
 
         grain_sizes = []
+        # BGMN prints the start-value GrainSize for every phase whose size broadening stayed
+        # unrefined (no esd, B1 not refined); that number is not a result.
+        b1_refined = isinstance((phase.model_extra or {}).get("B1"), (tuple, list))
         for key, raw_value in (phase.model_extra or {}).items():
             if not key.lower().startswith("grainsize"):
                 continue
             value, esd = _value_and_esd(raw_value)
-            if value is not None:
+            if value is not None and (esd is not None or b1_refined):
                 grain_sizes.append({
                     "direction": key,
                     "value": value,

@@ -16,6 +16,44 @@ from dara.server.utils import get_job_store, get_result_store, get_worker_store
 logger = logging.getLogger("dara.server.worker")
 
 
+_SERVER = None  # (pid, create_time) of the server process that started this worker
+
+
+def _watch_server() -> None:
+    """Remember the parent (server) process so the worker can stop when it disappears."""
+    global _SERVER  # noqa: PLW0603
+    import psutil
+
+    try:
+        parent = psutil.Process(os.getppid())
+        _SERVER = (parent.pid, parent.create_time())
+    except (psutil.Error, OSError):
+        _SERVER = None
+
+
+def _server_gone() -> bool:
+    """True when the server that started this worker has exited (killed or crashed).
+
+    An orphaned worker would keep taking jobs from the same database as the worker of the
+    next server start; the creation time guards against a reused process id.
+    """
+    if _SERVER is None:
+        return False
+    import psutil
+
+    pid, created = _SERVER
+    try:
+        return psutil.Process(pid).create_time() != created
+    except psutil.NoSuchProcess:
+        return True
+    except (psutil.Error, OSError):
+        return False
+
+
+def _should_stop(stop_event) -> bool:
+    return (stop_event is not None and stop_event.is_set()) or _server_gone()
+
+
 def worker_process(stop_event=None, settings=None):
     """Start the Ray worker process."""
     logger.info("Starting worker process for job execution...")
@@ -23,12 +61,14 @@ def worker_process(stop_event=None, settings=None):
         for key, value in settings.items():
             if value is not None:
                 os.environ[f"DARA_SERVER_{key.upper()}"] = str(value)
+    if stop_event is not None:
+        _watch_server()
     mark_running_jobs_as_fizzled()
 
-    while stop_event is None or not stop_event.is_set():
+    while not _should_stop(stop_event):
         for job_uuid in get_all_pending_jobs():
             logger.debug(f"Job {job_uuid} has started...")
-            if stop_event is not None and stop_event.is_set():
+            if _should_stop(stop_event):
                 break
             run_job(job_uuid, stop_event)
         if stop_event is not None:
@@ -58,6 +98,24 @@ def _terminate_tree(process):
     process.wait(timeout=10)
 
 
+JOB_LOG_NAME = "job.log"
+
+
+def _exit_message(directory, returncode) -> str:
+    """Error text for a job process that ended without a result: exit code plus its last output."""
+    text = "Job process exited without a completed result. Completed checkpoints are retained."
+    if returncode is not None:
+        text += f" Exit code: {returncode}."
+    try:
+        lines = (directory / JOB_LOG_NAME).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        lines = []
+    tail = [line for line in lines if line.strip()][-40:]
+    if tail:
+        text += "\nLast output of the job process:\n" + "\n".join(tail)
+    return text
+
+
 def run_job(uuid, stop_event=None):
     from dara.server.task_control_router import task_directory
 
@@ -72,12 +130,16 @@ def run_job(uuid, stop_event=None):
     env = os.environ.copy()
     env["DARA_TASK_PROGRESS_DIR"] = str(directory)
     process = None
+    # Output of the job process goes to the task directory, so a crash without a Python
+    # traceback (native crash, killed process) still leaves its reason behind.
+    log = open(directory / JOB_LOG_NAME, "ab")  # noqa: SIM115 - closed in finally
     try:
-        process = subprocess.Popen([sys.executable, "-m", "dara.server.job_runner", uuid], env=env)
+        process = subprocess.Popen([sys.executable, "-m", "dara.server.job_runner", uuid], env=env,
+                                   stdout=log, stderr=subprocess.STDOUT)
         while process.poll() is None:
             with get_worker_store() as store:
                 record = store.query_one({"uuid": uuid})
-            if record["status"] in {"CANCELLING", "CANCELLED"} or (directory / "cancel.requested").exists() or (stop_event is not None and stop_event.is_set()):
+            if record["status"] in {"CANCELLING", "CANCELLED"} or (directory / "cancel.requested").exists() or _should_stop(stop_event):
                 _terminate_tree(process)
                 with get_worker_store() as store:
                     record = store.query_one({"uuid": uuid})
@@ -91,11 +153,12 @@ def run_job(uuid, stop_event=None):
             _terminate_tree(process)
         logger.exception("Job supervisor failed")
     finally:
+        log.close()
         with get_worker_store() as store:
             record = store.query_one({"uuid": uuid})
             if record and record["status"] in {"RUNNING", "CANCELLING"}:
                 record.update(status="FIZZLED", end_time=datetime.now(timezone.utc),
-                              error="Job process exited without a completed result. Completed checkpoints are retained.")
+                              error=_exit_message(directory, process.poll() if process is not None else None))
                 store.update(record)
 
 

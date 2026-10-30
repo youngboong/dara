@@ -43,3 +43,13 @@ def test_fit_quality_and_phase_details_use_reported_values():
     assert details["A"]["lattice_parameters"]["a"]["value"] == 4.0
     assert details["A"]["lattice_parameters"]["a"]["esd"] == 0.01
     assert details["A"]["grain_sizes"][0]["value"] == 52.0
+
+
+def test_unrefined_start_value_grain_size_is_not_reported():
+    result = _refinement()
+    # BGMN prints the same start-value GrainSize (no esd) for phases whose B1 stayed fixed
+    result.lst_data.phases_results["B"].model_extra = {"GrainSize(1,1,1)": 84.1811, "B1": 0.005}
+    assert _phase_refinement_details(result)["B"]["grain_sizes"] == []
+    # a refined B1 without an esd on the size still counts as a result
+    result.lst_data.phases_results["B"].model_extra = {"GrainSize(1,1,1)": 84.1811, "B1": (0.01, 0.002)}
+    assert _phase_refinement_details(result)["B"]["grain_sizes"][0]["value"] == 84.1811
