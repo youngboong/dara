@@ -11,6 +11,7 @@ manual_ko.md syntax (a small Markdown subset):
   ## Heading               new page with a chapter heading (write the number yourself, e.g. "## 04 분석 제출")
   ### Heading              section heading
   - item                   bullet
+  1. item                  numbered step
   > text                   small grey note (consecutive lines are joined with a line break)
   ![caption](images/x.png){height=300}   screenshot with caption (height in pt, default 285)
   (1) text                 numbered legend line under a screenshot; the number is drawn as a red
@@ -33,6 +34,7 @@ _LINK = re.compile(r'\[([^\]]+)\]\(([^)\s]+)\)')
 _BOLD = re.compile(r'\*\*(.+?)\*\*')
 _IMAGE = re.compile(r'^!\[(.*)\]\(([^)]+)\)(?:\{height=(\d+)\})?\s*$')
 _LEGEND = re.compile(r'^\((\d+)\)\s+(.+)$')
+_STEP = re.compile(r'^(\d+)\. (.+)$')  # numbered step: '1. text'
 _WIDTHS = re.compile(r'^<!--\s*widths:\s*([\d,\s]+)-->\s*$')
 
 
@@ -99,6 +101,10 @@ def parse(text):
         elif stripped.startswith('- '):
             flush()
             blocks.append(('bullet', inline(stripped[2:])))
+        elif _STEP.match(stripped):
+            flush()
+            m = _STEP.match(stripped)
+            blocks.append(('step', (m.group(1), inline(m.group(2)))))
         elif stripped.startswith('>'):
             if para:
                 flush()
@@ -159,6 +165,8 @@ def build(blocks, target=TARGET):
         'body': ParagraphStyle('body', fontName='Korean', fontSize=9.8, leading=16, wordWrap='CJK', spaceAfter=6),
         'bullet': ParagraphStyle('bullet', fontName='Korean', fontSize=9.8, leading=16, wordWrap='CJK', spaceAfter=3,
                                  leftIndent=12, bulletIndent=2),
+        'step': ParagraphStyle('step', fontName='Korean', fontSize=9.8, leading=16, wordWrap='CJK', spaceAfter=3,
+                               leftIndent=16, bulletIndent=2),
         'note': ParagraphStyle('note', fontName='Korean', fontSize=8, leading=12, textColor=grey, spaceAfter=8, wordWrap='CJK'),
         'legend': ParagraphStyle('legend', fontName='Korean', fontSize=9, leading=13.5, wordWrap='CJK'),
         'cell': ParagraphStyle('cell', fontName='Korean', fontSize=8.8, leading=13.5, wordWrap='CJK'),
@@ -166,7 +174,7 @@ def build(blocks, target=TARGET):
     story = []
     previous = None
     for kind, payload in blocks:
-        if previous == 'bullet' and kind != 'bullet':
+        if previous in ('bullet', 'step') and kind != previous:
             story.append(Spacer(1, 4))
         if kind == 'page':
             if story:
@@ -174,6 +182,9 @@ def build(blocks, target=TARGET):
             story.append(Paragraph(payload, styles['page']))
         elif kind == 'bullet':
             story.append(Paragraph(payload, styles['bullet'], bulletText='·'))
+        elif kind == 'step':
+            number, text = payload
+            story.append(Paragraph(text, styles['step'], bulletText=f'{number}.'))
         elif kind == 'image':
             path, caption, height = payload
             img = Image(str(ROOT / path))

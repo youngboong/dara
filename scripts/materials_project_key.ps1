@@ -72,25 +72,32 @@ function Show-MaterialsProjectKeyDialog {
 }
 
 function Initialize-MaterialsProjectKey {
+    # -Force (START.cmd -SetApiKey) shows the dialog even when a key is saved or the setup
+    # was skipped before, so a wrong or expired key can be replaced.
+    param([switch]$Force)
     $existingKey = Get-MaterialsProjectKey
-    if (-not [string]::IsNullOrWhiteSpace($existingKey)) {
+    if (-not $Force -and -not [string]::IsNullOrWhiteSpace($existingKey)) {
         $env:MP_API_KEY = $existingKey
         return $false
     }
 
     $settingsDir = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "DARA"
     $skipMarker = Join-Path $settingsDir "mp-api-setup-skipped"
-    if (Test-Path -LiteralPath $skipMarker) { return $false }
+    if (-not $Force -and (Test-Path -LiteralPath $skipMarker)) { return $false }
 
     $enteredKey = Show-MaterialsProjectKeyDialog
     if (-not [string]::IsNullOrWhiteSpace($enteredKey)) {
         # Never put keys in the repository, command arguments, or console output.
         [Environment]::SetEnvironmentVariable("MP_API_KEY", $enteredKey, "User")
         $env:MP_API_KEY = $enteredKey
+        Remove-Item -LiteralPath $skipMarker -Force -ErrorAction SilentlyContinue
         Write-Host "Materials Project API key saved."
         return $true
     }
-    elseif ([string]::IsNullOrWhiteSpace($existingKey)) {
+    elseif (-not [string]::IsNullOrWhiteSpace($existingKey)) {
+        $env:MP_API_KEY = $existingKey  # skipped a forced prompt: keep the saved key
+    }
+    else {
         New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
         New-Item -ItemType File -Path $skipMarker -Force | Out-Null
         Write-Host "Materials Project setup skipped. Turn off MP under Reference databases to use COD without a key."

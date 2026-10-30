@@ -48,7 +48,16 @@ Python, Git, Anaconda를 미리 설치할 필요 없음. START.cmd가 필요한 
 
 ### MP API 키 받기
 
-[Materials Project](https://materialsproject.org/)에 가입·로그인한 뒤 대시보드에서 API 키를 복사. 첫 실행 때 뜨는 대화상자에 붙여 넣으면 끝. 키는 공개 문서나 Git에 올리지 말 것.
+MP API 키는 무료이고 가입하면 자동으로 만들어짐. 키 입력은 3장 START.cmd 첫 실행 때 함.
+
+1. 브라우저에서 [https://materialsproject.org](https://materialsproject.org/) 접속. 처음 접속하면 사람 확인(Cloudflare) 화면이 잠깐 나올 수 있음.
+2. 오른쪽 위 로그인 메뉴에서 가입·로그인. 이메일 또는 연동 계정 중 편한 방식 선택.
+3. 로그인한 상태에서 위쪽 메뉴의 API 클릭(주소 [https://next-gen.materialsproject.org/api](https://next-gen.materialsproject.org/api)).
+4. API Key 항목의 "Your API Key" 상자에 표시된 영문·숫자 문자열 전체를 복사. 앞뒤 공백 없이 한 줄 그대로.
+5. 복사한 키는 START.cmd 첫 실행 때 뜨는 입력 창에 붙여 넣음(그림 1).
+
+- 키는 비밀번호처럼 다룰 것. 공개 문서, 메신저, Git에 올리지 말 것.
+- 키가 새어 나갔거나 바꾸고 싶으면 같은 페이지 아래 dashboard 링크에서 새 키를 받고 예전 키를 폐기. 새 키는 START.cmd -SetApiKey로 다시 넣음(3장).
 
 ### GEQ 장비 파일 구하기
 
@@ -73,24 +82,45 @@ START.cmd를 더블클릭. 첫 실행은 아래 순서로 자동 진행되며 5~
 | 1. uv, Python | uv와 CPython 3.12를 DARA 폴더의 tools\ 안에 설치. 시스템 PATH와 레지스트리는 건드리지 않음 |
 | 2. .venv | 프로젝트 환경 생성. 패키지 버전 고정 |
 | 3. BGMN | 정밀화 프로그램이 없으면 내려받음 |
-| 4. MP 키 | 처음 한 번 대화상자 표시: Save and continue 또는 Skip for now |
+| 4. MP 키 | 처음 한 번 키 입력 창 표시(그림 1): Save and continue 또는 Skip for now |
 | 5. 시작 화면 | 서버가 준비되면 http://localhost:8898로 전환 |
 
 중간에 끊겨도 START.cmd를 다시 실행하면 받은 파일을 재사용해 이어서 진행함. 기록은 artifacts\launcher\setup-날짜-시각.log에 남음. 두 번째 실행부터는 설치를 건너뛰고 1초 안팎에 서버가 뜸.
 
-### MP 키 저장과 확인
+### MP 키 입력
 
-키는 Windows 사용자 환경변수 MP_API_KEY에 저장되고 다음 실행부터 자동 사용. Submit 화면 MP 스위치 옆 태그로 상태 확인: MP key valid, MP key rejected, MP key not configured, MP key not verified. Re-check를 누르면 다시 조회함. Skip for now를 골랐다면 Reference databases에서 MP를 끄고 COD로 분석.
+START.cmd 첫 실행의 4단계에서 아래 창이 한 번 뜸.
+
+![그림 1. START.cmd 첫 실행 때 뜨는 Materials Project API 키 입력 창. 입력한 키는 점으로 가려 보임.](images/mp-key-dialog.png){height=170}
+
+(1) Open Materials Project to get an API key: 키가 아직 없으면 눌러서 MP 사이트 열기(2장 MP API 키 받기 순서대로 진행).
+(2) 키 입력 칸: 복사한 키를 Ctrl+V로 붙여 넣기. 화면에는 점으로만 보임.
+(3) Save and continue: 키를 저장하고 설치 계속. 빈 칸이면 저장되지 않고 안내 문구가 뜸.
+(4) Skip for now: 키 없이 진행. 이후 실행에서는 다시 묻지 않음.
+
+- 저장 위치: Windows 사용자 환경변수 MP_API_KEY. 다음 실행부터 자동 사용. DARA 폴더나 Git에는 저장되지 않음.
+- 확인: Submit 화면 MP 스위치 옆 태그. MP key valid면 정상, MP key rejected면 키가 틀렸거나 폐기됨, MP key not configured면 키 없음, MP key not verified면 인터넷 문제로 확인 실패. Re-check를 누르면 다시 조회함.
+- Skip for now를 골랐다면 Reference databases에서 MP를 끄고 COD로 분석.
+
+### MP 키 바꾸기·나중에 넣기
+
+키를 잘못 넣었거나, 새 키를 받았거나, 처음에 Skip for now를 눌렀다면 입력 창을 다시 열어 키를 넣음.
+
+1. DARA 폴더(START.cmd가 있는 폴더)를 탐색기로 열기.
+2. 탐색기 주소창에 cmd를 입력하고 Enter. 그 폴더 위치로 명령 창이 열림.
+3. START.cmd -SetApiKey 입력 후 Enter. 그림 1의 입력 창이 다시 뜸.
+4. 새 키를 붙여 넣고 Save and continue. Skip for now를 누르면 기존 키를 그대로 둠.
+5. DARA 서버가 이미 켜져 있었다면 "Restart required" 안내가 뜸. 서버 창(START 창)을 닫고 START.cmd를 다시 실행해야 새 키가 적용됨.
 
 ### 종료, 여러 창, 스위치
 
 - 마지막 DARA 브라우저 창을 닫고 약 20초 뒤 서버가 스스로 종료됨. 분석이 대기·실행 중이면 끝날 때까지 유지. 바로 끄려면 START 창에서 Ctrl+C.
 - START.cmd를 다시 실행하면 이미 떠 있는 서버에 새 창만 열림. 한 창에서 제출하고 다른 창에서 결과를 보는 병행 사용 가능.
-- 선택 스위치: -Reinstall(.venv 재설치), -Offline(네트워크 미사용), -SetupOnly(설치만), -NoBrowser(브라우저 안 엶), -SkipApiKeySetup(MP 키 대화상자 생략).
+- 선택 스위치: -Reinstall(.venv 재설치), -Offline(네트워크 미사용), -SetupOnly(설치만), -NoBrowser(브라우저 안 엶), -SkipApiKeySetup(MP 키 입력 창 생략), -SetApiKey(MP 키 입력 창 다시 열기).
 
 ## 04 분석 제출
 
-![그림 1. Submit 화면 위쪽. 패턴 업로드, 분석 모드, 원소·화학식, DB, 속도 조절 항목이 차례로 배치됨.](images/submit-top.png){height=470}
+![그림 2. Submit 화면 위쪽. 패턴 업로드, 분석 모드, 원소·화학식, DB, 속도 조절 항목이 차례로 배치됨.](images/submit-top.png){height=470}
 
 (1) User: 제출자 식별용 이름 입력.
 (2) XRD pattern: 측정 파일을 끌어 놓거나 눌러서 선택.
@@ -121,7 +151,7 @@ START.cmd를 더블클릭. 첫 실행은 아래 순서로 자동 진행되며 5~
 
 COD(experimental)는 실험 구조, MP(computed supplement)는 계산 구조 보충용. MP E-hull cutoff 기본값 0.05 eV/atom, Maximum MP structures 기본값 100. 값을 늘리면 후보와 계산 시간이 함께 늘어남. 이 값은 상이 존재할 확률과 무관함.
 
-![그림 2. Precursor / expected formulas 칸에 몰 계수를 넣은 예(위)와 칸 도움말(아래). 양을 적으면 결과에서 질량 균형 점검이 켜짐.](images/submit-precursor-amounts.png){height=250}
+![그림 3. Precursor / expected formulas 칸에 몰 계수를 넣은 예(위)와 칸 도움말(아래). 양을 적으면 결과에서 질량 균형 점검이 켜짐.](images/submit-precursor-amounts.png){height=250}
 
 (1) Included elements: 원소 기호 입력(예: Fe, Ti, O).
 (2) Precursor / expected formulas: 전구체와 양 입력. 예시는 Fe2O3 1몰, TiO2 2몰.
@@ -148,7 +178,7 @@ Precursor / expected formulas에 전구체 양을 함께 적으면 결과에서 
 
 예상 후보 수와 실행 시간 범위(예: "Estimated run time 8 min–33 min (typically 16 min) on 12 workers")는 조건을 바꿀 때마다 갱신됨. 대략적인 값.
 
-![그림 3. Submit 화면 아래쪽. 예상 실행 시간, 장비 프로파일, Final refinement controls, 파장, 2θ 범위, CIF 입력.](images/submit-estimate.png){height=460}
+![그림 4. Submit 화면 아래쪽. 예상 실행 시간, 장비 프로파일, Final refinement controls, 파장, 2θ 범위, CIF 입력.](images/submit-estimate.png){height=460}
 
 (1) 예상 후보 수와 Estimated run time 안내. 조건을 바꾸면 갱신됨.
 (2) Instrument profile: 장비 조건 선택. 맞는 항목이 없으면 Register instrument profile로 등록.
@@ -190,7 +220,7 @@ Reference library CIFs는 서버에 저장해 여러 작업에서 다시 쓰는 
 
 ## 06 결과 보기
 
-![그림 4. Results 목록. 상태, Best Rwp, GOF, 최종 상, 채택 여부를 한눈에 봄.](images/results.png){height=270}
+![그림 5. Results 목록. 상태, Best Rwp, GOF, 최종 상, 채택 여부를 한눈에 봄.](images/results.png){height=270}
 
 (1) Filter file name / Filter username: 파일 이름·사용자로 검색.
 (2) Compare selected / Export table: 체크한 작업 겹쳐 보기, 결과 표 CSV 저장.
@@ -207,7 +237,7 @@ Reference library CIFs는 서버에 저장해 여러 작업에서 다시 쓰는 
 | FIZZLED | 실패. 태그에 마우스를 올리면 원인 요약 표시. 재시도는 이 장 끝 참고 |
 | CANCELLING / CANCELLED | 중단 처리 중 / 중단됨 |
 
-![그림 5. High confidence 예시(Task 9). minor 미설명 피크 3개는 판정에 영향 없음, 위치가 미량 Fe2O3와 맞는다는 힌트가 붙음.](images/task-high.png){height=300}
+![그림 6. High confidence 예시(Task 9). minor 미설명 피크 3개는 판정에 영향 없음, 위치가 미량 Fe2O3와 맞는다는 힌트가 붙음.](images/task-high.png){height=300}
 
 (1) Copy conditions & rerun: 같은 패턴·조건으로 Submit 화면 열기.
 (2) Download all results: 계산 산출물 전체 ZIP.
@@ -235,7 +265,7 @@ Reference library CIFs는 서버에 저장해 여러 작업에서 다시 쓰는 
 - 그 상이 빠진 다른 후보의 Rwp가 거의 같으면 Ambiguous. 툴팁에 대안 후보 이름 표시.
 - MP 계산 구조는 격자가 참조값에서 1.5% 넘게 움직이면 감점.
 
-![그림 6. Check recommended 예시(Task 23). significant 미설명 피크 2개(31.93°, 46.58°)가 등급을 낮춤. 점선 위치는 중간 표 생략.](images/task-check.png){height=320}
+![그림 7. Check recommended 예시(Task 23). significant 미설명 피크 2개(31.93°, 46.58°)가 등급을 낮춤. 점선 위치는 중간 표 생략.](images/task-check.png){height=320}
 
 (1) Check recommended 배너.
 (2) 등급을 낮춘 이유: significant 미설명 피크 2개(31.93°, 46.58°).
@@ -263,7 +293,7 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 - Review cautions: 자동 점검 결과 모음. 예: Durbin–Watson 1 미만(esd 과소평가 가능), 넓은 배경 언덕, 미설명 피크 요약.
 - Specimen displacement: 0.3 mm 이하 OK, 0.3 mm 초과 Info, 1.0 mm 초과 Warning, 2.0 mm 초과 Severe. 변위가 크면 모든 피크가 함께 밀리므로 격자상수와 상 매칭을 조심해서 읽고, 시료 높이와 장비 프로파일부터 재확인.
 
-![그림 7. 작업 페이지 아래쪽(Task 18). 위는 상별 판정·정량·격자 표, 아래는 Candidate comparison 표. 점선 위치는 Versions 표 등 중간 부분 생략.](images/task-high-lower.png){height=420}
+![그림 8. 작업 페이지 아래쪽(Task 18). 위는 상별 판정·정량·격자 표, 아래는 Candidate comparison 표. 점선 위치는 Versions 표 등 중간 부분 생략.](images/task-high-lower.png){height=420}
 
 (1) Verdict: 상별 판정(Confident, Ambiguous, Weak evidence).
 (2) Quantity / Lattice parameters: wt%와 격자상수, 표준편차.
@@ -275,11 +305,11 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 
 - Candidate comparison 표는 Rwp, GOF, Missing, Extra, Intensity mismatch, Cautions, Confidence 열로 정렬 가능. 모든 후보에 같은 기준의 신뢰도 태그가 붙음.
 - Adopted result & lab notes에 메모를 적고 Save review로 저장.
-- 채택 버튼은 Versions 표의 Adopt(그림 12)와 비교 창의 Adopt B(그림 15) 두 곳에만 있음. 후보를 채택하려면 비교 창에서 그 후보를 B로 고른 뒤 Adopt B. 자동 최저 Rwp 결과와 채택 결과는 따로 저장됨.
+- 채택 버튼은 Versions 표의 Adopt(그림 13)와 비교 창의 Adopt B(그림 16) 두 곳에만 있음. 후보를 채택하려면 비교 창에서 그 후보를 B로 고른 뒤 Adopt B. 자동 최저 Rwp 결과와 채택 결과는 따로 저장됨.
 
 ## 06 결과 보기 · 피팅 그래프와 질량 균형
 
-![그림 8. View fit 창의 피팅 그래프(Task 9). 오른쪽 버튼으로 끌어 확대 상자를 그리는 중인 장면.](images/fit-navigation.png){height=330}
+![그림 9. View fit 창의 피팅 그래프(Task 9). 오른쪽 버튼으로 끌어 확대 상자를 그리는 중인 장면.](images/fit-navigation.png){height=330}
 
 (1) Fit intensity to view: 기본 켜짐. 보이는 2θ 구간에 맞춰 강도 축을 자동 조정.
 (2) Reset zoom: 전체 패턴으로 복귀. 그래프를 더블클릭해도 같음.
@@ -302,7 +332,7 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 
 피팅 창과 비교 창 모두 같은 방식으로 움직임. 피팅 창에서 ?를 누르면 단축키 목록이 열림.
 
-![그림 9. 질량 균형 caution 예시(Task 22, 2Fe3O4-3Y2O3). 신뢰도 배너 이유(위)와 Review cautions(아래). 점선 위치는 중간 표 생략.](images/task-mass-balance.png){height=200}
+![그림 10. 질량 균형 caution 예시(Task 22, 2Fe3O4-3Y2O3). 신뢰도 배너 이유(위)와 Review cautions(아래). 점선 위치는 중간 표 생략.](images/task-mass-balance.png){height=200}
 
 (1) 신뢰도 배너. caution 수준이라 등급은 High confidence 그대로.
 (2) 배너 이유 목록에 붙은 "Mass balance: …" 문장. 상 분율로 계산한 Fe:Y = 0.67:0.33, 파일 이름의 전구체 비율 0.50:0.50, 최대 편차 0.17.
@@ -326,9 +356,9 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 
 완료된 작업에서 상을 더하거나 빼고 그 자리에서 다시 정밀화할 수 있음(빠른 재정밀화). 결과는 같은 작업 안에 v2, v3 … 버전으로 쌓이고 원래 자동 분석(v1)은 그대로 남음.
 
-![그림 10. Add phase 창에서 미량상 Fe2O3의 Add를 누른 직후(Task 9). 피팅 창 위쪽에 진행 막대가 뜸. 예전 코드로 끝난 작업이라 자동 기준 재계산이 먼저 돌고 있어 Queued (1 ahead)로 표시됨.](images/quick-progress.png){height=110}
+![그림 11. Add phase 창에서 미량상 Fe2O3의 Add를 누른 직후(Task 9). 피팅 창 위쪽에 진행 막대가 뜸. 예전 코드로 끝난 작업이라 자동 기준 재계산이 먼저 돌고 있어 Queued (1 ahead)로 표시됨.](images/quick-progress.png){height=110}
 
-(1) Add phase…: 상 추가 창 열기(그림 13).
+(1) Add phase…: 상 추가 창 열기(그림 14).
 (2) 진행 막대의 작업 이름(Added Fe2O3 (hint))과 현재 단계. 여기서는 앞선 기준 재계산을 기다리는 중(Queued (1 ahead)).
 (3) 경과 시간. 실행 단계에 들어가면 남은 시간 추정(… left 또는 estimating…)도 함께 나옴.
 (4) Cancel: 진행 중인 재정밀화 취소.
@@ -344,13 +374,13 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 - Advanced → Background…: 배경 다항식 항 수와 제외 구간 변경. 항 수를 늘리면 계산이 크게 느려지고, 배경을 바꾼 버전의 Rwp는 같은 조건의 피팅끼리만 비교.
 - 2026-10-28 이전에 끝난 작업은 첫 재정밀화 때 원래 상 조합을 현재 코드로 다시 계산한 "Baseline (current code)" 버전이 먼저 만들어지고, 이후 비교의 기준이 됨.
 
-![그림 11. 재정밀화가 끝난 뒤 버전 v3(Fe2O3 추가)를 연 피팅 창(Task 9). 기준 피팅 대비 변화가 태그로 나옴.](images/version-delta.png){height=150}
+![그림 12. 재정밀화가 끝난 뒤 버전 v3(Fe2O3 추가)를 연 피팅 창(Task 9). 기준 피팅 대비 변화가 태그로 나옴.](images/version-delta.png){height=150}
 
 (1) 표시할 피팅 선택. Best fit, 후보, 버전(v2, v3 …) 순으로 나열.
 (2) Change from the base fit: 기준 피팅 대비 Rwp, GOF, χ², 미설명 피크 수, 상별 wt% 변화. 좋아진 값은 초록, 나빠진 값은 주황. 여기서 기준은 자동 기준 재계산 버전 v2.
 (3) 이 버전의 신뢰도 등급. 버전마다 새로 판정함.
 
-![그림 12. Versions 표(Task 9). v1 자동 분석, v2 자동 기준 재계산, v3 힌트 추가, v4 배경 변경. v3를 채택한 상태.](images/versions-panel.png){height=250}
+![그림 13. Versions 표(Task 9). v1 자동 분석, v2 자동 기준 재계산, v3 힌트 추가, v4 배경 변경. v3를 채택한 상태.](images/versions-panel.png){height=250}
 
 (1) Versions 제목과 채택 표시(v3 adopted).
 (2) 채택한 버전의 Version 칸에 붙는 ★.
@@ -368,7 +398,7 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 
 ## 06 결과 보기 · 상 추가와 교체
 
-![그림 13. Add phase 창(Task 9). 미설명 피크 두 개(33.44°, 35.89°)를 고른 뒤 첫 후보의 반사 위치를 미리 표시한 상태.](images/add-phase-drawer.png){height=380}
+![그림 14. Add phase 창(Task 9). 미설명 피크 두 개(33.44°, 35.89°)를 고른 뒤 첫 후보의 반사 위치를 미리 표시한 상태.](images/add-phase-drawer.png){height=380}
 
 (1) 고른 피크 위치(빨간 점선). 보라색 세로선은 Preview ticks로 띄운 후보의 반사 위치.
 (2) Selected peaks: 고른 피크 칩(×로 하나씩 해제), Show candidates, Clear.
@@ -389,7 +419,7 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 - 이 PC에 받아 둔 구조(작업 후보, 입력 CIF, 참조 라이브러리, 로컬 COD 캐시)만 찾음. 실제 상이 여기에 없으면 피크를 골라도 찾을 수 없음. 해당 상의 CIF를 구해 입력 CIF나 참조 라이브러리로 추가할 것.
 - 로컬 CIF가 없는 후보나 다른 재정밀화가 도는 중에는 Add가 꺼짐.
 
-![그림 14. 피팅 창의 상 표. 위는 Task 18(Calcite에 Swap), 아래는 Task 19(대안이 다른 후보 상 조합인 TiNb·Nb2Al에 View candidate). 점선은 서로 다른 작업 화면의 경계.](images/phase-swap.png){height=330}
+![그림 15. 피팅 창의 상 표. 위는 Task 18(Calcite에 Swap), 아래는 Task 19(대안이 다른 후보 상 조합인 TiNb·Nb2Al에 View candidate). 점선은 서로 다른 작업 화면의 경계.](images/phase-swap.png){height=330}
 
 (1) Ambiguous 판정. 거의 같은 Rwp로 다른 모델을 쓴 후보가 있음.
 (2) Swap: 같은 화합물의 다른 구조 모델로 바꿔 재정밀화 후 비교.
@@ -409,7 +439,7 @@ Swap이나 Remove가 끝나면 원래 피팅(A)과 새 버전(B)의 비교 창�
 
 ## 06 결과 보기 · 두 피팅 비교
 
-![그림 15. Compare fits — same measured pattern 창(Task 18). A는 자동 기준 재계산 v3, B는 CaCO3를 뺀 v4. B는 Rwp가 11.43%에서 24.03%로 오르고 미설명 피크가 2개에서 18개로 늘어 A가 더 나음.](images/fit-compare.png){height=420}
+![그림 16. Compare fits — same measured pattern 창(Task 18). A는 자동 기준 재계산 v3, B는 CaCO3를 뺀 v4. B는 Rwp가 11.43%에서 24.03%로 오르고 미설명 피크가 2개에서 18개로 늘어 A가 더 나음.](images/fit-compare.png){height=420}
 
 (1) Fit A / Fit B 선택 상자. Best fit, 후보, 버전 중에서 고름.
 (2) 판정 태그(A fits better, B fits better, Similar fit). 괄호 안은 B - A의 Rwp 차이.
@@ -426,7 +456,7 @@ Swap이나 Remove가 끝나면 원래 피팅(A)과 새 버전(B)의 비교 창�
 - Keep A를 눌러도 B 버전은 Versions 표에 남음.
 - 노란 띠는 두 모델이 다른 구간일 뿐 어느 쪽이 맞다는 증거는 아님. Rwp 하나보다 잔차, 화학 조성, 물리적 타당성을 함께 볼 것.
 
-![그림 16. 실패 작업(Task 16, EFLECH 시간 초과) 페이지(위)와 Results 목록의 FIZZLED 행(아래, Task 24). 두 작업 모두 자동 조치가 없는 원인이라 Copy conditions & rerun만 보임.](images/retry.png){height=200}
+![그림 17. 실패 작업(Task 16, EFLECH 시간 초과) 페이지(위)와 Results 목록의 FIZZLED 행(아래, Task 24). 두 작업 모두 자동 조치가 없는 원인이라 Copy conditions & rerun만 보임.](images/retry.png){height=200}
 
 (1) 실패 원인 요약과 조치 힌트.
 (2) Copy conditions & rerun: 원래 패턴과 조건이 채워진 Submit 화면 열기. 자동 조치가 있는 원인이면 왼쪽에 Retry with suggested fix (…) 버튼이 함께 나옴.
@@ -448,7 +478,7 @@ Retry with suggested fix (…)는 자동 조치가 있는 원인일 때만 보�
 
 ## 07 보고서와 내보내기
 
-![그림 17. 논문형 영문 보고서(HTML) 앞부분(Task 22). 제목, 1 Summary, 2 Experimental and methods, Table 1 순으로 이어짐.](images/report.png){height=320}
+![그림 18. 논문형 영문 보고서(HTML) 앞부분(Task 22). 제목, 1 Summary, 2 Experimental and methods, Table 1 순으로 이어짐.](images/report.png){height=320}
 
 (1) 제목 "XRD phase analysis — 파일 이름"과 작성 정보 줄(Task 번호 · 생성 날짜 · DARA 버전).
 (2) 1. Summary: 종합 판정, 상별 wt% ± esd, Rwp·GOF, 질량 균형 요약.
@@ -469,7 +499,7 @@ Best-fit report는 자동 최저 Rwp 결과를, Report (saved choice)는 채택�
 | 5. Limitations | 상대 wt%, esd 범위 등 해석상 한계 |
 | 6. References | DARA, BGMN, COD, Materials Project, pymatgen 등 |
 
-![그림 18. Figure (PNG) 출력 예시.](images/figure.png){height=250}
+![그림 19. Figure (PNG) 출력 예시.](images/figure.png){height=250}
 
 (1) 범례: Observed, Calculated, Background, Difference.
 (2) 관측(검은색)과 계산(빨간색) 패턴. 가장 강한 반사 부근 예시.
@@ -521,7 +551,7 @@ High confidence도 정답 보증이 아님. 시료 이력, 합성 조건, 가능
 | --- | --- |
 | 첫 실행이 실패함 | 인터넷과 프록시 확인 후 START.cmd 재실행(받은 파일 재사용). 원인은 START 창의 마지막 메시지와 artifacts\launcher\setup-*.log에서 확인. |
 | 폴더를 옮긴 뒤 실행 안 됨 | START가 자동 재구성함. 그래도 안 되면 START.cmd -Reinstall 또는 .venv 폴더 삭제 후 재실행. |
-| MP key rejected / not configured | START.cmd 재실행 시 키를 다시 입력하거나 환경변수 MP_API_KEY 확인. 급하면 MP를 끄고 COD와 CIF로 분석. |
+| MP key rejected / not configured | DARA 폴더에서 START.cmd -SetApiKey로 키를 다시 넣고 서버를 다시 시작(3장 MP 키 바꾸기). 급하면 MP를 끄고 COD와 CIF로 분석. |
 | 서버가 혼자 꺼짐 | 모든 DARA 창을 닫으면 약 20초 뒤 종료되는 정상 동작. START.cmd로 다시 실행. 비정상 종료로 "Unexpected shutdown of the worker process"가 뜬 작업은 다시 제출. |
 | 웹 화면이 안 열림 | http://localhost:8898을 직접 입력. 회사 프록시가 로컬 주소를 가로채는지 확인. |
 | 분석이 너무 느림 | 전구체를 알면 Reaction check. Candidate pre-filter 켜기, MP 구조 수 줄이기, Maximum analysis time 지정, 2θ 범위 좁히기 순으로 시도. |

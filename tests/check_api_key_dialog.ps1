@@ -49,4 +49,16 @@ try {
     if ($env:MP_API_KEY -ne "dummy-existing-key") { throw "Key was not passed to the server environment" }
 }
 finally { $env:MP_API_KEY = $previousKey }
-Write-Output "PASS: masked dialog save, empty input, skip, existing-key reuse"
+# -SetApiKey (Force) prompts even with a saved key; skipping keeps that key unchanged.
+$previousKey = $env:MP_API_KEY
+try {
+    $script:prompted = $false
+    function Get-MaterialsProjectKey { return "dummy-existing-key" }
+    function Show-MaterialsProjectKeyDialog { $script:prompted = $true; return $null }
+    $changed = Initialize-MaterialsProjectKey -Force
+    if (-not $script:prompted) { throw "Forced setup did not show the dialog" }
+    if ($changed) { throw "Skipping a forced prompt reported a settings change" }
+    if ($env:MP_API_KEY -ne "dummy-existing-key") { throw "Skipping a forced prompt dropped the saved key" }
+}
+finally { $env:MP_API_KEY = $previousKey }
+Write-Output "PASS: masked dialog save, empty input, skip, existing-key reuse, forced re-entry"

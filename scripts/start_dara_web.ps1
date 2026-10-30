@@ -6,6 +6,7 @@
 param(
     [switch]$NoBrowser,
     [switch]$SkipApiKeySetup,
+    [switch]$SetApiKey,     # show the Materials Project key dialog again to replace a saved key
     [int]$StartupTimeoutSeconds = 180,
     [switch]$Reinstall,     # recreate .venv (uv venv --clear) and reinstall; keeps tools\ and the cache
     [switch]$SetupOnly,     # run setup + BGMN check, then exit 0 without starting the server
@@ -582,7 +583,7 @@ function Invoke-DaraStart {
 
         $apiKeyChanged = $false
         if (-not $SkipApiKeySetup) {
-            $apiKeyChanged = Initialize-MaterialsProjectKey
+            $apiKeyChanged = Initialize-MaterialsProjectKey -Force:$SetApiKey
         }
         if ($apiKeyChanged -and (Test-DaraWeb)) {
             [void][System.Windows.Forms.MessageBox]::Show(
