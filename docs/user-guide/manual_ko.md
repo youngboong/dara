@@ -275,7 +275,7 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 
 - Candidate comparison 표는 Rwp, GOF, Missing, Extra, Intensity mismatch, Cautions, Confidence 열로 정렬 가능. 모든 후보에 같은 기준의 신뢰도 태그가 붙음.
 - Adopted result & lab notes에 메모를 적고 Save review로 저장.
-- 채택 버튼은 Versions 표의 Adopt(그림 11)와 비교 창의 Adopt B(그림 14) 두 곳에만 있음. 후보를 채택하려면 비교 창에서 그 후보를 B로 고른 뒤 Adopt B. 자동 최저 Rwp 결과와 채택 결과는 따로 저장됨.
+- 채택 버튼은 Versions 표의 Adopt(그림 12)와 비교 창의 Adopt B(그림 15) 두 곳에만 있음. 후보를 채택하려면 비교 창에서 그 후보를 B로 고른 뒤 Adopt B. 자동 최저 Rwp 결과와 채택 결과는 따로 저장됨.
 
 ## 06 결과 보기 · 피팅 그래프와 질량 균형
 
@@ -328,7 +328,7 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 
 ![그림 10. Add phase 창에서 미량상 Fe2O3의 Add를 누른 직후(Task 9). 피팅 창 위쪽에 진행 막대가 뜸. 예전 코드로 끝난 작업이라 자동 기준 재계산이 먼저 돌고 있어 Queued (1 ahead)로 표시됨.](images/quick-progress.png){height=110}
 
-(1) Add phase…: 상 추가 창 열기(그림 12).
+(1) Add phase…: 상 추가 창 열기(그림 13).
 (2) 진행 막대의 작업 이름(Added Fe2O3 (hint))과 현재 단계. 여기서는 앞선 기준 재계산을 기다리는 중(Queued (1 ahead)).
 (3) 경과 시간. 실행 단계에 들어가면 남은 시간 추정(… left 또는 estimating…)도 함께 나옴.
 (4) Cancel: 진행 중인 재정밀화 취소.
@@ -344,7 +344,13 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 - Advanced → Background…: 배경 다항식 항 수와 제외 구간 변경. 항 수를 늘리면 계산이 크게 느려지고, 배경을 바꾼 버전의 Rwp는 같은 조건의 피팅끼리만 비교.
 - 2026-10-28 이전에 끝난 작업은 첫 재정밀화 때 원래 상 조합을 현재 코드로 다시 계산한 "Baseline (current code)" 버전이 먼저 만들어지고, 이후 비교의 기준이 됨.
 
-![그림 11. Versions 표(Task 9). v1 자동 분석, v2 자동 기준 재계산, v3 힌트 추가, v4 배경 변경. v3를 채택한 상태.](images/versions-panel.png){height=250}
+![그림 11. 재정밀화가 끝난 뒤 버전 v3(Fe2O3 추가)를 연 피팅 창(Task 9). 기준 피팅 대비 변화가 태그로 나옴.](images/version-delta.png){height=150}
+
+(1) 표시할 피팅 선택. Best fit, 후보, 버전(v2, v3 …) 순으로 나열.
+(2) Change from the base fit: 기준 피팅 대비 Rwp, GOF, χ², 미설명 피크 수, 상별 wt% 변화. 좋아진 값은 초록, 나빠진 값은 주황. 여기서 기준은 자동 기준 재계산 버전 v2.
+(3) 이 버전의 신뢰도 등급. 버전마다 새로 판정함.
+
+![그림 12. Versions 표(Task 9). v1 자동 분석, v2 자동 기준 재계산, v3 힌트 추가, v4 배경 변경. v3를 채택한 상태.](images/versions-panel.png){height=250}
 
 (1) Versions 제목과 채택 표시(v3 adopted).
 (2) 채택한 버전의 Version 칸에 붙는 ★.
@@ -362,7 +368,7 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 
 ## 06 결과 보기 · 상 추가와 교체
 
-![그림 12. Add phase 창(Task 9). 미설명 피크 두 개(33.44°, 35.89°)를 고른 뒤 첫 후보의 반사 위치를 미리 표시한 상태.](images/add-phase-drawer.png){height=380}
+![그림 13. Add phase 창(Task 9). 미설명 피크 두 개(33.44°, 35.89°)를 고른 뒤 첫 후보의 반사 위치를 미리 표시한 상태.](images/add-phase-drawer.png){height=380}
 
 (1) 고른 피크 위치(빨간 점선). 보라색 세로선은 Preview ticks로 띄운 후보의 반사 위치.
 (2) Selected peaks: 고른 피크 칩(×로 하나씩 해제), Show candidates, Clear.
@@ -383,7 +389,7 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 - 이 PC에 받아 둔 구조(작업 후보, 입력 CIF, 참조 라이브러리, 로컬 COD 캐시)만 찾음. 실제 상이 여기에 없으면 피크를 골라도 찾을 수 없음. 해당 상의 CIF를 구해 입력 CIF나 참조 라이브러리로 추가할 것.
 - 로컬 CIF가 없는 후보나 다른 재정밀화가 도는 중에는 Add가 꺼짐.
 
-![그림 13. 피팅 창의 상 표. 위는 Task 18(Calcite에 Swap), 아래는 Task 19(대안이 다른 후보 상 조합인 TiNb·Nb2Al에 View candidate). 점선은 서로 다른 작업 화면의 경계.](images/phase-swap.png){height=330}
+![그림 14. 피팅 창의 상 표. 위는 Task 18(Calcite에 Swap), 아래는 Task 19(대안이 다른 후보 상 조합인 TiNb·Nb2Al에 View candidate). 점선은 서로 다른 작업 화면의 경계.](images/phase-swap.png){height=330}
 
 (1) Ambiguous 판정. 거의 같은 Rwp로 다른 모델을 쓴 후보가 있음.
 (2) Swap: 같은 화합물의 다른 구조 모델로 바꿔 재정밀화 후 비교.
@@ -403,7 +409,7 @@ Swap이나 Remove가 끝나면 원래 피팅(A)과 새 버전(B)의 비교 창�
 
 ## 06 결과 보기 · 두 피팅 비교
 
-![그림 14. Compare fits — same measured pattern 창(Task 18). A는 자동 기준 재계산 v3, B는 CaCO3를 뺀 v4. B는 Rwp가 11.43%에서 24.03%로 오르고 미설명 피크가 2개에서 18개로 늘어 A가 더 나음.](images/fit-compare.png){height=420}
+![그림 15. Compare fits — same measured pattern 창(Task 18). A는 자동 기준 재계산 v3, B는 CaCO3를 뺀 v4. B는 Rwp가 11.43%에서 24.03%로 오르고 미설명 피크가 2개에서 18개로 늘어 A가 더 나음.](images/fit-compare.png){height=420}
 
 (1) Fit A / Fit B 선택 상자. Best fit, 후보, 버전 중에서 고름.
 (2) 판정 태그(A fits better, B fits better, Similar fit). 괄호 안은 B - A의 Rwp 차이.
@@ -420,7 +426,7 @@ Swap이나 Remove가 끝나면 원래 피팅(A)과 새 버전(B)의 비교 창�
 - Keep A를 눌러도 B 버전은 Versions 표에 남음.
 - 노란 띠는 두 모델이 다른 구간일 뿐 어느 쪽이 맞다는 증거는 아님. Rwp 하나보다 잔차, 화학 조성, 물리적 타당성을 함께 볼 것.
 
-![그림 15. 실패 작업(Task 16, EFLECH 시간 초과) 페이지(위)와 Results 목록의 FIZZLED 행(아래, Task 24). 두 작업 모두 자동 조치가 없는 원인이라 Copy conditions & rerun만 보임.](images/retry.png){height=200}
+![그림 16. 실패 작업(Task 16, EFLECH 시간 초과) 페이지(위)와 Results 목록의 FIZZLED 행(아래, Task 24). 두 작업 모두 자동 조치가 없는 원인이라 Copy conditions & rerun만 보임.](images/retry.png){height=200}
 
 (1) 실패 원인 요약과 조치 힌트.
 (2) Copy conditions & rerun: 원래 패턴과 조건이 채워진 Submit 화면 열기. 자동 조치가 있는 원인이면 왼쪽에 Retry with suggested fix (…) 버튼이 함께 나옴.
@@ -442,7 +448,7 @@ Retry with suggested fix (…)는 자동 조치가 있는 원인일 때만 보�
 
 ## 07 보고서와 내보내기
 
-![그림 16. 논문형 영문 보고서(HTML) 앞부분(Task 22). 제목, 1 Summary, 2 Experimental and methods, Table 1 순으로 이어짐.](images/report.png){height=320}
+![그림 17. 논문형 영문 보고서(HTML) 앞부분(Task 22). 제목, 1 Summary, 2 Experimental and methods, Table 1 순으로 이어짐.](images/report.png){height=320}
 
 (1) 제목 "XRD phase analysis — 파일 이름"과 작성 정보 줄(Task 번호 · 생성 날짜 · DARA 버전).
 (2) 1. Summary: 종합 판정, 상별 wt% ± esd, Rwp·GOF, 질량 균형 요약.
@@ -463,7 +469,7 @@ Best-fit report는 자동 최저 Rwp 결과를, Report (saved choice)는 채택�
 | 5. Limitations | 상대 wt%, esd 범위 등 해석상 한계 |
 | 6. References | DARA, BGMN, COD, Materials Project, pymatgen 등 |
 
-![그림 17. Figure (PNG) 출력 예시.](images/figure.png){height=250}
+![그림 18. Figure (PNG) 출력 예시.](images/figure.png){height=250}
 
 (1) 범례: Observed, Calculated, Background, Difference.
 (2) 관측(검은색)과 계산(빨간색) 패턴. 가장 강한 반사 부근 예시.
