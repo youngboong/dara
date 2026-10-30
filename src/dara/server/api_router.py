@@ -587,6 +587,12 @@ def _saved_task_input(task_id: int) -> tuple[dict, dict, object]:
     return record, kwargs, pattern
 
 
+# Submit-form defaults (ui/src/pages/index.js initialValues); also used to fill settings an
+# older task did not record when it is rerun.
+DEFAULT_CANDIDATE_PREFILTER = True
+DEFAULT_SCREENING_TIMEOUT_S = 300.0
+
+
 def _rerun_settings(record: dict, kwargs: dict, pattern) -> dict:
     """Return an explicit UI allowlist; credentials and private DB config stay server-side."""
     raw_job = record.get("job", {})
@@ -619,9 +625,19 @@ def _rerun_settings(record: dict, kwargs: dict, pattern) -> dict:
         "two_theta_min": refine.get("wmin"),
         "two_theta_max": refine.get("wmax"),
         "excluded_ranges": refine.get("excluded_ranges", []),
-        # Old tasks ran without the pre-filter or limits: a faithful rerun keeps that.
-        "candidate_prefilter": bool(kwargs.get("candidate_prefilter", False)),
-        "screening_timeout_s": kwargs.get("screening_timeout_s"),
+        # Settings a task did not record (older tasks) take today's defaults, so a rerun is
+        # not stuck with the slow legacy screening (no pre-filter, 1200 s per reference).
+        # An explicit choice saved with the task is kept.
+        "candidate_prefilter": (
+            DEFAULT_CANDIDATE_PREFILTER
+            if kwargs.get("candidate_prefilter") is None
+            else bool(kwargs["candidate_prefilter"])
+        ),
+        "screening_timeout_s": (
+            DEFAULT_SCREENING_TIMEOUT_S
+            if kwargs.get("screening_timeout_s") is None
+            else kwargs["screening_timeout_s"]
+        ),
         "max_analysis_minutes": (
             kwargs["max_runtime_s"] / 60 if kwargs.get("max_runtime_s") else None
         ),

@@ -250,13 +250,21 @@ def test_remedy_on_selected_phase_task_is_rejected(monkeypatch, queue):
     assert queue == []
 
 
-def test_default_screening_timeout_remedy_is_suppressed_when_it_changes_nothing(monkeypatch, queue):
-    # screening_timeout_s=None means the legacy 1200 s, which is already the maximum a
-    # submission accepts; without a analysis-time limit there is nothing left to change.
+def test_unrecorded_screening_timeout_retries_from_the_current_default(monkeypatch, queue):
+    # An older task without a recorded limit reruns with today's default (300 s), so the
+    # timeout remedy doubles that instead of the legacy 1200 s.
     _install(monkeypatch, _search_record(screening_timeout_s=None, max_runtime_s=None))
     plan = _plan(5)
-    assert plan["changes"] is None and plan["label"] is None
     assert plan["code"] == "timeout"
+    assert plan["changes"] == {"screening_timeout_s": 600.0}
+
+
+def test_screening_timeout_remedy_is_suppressed_when_it_changes_nothing(monkeypatch, queue):
+    # 1200 s is already the maximum a submission accepts; with no analysis-time limit there
+    # is nothing left to change.
+    _install(monkeypatch, _search_record(screening_timeout_s=1200.0, max_runtime_s=None))
+    plan = _plan(5)
+    assert plan["changes"] is None and plan["label"] is None
     assert plan["retry_unchanged"] is True and plan["supported"] is True
     capture = _Capture()
     monkeypatch.setattr(retry_router, "build_submission_job", capture)
@@ -264,8 +272,8 @@ def test_default_screening_timeout_remedy_is_suppressed_when_it_changes_nothing(
 
 
 def test_remedy_keeps_only_effective_changes(monkeypatch):
-    # Timeout at its default (1200 s) is dropped; the analysis-time limit can still grow.
-    _install(monkeypatch, _search_record(screening_timeout_s=None, max_runtime_s=3600.0))
+    # Timeout already at the 1200 s maximum is dropped; the analysis-time limit can still grow.
+    _install(monkeypatch, _search_record(screening_timeout_s=1200.0, max_runtime_s=3600.0))
     assert _plan(5)["changes"] == {"max_analysis_minutes": 90.0}
     # A lower saved timeout still gets raised.
     _install(monkeypatch, _search_record(screening_timeout_s=300.0, max_runtime_s=None))

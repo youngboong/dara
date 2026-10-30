@@ -258,8 +258,14 @@ def test_rerun_settings_for_legacy_and_new_tasks():
     pattern = SimpleNamespace(angles=np.linspace(10, 80, 50))
     record, kwargs = _saved_record({"elements": ["Bi", "O"], "search_kwargs": {}})
     legacy = api_router._rerun_settings(record, kwargs, pattern)["settings"]
-    assert legacy["candidate_prefilter"] is False
-    assert legacy["screening_timeout_s"] is None and legacy["max_analysis_minutes"] is None
+    # settings an older task did not record take today's submit defaults
+    assert legacy["candidate_prefilter"] is True
+    assert legacy["screening_timeout_s"] == 300.0 and legacy["max_analysis_minutes"] is None
+
+    record, kwargs = _saved_record({
+        "elements": ["Bi", "O"], "search_kwargs": {}, "candidate_prefilter": False,
+    })
+    assert api_router._rerun_settings(record, kwargs, pattern)["settings"]["candidate_prefilter"] is False
 
     record, kwargs = _saved_record({
         "elements": ["Bi", "O"], "search_kwargs": {},

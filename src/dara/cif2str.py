@@ -239,6 +239,31 @@ def make_spacegroup_setting_str(spacegroup_setting: dict[str, Any]) -> str:
     )
 
 
+#: Smallest step of the printed lattice parameters (nm, 5 decimals).
+_AXIS_STEP_NM = 1e-5
+
+
+def _distinct_axes(lattice_parameters: dict[str, float]) -> dict[str, float]:
+    """Keep independent axes from printing identical values.
+
+    BGMN rejects a lower-symmetry cell whose independent axes are exactly equal (for
+    example an orthorhombic P2_12_12_1 cell with a = b, COD 9007583) with "spacegroup not
+    found in spacegrp.dat". Equal axes are moved apart by one printed digit (0.0001 Å);
+    they are refined (or fixed) independently anyway, so only the start value moves.
+    """
+    out = dict(lattice_parameters)
+    seen: list[float] = []
+    for key in ("A", "B", "C"):
+        if key not in out:
+            continue
+        value = out[key]
+        while any(round(value, 5) == round(other, 5) for other in seen):
+            value += _AXIS_STEP_NM
+        out[key] = value
+        seen.append(value)
+    return out
+
+
 def make_lattice_parameters_str(
     spacegroup_setting: dict[str, Any],
     structure: SymmetrizedStructure,
@@ -265,8 +290,8 @@ def make_lattice_parameters_str(
         BGMN always receives a valid `lo <= start <= hi`.
     """
     crystal_system = spacegroup_setting["setting"]["Lattice"]
-    lattice_parameters = get_lattice_parameters_from_lattice(
-        structure.lattice, crystal_system
+    lattice_parameters = _distinct_axes(
+        get_lattice_parameters_from_lattice(structure.lattice, crystal_system)
     )
 
     # build a per-parameter resolver
