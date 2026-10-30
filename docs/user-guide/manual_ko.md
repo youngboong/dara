@@ -231,7 +231,7 @@ Reference library CIFs는 서버에 저장해 두고 여러 작업에서 다시 
 
 ### 제출과 조건 재사용
 
-맨 아래 Submit을 누르고 확인 창에서 확정. 기존 작업 페이지의 Copy conditions & rerun을 누르면 원래 패턴과 조건이 채워진 Submit 화면이 열림. 바꿀 항목만 고쳐 제출하면 원본 작업은 그대로 둔 채 새 작업이 생김.
+맨 아래 Submit을 누르고 확인 창에서 확정. 기존 작업 페이지의 Copy conditions & rerun을 누르면 원래 패턴과 조건이 채워진 Submit 화면이 열림. 바꿀 항목만 고쳐 제출하면 원본 작업은 그대로 둔 채 새 작업이 생김. 속도 조절 항목이 기록되지 않은 예전 작업은 현재 기본값(Candidate pre-filter 켜짐, Reference screening limit 300 s)으로 채워짐. 원래 작업에서 직접 정한 값은 그대로 유지.
 
 ## 05 시리즈 분석
 
@@ -335,6 +335,14 @@ Fit diagnostics의 Unexplained 태그는 계산 패턴이 재현하지 못한 �
 | noise | 최강 피크의 0.5% 미만이거나 S/N 3 미만 |
 
 minor·significant 피크 위치가 후보 구조, 입력 구조, 로컬 COD 캐시의 어떤 상과 맞으면 "Positions are consistent with trace ..." 형태로 미량상 후보를 알려 줌. 이 힌트는 판정에 반영되지 않음. 해당 상을 넣고 다시 정밀화해 볼 가치가 있는지는 힌트를 출발점 삼아 판단.
+
+힌트가 뜨는 조건은 다음과 같음. 조건이 까다로워 자주 뜨지 않지만 뜨면 비교적 믿을 만함.
+
+- 그 상의 강한 반사(그 상 최강 반사의 20% 이상)가 미설명 피크 2개 이상과 ±0.2° 안에서 맞음. 강한 반사가 하나뿐인 상은 1개로 충분.
+- 그 상의 최강 반사 위치에 실제 측정 신호가 있음. 신호가 없으면 모순이라 제외.
+- 정밀화된 시료 변위·영점을 반영해 위치를 비교함.
+- 이 PC에 받아 둔 구조만 비교함. 한 번도 받지 않은 구조는 힌트로 나올 수 없음.
+- 금속·준금속 없이 탄소를 포함한 유기 분자 결정은 비교 대상에서 뺌.
 
 ### Review cautions
 
@@ -531,7 +539,12 @@ Adopted result & lab notes에는 메모를 적고 Save review로 저장. 채택 
 - Search by clicked peaks: 미설명 피크 표시(삼각형)나 관측점을 클릭하면 그 피크가 선택되고 후보 검색이 시작됨. 관측점은 0.3° 안의 미설명 피크 표시, 없으면 ±0.15° 안의 극대점으로 맞춰짐.
 - Shift+클릭으로 피크를 더함(최대 10개). 같은 피크를 다시 Shift+클릭하면 빠짐.
 - 후보는 이 작업의 후보 구조, 입력 CIF, 참조 라이브러리, 로컬 COD 캐시에서 찾음. 첫 검색은 15초까지 걸릴 수 있고 COD를 더 찾는 중이면 "Still searching COD…" 표시.
-- 점수는 고른 피크를 얼마나 설명하는지 기준. 그 상의 강한 반사가 데이터에 안 보이면 "… not seen in the data"가 붙고 점수가 내려감. 점수만으로 존재를 판정하지 말고 Preview ticks로 다른 반사 위치도 확인할 것.
+- 후보 목록은 고른 피크 중 하나라도 ±0.2° 안에서 강한 반사와 맞는 상이 있을 때만 나옴. 맞는 상이 없으면 빈 목록이 뜸. 목록에 나왔다고 정답이라는 뜻은 아님.
+- 점수 = (맞은 피크 비율) - 0.5 × (그 상의 강한 반사 중 측정 신호가 없는 비율). 신호가 없는 반사가 있으면 "… not seen in the data"가 붙음.
+- 점수 1.0 근처는 고른 피크를 모두 설명하고 모순 반사도 없다는 뜻이라 넣어 볼 만함. 0.5 이하는 일부만 우연히 겹친 경우가 대부분.
+- 점수만으로 존재를 판정하지 말고 Preview ticks로 다른 반사 위치도 확인할 것. Add로 넣은 뒤 비교 창에서 Rwp가 뚜렷하게 내려가고 화학적으로도 타당할 때만 채택.
+- 금속·준금속 없이 탄소를 포함한 유기 분자 결정(예: 수소가 빠진 C11O3 같은 COD 항목)은 후보에서 뺌.
+- 이 PC에 받아 둔 구조만 찾음. 실제 상이 받아 둔 구조에 없으면 피크를 골라도 찾을 수 없음. 이때는 해당 상의 CIF를 구해 입력 CIF나 참조 라이브러리로 추가.
 - 로컬 CIF가 없는 후보는 Add가 꺼짐. 추가한 버전의 라벨은 "Added … (peak search)".
 - Esc를 누르면 피크 선택이 먼저 지워지고 한 번 더 누르면 피팅 창이 닫힘.
 
@@ -560,7 +573,7 @@ Swap이나 Remove가 끝나면 원래 피팅(A)과 새 버전(B)을 나란히 �
 ![그림 18. Compare fits — same measured pattern 창(Task 18). A는 자동 기준 재계산 v3, B는 CaCO3를 뺀 v4. B는 Rwp가 11.43%에서 24.03%로 오르고 미설명 피크가 2개에서 18개로 늘어 A가 더 나음.](images/fit-compare.png){height=470}
 
 (1) Fit A / Fit B 선택 상자. Best fit, 후보, 버전 중에서 고름.
-(2) 판정 태그(A fits better, B fits better, Similar fit). 괄호 안은 B − A의 Rwp 차이.
+(2) 판정 태그(A fits better, B fits better, Similar fit). 괄호 안은 B - A의 Rwp 차이.
 (3) Adopt B / Keep A / View B. B 채택, 채택 변경 없이 닫기, B를 피팅 창에서 열기.
 (4) 지표 표: Rwp, GOF, χ², 상별 wt%, Mass balance, Unexplained peaks, Cautions.
 (5) 관측점과 두 계산 패턴. A는 파란 실선, B는 주황 점선.
@@ -637,7 +650,8 @@ FIZZLED 작업 페이지 위쪽에 원인 요약과 버튼이 나옴. Retry with
 | 모든 후보 최종 정밀화 실패 | Retry with lattice refinement limited to 3 %. 격자 변화 3% 제한 |
 | EFLECH 시간 초과, 중단, 피크 없음, BGMN 오류, Ray 오류 | 자동 조치 없음. Copy conditions & rerun만 표시 |
 
-- EFLECH(피크 검출)는 고정 시간 제한이 있어 선별 시간을 늘려도 소용없음. Copy conditions & rerun에서 2θ 범위를 좁히거나 잡음 구간을 제외 구간으로 빼서 다시 제출할 것.
+- EFLECH(피크 검출)는 고정 시간 제한이 있어 선별 시간을 늘려도 소용없음. 지금은 같은 패턴의 피크 검출을 한 번만 계산하고 재사용하므로 예전보다 훨씬 드묾. 그래도 나면 Copy conditions & rerun에서 2θ 범위를 좁히거나 잡음 구간을 제외 구간으로 빼서 다시 제출할 것.
+- 오류 문구 없이 작업 프로세스가 끝나면 종료 코드(Exit code)와 마지막 출력이 실패 상세에 함께 표시됨. 원인 파악에 참고.
 - 이미 시간 제한이 최댓값이라 바꿀 값이 없으면 새 작업 대신 안내 메시지가 나옴.
 
 ## 07 보고서와 내보내기
@@ -759,13 +773,13 @@ High confidence도 정답 보증이 아님. 시료 이력, 합성 조건, 가능
 | 첫 실행이 실패함 | 인터넷과 프록시 확인 후 START.cmd 재실행. 받은 파일은 재사용됨. 원인은 START 창의 마지막 메시지와 artifacts\launcher\setup-*.log에서 확인. 종료 코드 2는 인터넷 없음, 3은 BGMN 다운로드 실패, 4는 uv 다운로드·검증 실패, 6은 패키지 설치 실패. |
 | 폴더를 옮긴 뒤 실행 안 됨 | START가 이동을 감지해 환경을 자동 재구성함. 그래도 안 되면 START.cmd -Reinstall 또는 .venv 폴더 삭제 후 재실행. |
 | MP key rejected / not configured | START.cmd 재실행 시 키를 다시 입력하거나 Windows 환경변수 MP_API_KEY 확인. 급하면 MP 스위치를 끄고 COD와 CIF로 분석. |
-| 서버가 혼자 꺼짐 | 모든 DARA 창을 닫으면 약 20초 뒤 정상 종료되는 동작임. 분석 중에는 꺼지지 않음. 다시 쓰려면 START.cmd 실행. |
+| 서버가 혼자 꺼짐 | 모든 DARA 창을 닫으면 약 20초 뒤 정상 종료되는 동작임. 분석 중에는 꺼지지 않음. 다시 쓰려면 START.cmd 실행. 서버 창을 강제로 닫거나 서버가 비정상 종료돼도 분석 작업 프로세스도 함께 멈추므로, 다음 실행에서 작업이 꼬이지 않음. 이때 진행 중이던 작업은 "Unexpected shutdown of the worker process"로 표시되며 다시 제출하면 됨. |
 | 웹 화면이 안 열림 | http://localhost:8898을 직접 입력. 회사 프록시가 로컬 주소를 가로채는지 확인. START는 기본 브라우저 실패 시 Edge나 Chrome을 시도함. |
-| 분석이 너무 느림 | 먼저 예상 시간 확인. 전구체를 알면 Reaction check가 가장 빠름. Candidate pre-filter 켜기, MP 구조 수 줄이기, Maximum analysis time 지정(중간 최선 결과 반환), 2θ 범위 좁히기 순으로 시도. |
+| 분석이 너무 느림 | 먼저 예상 시간 확인. 전구체를 알면 Reaction check가 가장 빠름. Candidate pre-filter 켜기, MP 구조 수 줄이기, Maximum analysis time 지정(중간 최선 결과 반환), 2θ 범위 좁히기 순으로 시도. 예전 작업을 Copy conditions & rerun으로 다시 돌리면 기록되지 않은 속도 조절 항목이 현재 기본값으로 채워지므로 예전보다 빨라짐. 원소가 많은 Reaction check(예: C-H-N-Na-O-P)는 반응 예측 단계에서 메모리를 수 GB 쓰므로 다른 프로그램을 줄이고 실행. |
 | COD 연결 오류 | "Network error while contacting a structure database"가 뜨면 인터넷·프록시 확인. 이전에 받은 구조는 로컬 캐시에서 재사용되고 일부 다운로드 실패는 건너뜀. 계속 실패하면 필요한 CIF를 직접 올려 분석. |
 | CERTIFICATE_VERIFY_FAILED, CODDownloadError | 기관망처럼 HTTPS를 검사하는 네트워크에서 발생. START.cmd가 Windows 인증서 저장소와 certifi를 합친 CA 묶음(tools\certs\dara-ca-bundle.pem)을 만들어 서버에 넘기므로 START.cmd로 다시 실행. 끄려면 환경변수 DARA_CA_BUNDLE=off. |
 | No candidate structures were found | 원소 목록, COD/MP 스위치 확인. 그래도 없으면 참조 CIF 업로드. |
-| BGMN refinement program failed | 이상한 CIF나 프로파일·파장 불일치가 흔한 원인. 의심 CIF를 빼고 장비 프로파일 확인. |
+| BGMN refinement program failed | 이상한 CIF나 프로파일·파장 불일치가 흔한 원인. 의심 CIF를 빼고 장비 프로파일 확인. 사방정·단사정·삼사정 구조인데 두 축 길이가 정확히 같은 CIF(예: COD 9007583)에서 나던 "spacegroup not found" 오류는 자동 처리되도록 고쳐짐. |
 | The parallel worker (Ray) could not start | 다른 DARA 창을 닫거나 PC 재시작. 보안 프로그램이 로컬 포트를 막는지 확인. |
 | 질량 균형 경고가 뜸 | 배너나 Review cautions에 "Mass balance: …"가 보이면 먼저 전구체 양이 맞는지 확인. 파일 이름에서 읽었다는 표시가 있으면 이름 속 계수가 실제 칭량과 같은지 점검. 다르면 Copy conditions & rerun에서 Precursor / expected formulas에 양을 적어 다시 제출. 입력이 맞다면 08장 질량 균형 편차 해석 참조. |
 | 재정밀화가 오래 걸림 | 진행 막대의 단계와 남은 시간 확인. 대부분 BGMN 계산 시간이며 배경 다항식 항 수와 상 수가 많을수록 늘어남(Task 9: Auto 16 s, 12항 98 s). Advanced → Background…에서 Auto로 되돌리거나 항 수를 줄이고, 불필요한 상은 Remove로 뺀 뒤 다시 시도. 예전 코드로 끝난 작업의 첫 재정밀화는 자동 기준 재계산이 먼저 돌아 시간이 더 걸림. 기다리기 어려우면 Cancel. |
