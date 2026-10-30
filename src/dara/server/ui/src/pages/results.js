@@ -105,13 +105,14 @@ function ResultsPage({ location }) {
           : tag
         return text === 'FIZZLED' ? <Space size={4}>
           {shown}
-          <Popconfirm
-            title={`Retry task ${entry.fw_id} with unchanged settings?`}
+          {entry.error_summary?.remedy?.label ? <Popconfirm
+            title={`Retry task ${entry.fw_id} with the suggested fix (${entry.error_summary.remedy.label})?`}
             description="A new task is queued; the failed task is kept."
-            okText="Retry"
+            okText="Retry with fix"
             cancelText="Cancel"
-            onConfirm={() => retryTask(entry.fw_id, false)}
-          ><Button type="link" size="small" style={{ padding: 0 }}>Retry</Button></Popconfirm>
+            onConfirm={() => retryTask(entry.fw_id, true)}
+          ><Button type="link" size="small" style={{ padding: 0 }}>Retry with fix</Button></Popconfirm> : null}
+          <Button type="link" size="small" style={{ padding: 0 }} href={`/?clone_task=${entry.fw_id}`}>Copy conditions &amp; rerun</Button>
         </Space> : shown
       }
     },

@@ -147,8 +147,7 @@ def test_report_defaults_to_adoption_and_escapes_all_user_content(context):
     response = client.get("/api/task/9/report")
     assert response.status_code == 200
     assert "candidate_2_report.html" in response.headers["Content-Disposition"]
-    assert "User-adopted result" in response.text
-    assert "Candidate source index 1" in response.text
+    assert "Result shown: candidate 2, adopted by the user" in response.text
     assert '<script>' not in response.text
     assert "&lt;script&gt;" in response.text
     assert '<svg ' in response.text
@@ -156,12 +155,11 @@ def test_report_defaults_to_adoption_and_escapes_all_user_content(context):
     assert "±" in response.text
     assert "Excluded from refinement" in response.text
     assert "not-for-report" not in response.text
-    assert "[redacted]" in response.text
     assert "plotly" not in response.text.lower()
-    assert "review cautions" in response.text.lower()
+    assert "Result shown: minimum-Rwp result" not in response.text
     best = client.get("/api/task/9/report?best=true")
     assert "best_report.html" in best.headers["Content-Disposition"]
-    assert "Not marked as the adopted result" in best.text
+    assert "adopted" not in best.text.lower().split("<h2>")[0]
     assert "candidate_1_report.html" in client.get("/api/task/9/report?idx=0").headers["Content-Disposition"]
     assert client.get("/api/task/9/report?idx=0&best=true").status_code == 422
     assert client.get("/api/task/9/report?idx=100").status_code == 404
@@ -185,8 +183,7 @@ def test_report_lists_automated_cautions_with_escaped_text(context):
     client, _, doc = context
     doc.final_result = _refinement(40.0)  # high Rwp and GOF 20 trigger a poor-fit flag
     response = client.get("/api/task/9/report?best=true")
-    assert "review cautions" in response.text.lower()
-    assert "poor_fit" in response.text
-    assert "No automated cautions." not in response.text
+    assert "Review cautions</h3>" in response.text
+    assert "Fit residuals are high" in response.text
     clean = client.get("/api/task/9/report?idx=0")
-    assert "No automated cautions." in clean.text
+    assert "Review cautions" not in clean.text and "Fit residuals are high" not in clean.text

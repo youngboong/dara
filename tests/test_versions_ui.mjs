@@ -3,7 +3,7 @@ import {
   adoptedTag, codCodeFromStem, deltaStrip, deltaText, etaText, formatSelection, parseSelection,
   plotQuery, refSourceForHint, removeRequest, selectionLabel, swapRequest,
   alternativeOfVerdict, formatSpacegroup, spacegroupOfPhase, swapKind,
-  BASELINE_LABEL, DRIFT_NOTE, backgroundRequest, baselineRequest, isMissingEndpoint, showsDriftNote,
+  BASELINE_LABEL, backgroundRequest, baselineRequest, baselineVersion, comparisonBase, isMissingEndpoint, needsBaseline, selectOptionGroups, selectedPhasesRequest,
 } from '../src/dara/server/ui/src/components/versions.mjs';
 import { adoptedLabel } from '../src/dara/server/ui/src/components/resultsList.mjs';
 
@@ -87,25 +87,11 @@ assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, { ...modelAlt, spaceg
 assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, modelAlt, taskResults, [...taskBase, 'CaCO3_14_(cod_5)-1']), null);
 assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, { ...modelAlt, source_index: 99 }, taskResults, taskBase), null);
 
-// alternative (different phase set): switch to exactly the candidate's phases
+// alternative (different phase set): no re-refinement request, the candidate is only viewed
 const setAlt = { candidate_number: 3, source_index: 2, rwp: 11.9, delta_rwp: 0.4, replaced_by: ['Calcite'] };
-const setSwap = swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, setAlt, taskResults, taskBase);
 assert.equal(swapKind(setAlt), 'phase_set');
-assert.deepEqual(setSwap.remove, ['CaCO3_167_(cod_2)-0']);
-assert.deepEqual(setSwap.phases, [{ ref: 'CaCO3_14_(cod_5)-1', source: 'task' }]);
-assert.equal(setSwap.origin, 'swap');
-assert.ok(setSwap.label.startsWith('Switched to candidate 3 phases') && setSwap.label.length <= 120);
-// candidate 2 as a phase-set switch removes what it lacks and adds all of its extra phases
-const bigSwap = swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, { candidate_number: 2, source_index: 1 }, taskResults, taskBase);
-assert.deepEqual(bigSwap.remove, ['CaCO3_167_(cod_2)-0']);
-assert.deepEqual(bigSwap.phases.map(p => p.ref), ['C9F8_2_(cod_4)-None', 'CaCO3_14_(cod_5)-1']);
-// nothing to change, or the candidate still holds the clicked phase
-assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, { candidate_number: 1, source_index: 0 }, taskResults, taskBase), null);
-assert.equal(swapRequest({ phase: 'Cr2O3_167_(cod_3)-0' }, setAlt, taskResults, taskBase), null);
-// long labels are clipped to what the server accepts
-const longResults = [{ source_index: 5, phases: [['Aaaaaaaaaaaaaaaaaaaaaa_1_(x)-0'], ['Bbbbbbbbbbbbbbbbbbbbbbbbb_2_(y)-0'], ['Cccccccccccccccccccccccc_3_(z)-0'], ['Dddddddddddddddddddddddd_4_(w)-0'], ['Eeeeeeeeeeeeeeeeeeeeeeeeee_5_(v)-0']] }];
-const longSwap = swapRequest({ phase: 'Q_9_(q)-0' }, { candidate_number: 6, source_index: 5 }, longResults, ['Q_9_(q)-0']);
-assert.ok(longSwap.label.length <= 120);
+assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, setAlt, taskResults, taskBase), null);
+assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, { candidate_number: 2, source_index: 1 }, taskResults, taskBase), null);
 assert.equal(spacegroupOfPhase('CaCO3_167_(cod_1)-0'), 167);
 assert.equal(spacegroupOfPhase('MyUpload'), null);
 assert.equal(formatSpacegroup('P2_1/c', 14), 'P2₁/c');
@@ -199,16 +185,26 @@ assert.deepEqual(backgroundRequest({ auto: true, degree: 8, ranges: [[20, 25], [
 assert.deepEqual(backgroundRequest({ auto: true, degree: 8, ranges: [[20, 25]], baseDegree: 9 }),
   { background: { degree: null, excluded_ranges: [[20, 25]] }, label: 'Background: automatic; Excluded 20–25°' });
 
-// --- code drift: baseline re-refinement and the note under the delta strip --------------------
+// --- code drift: automatic baseline ---------------------------------------------------------
 assert.deepEqual(baselineRequest(), { base: 'best', controls: {}, origin: 'manual', label: 'Baseline (current code)' });
 assert.equal(BASELINE_LABEL, 'Baseline (current code)');
-assert.equal(showsDriftNote({ version: 2, label: 'Added Fe3O4', origin: { base: 'best' } }), true);
-assert.equal(showsDriftNote({ version: 2, label: 'x', origin: { base: 'version:1' } }), true);
-assert.equal(showsDriftNote({ version: 3, label: 'x', origin: { base: 'version:2' } }), false);
-assert.equal(showsDriftNote({ version: 3, label: 'x', origin: { base: 4 } }), true, 'stored candidates were refined at task time');
-assert.equal(showsDriftNote({ version: 2, label: BASELINE_LABEL, origin: { base: 'best' } }), false);
-assert.equal(showsDriftNote(null), false);
-assert.equal(DRIFT_NOTE, 'v1 was refined when the task ran; re-refine the baseline to compare with the current code.');
+const withBaseline = [{ version: 1 }, { version: 2, label: BASELINE_LABEL }, { version: 3, label: 'x' }];
+assert.equal(baselineVersion(withBaseline).version, 2);
+assert.equal(baselineVersion([{ version: 1 }]), null);
+assert.equal(comparisonBase('best', withBaseline), 'version:2');
+assert.equal(comparisonBase('best', [{ version: 1 }]), 'best');
+assert.equal(comparisonBase('version:3', withBaseline), 'version:3');
+assert.equal(comparisonBase(4, withBaseline), 4);
+assert.equal(needsBaseline(true, [{ version: 1 }], { base: 'best', phases: [] }), true);
+assert.equal(needsBaseline(false, [{ version: 1 }], { base: 'best' }), false);
+assert.equal(needsBaseline(true, withBaseline, { base: 'best' }), false);
+assert.equal(needsBaseline(true, [{ version: 1 }], { base: 'version:3' }), false);
+assert.equal(needsBaseline(true, [{ version: 1 }], { base: 'best', label: BASELINE_LABEL }), false);
+const groups = selectOptionGroups([{ source_index: 4, rwp: 7.1 }, { rwp: 8 }], withBaseline);
+assert.deepEqual(groups.map(g => g.label), ['Best fit', 'Candidates', 'Versions']);
+assert.deepEqual(groups[1].options.map(o => o.value), [4, 1]);
+assert.deepEqual(groups[2].options.map(o => o.value), ['version:2', 'version:3']);
+assert.deepEqual(selectOptionGroups([], [{ version: 1 }]).map(g => g.label), ['Best fit', 'Candidates']);
 
 // --- end to end on the shape of task 18 (verdict -> evidence -> swap request) -------------------
 {
@@ -220,4 +216,26 @@ assert.equal(DRIFT_NOTE, 'v1 was refined when the task ran; re-refine the baseli
   const next = taskBase.filter(name => !body.remove.includes(name)).concat(body.phases.map(item => item.ref));
   assert.deepEqual(next.sort(), ['CaCO3_14_(cod_5)-1', 'CaF2_225_(cod_1)-0', 'Cr2O3_167_(cod_3)-0']);
   assert.equal(body.label, 'Swapped CaCO3 (R-3c) for CaCO3 (P2₁/c)');
+}
+
+// --- "Select phases" checklist -> quick re-refinement body ------------------------------------
+{
+  const current = ['A_1_(x)-0', 'B_2_(y)-0'];
+  const available = ['A_1_(x)-0', 'B_2_(y)-0', 'C_3_(z)-0'];
+  assert.equal(selectedPhasesRequest({ current, selected: current, available }), null);
+  assert.equal(selectedPhasesRequest({ current, selected: [], available }), null, 'nothing left to refine');
+  assert.deepEqual(selectedPhasesRequest({ current, selected: ['A_1_(x)-0', 'C_3_(z)-0'], available }), {
+    phases: [{ ref: 'C_3_(z)-0', source: 'task' }], remove: ['B_2_(y)-0'], origin: 'manual',
+    label: 'Selected phases: A, C',
+  });
+  // displayed phases that were not offered in the checklist are left alone
+  assert.deepEqual(selectedPhasesRequest({ current: [...current, 'D_4_(w)-0'], selected: ['A_1_(x)-0'], available }).remove, ['B_2_(y)-0']);
+  // changed refinement controls alone make a request; unchanged defaults do not
+  const defaults = { lattice: 'inherit', lattice_percent: 2, orientation: 'inherit', peak_width: 'inherit' };
+  assert.equal(selectedPhasesRequest({ current, selected: current, available, controls: defaults, defaultControls: defaults }), null);
+  const fixed = { ...defaults, lattice: 'fixed' };
+  const onlyControls = selectedPhasesRequest({ current, selected: current, available, controls: fixed, defaultControls: defaults });
+  assert.deepEqual(onlyControls.controls, fixed);
+  assert.deepEqual(onlyControls.remove, []);
+  assert.equal(onlyControls.label, 'Changed refinement controls');
 }

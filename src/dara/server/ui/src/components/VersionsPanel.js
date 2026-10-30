@@ -4,7 +4,7 @@ import { DeleteOutlined, DownOutlined, ExportOutlined } from '@ant-design/icons'
 import { EXPORT_FORMATS } from './confidence.mjs';
 import { ReportDownloadButton } from './ResultWorkflows';
 import { API, NOT_AVAILABLE, requestJson } from './QuickRefineProgress';
-import { adoptedTag } from './versions.mjs';
+import { adoptedTag, comparisonBase } from './versions.mjs';
 
 const { Text } = Typography;
 
@@ -25,6 +25,7 @@ export function useVersions(taskId) {
   const [available, setAvailable] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
+  const [baselineStale, setBaselineStale] = React.useState(false);
   const mounted = React.useRef(true);
   const refresh = React.useCallback(async ({ silent = false } = {}) => {
     try {
@@ -32,6 +33,7 @@ export function useVersions(taskId) {
       if (!mounted.current) return [];
       const list = Array.isArray(body) ? body : (body?.versions || []);
       setVersions(list);
+      setBaselineStale(!Array.isArray(body) && body?.baseline_stale === true);
       setAvailable(true);
       setError('');
       return list;
@@ -67,7 +69,7 @@ export function useVersions(taskId) {
     await requestJson(`/task/${taskId}/versions/${n}`, { method: 'DELETE' });
     return refresh();
   }, [taskId, refresh]);
-  return { versions, available, loading, error, refresh, remove };
+  return { versions, available, loading, error, refresh, remove, baselineStale };
 }
 
 const fixed = (value, digits = 2) => (value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toFixed(digits));
@@ -84,7 +86,7 @@ function phaseSummary(phases = []) {
   return <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{phases.join('\n')}</div>}><span>{names.join(', ')}</span></Tooltip>;
 }
 
-export default function VersionsPanel({ taskId, store, review, onView, onCompare, extra, onRebaseline, rebaselineBusy }) {
+export default function VersionsPanel({ taskId, store, review, onView, onCompare, extra }) {
   const { versions, available, loading, error, remove } = store;
   const [deleting, setDeleting] = React.useState(null);
   if (available === false) return null;
@@ -106,10 +108,11 @@ export default function VersionsPanel({ taskId, store, review, onView, onCompare
       }
     },
   });
+  const isAdoptedRow = n => adopted === `version:${n}` || (n === 1 && adopted === 'best');
   const rows = versions.map(item => ({ ...item, key: item.version }));
   const columns = [
-    { title: 'Version', dataIndex: 'version', width: 80, render: n => `v${n}` },
-    { title: 'Label', dataIndex: 'label', render: (label, row) => <>{label || '—'}{adopted === `version:${row.version}` || (row.version === 1 && adopted === 'best') ? <Tag color="blue" style={{ marginLeft: 6 }}>Adopted</Tag> : null}</> },
+    { title: 'Version', dataIndex: 'version', width: 90, render: n => <span>{isAdoptedRow(n) ? <Tooltip title="Adopted result"><span style={{ color: '#faad14' }}>★ </span></Tooltip> : null}{`v${n}`}</span> },
+    { title: 'Label', dataIndex: 'label', render: label => label || '—' },
     { title: 'Origin', key: 'origin', render: (_, row) => <Tag color={ORIGIN_COLOR[row.origin?.kind] || 'default'}>{ORIGIN_LABEL[row.origin?.kind] || row.origin?.kind || '—'}</Tag> },
     { title: 'Rwp (%)', dataIndex: 'rwp', render: value => fixed(value) },
     { title: 'GOF', dataIndex: 'gof', render: value => fixed(value) },
@@ -126,7 +129,7 @@ export default function VersionsPanel({ taskId, store, review, onView, onCompare
         label: <a href={`${API}/task/${taskId}/export/${format.key}?${row.version === 1 ? 'best=true' : `sel=version:${row.version}`}`}>{format.label}</a> }));
       return <Space wrap size="small">
         <Button size="small" onClick={() => onView(row.version === 1 ? null : sel)}>View</Button>
-        {row.version > 1 ? <Button size="small" onClick={() => onCompare(adopted && adopted !== sel ? adopted : 'best', sel)}>Compare</Button> : null}
+        {row.version > 1 ? <Button size="small" onClick={() => onCompare(adopted && adopted !== sel ? adopted : comparisonBase('best', versions, row.version), sel)}>Compare</Button> : null}
         <Tooltip title="Adopt this version and save the current lab notes">
           <Button size="small" disabled={review.loading || !!review.error || review.saving}
             onClick={() => review.save(sel)}>{isAdopted ? 'Adopted' : 'Adopt'}</Button>
@@ -148,15 +151,12 @@ export default function VersionsPanel({ taskId, store, review, onView, onCompare
       <h3 style={{ margin: 0 }}>Versions</h3>
       {tag ? <Tag color="blue">{tag}</Tag> : null}
       <Text type="secondary">Re-refinements made from this result. The original analysis stays unchanged.</Text>
-      {onRebaseline ? <Tooltip title="Refine the original phase set again with the current code, so later versions can be compared with a baseline made by the same code (v1 was refined when the task ran).">
-        <Button size="small" disabled={rebaselineBusy} onClick={onRebaseline}>Re-refine baseline</Button>
-      </Tooltip> : null}
     </Space>
     {extra}
     {error ? <Alert type="error" showIcon style={{ marginBottom: 8 }} message={error} /> : null}
     <Table size="small" pagination={false} loading={loading} rowKey="version" dataSource={rows} scroll={{ x: 1000 }}
       columns={columns} />
     {!loading && versions.length <= 1 ? <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-      No re-refinements yet. Use “Add and re-refine” on a hint, click a peak, or edit phases in the fit view.</Text> : null}
+      No re-refinements yet. Open a fit and use “Add phase…”, “Select phases…”, Swap or Remove to make one.</Text> : null}
   </section>;
 }

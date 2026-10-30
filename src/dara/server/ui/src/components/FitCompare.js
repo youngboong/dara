@@ -1,10 +1,10 @@
 import React from 'react';
 import Loadable from 'react-loadable';
-import { Alert, Button, Modal, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Modal, Select, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
 import usePlotView, { NAVIGATION_CONFIG, NAVIGATION_HELP } from './usePlotView';
 import { addDSpacingHover } from './plotNavigation.mjs';
 import { NOT_AVAILABLE, requestJson } from './QuickRefineProgress';
-import { formatSelection, formulaOfPhase } from './versions.mjs';
+import { formatSelection, formulaOfPhase, selectOptionGroups } from './versions.mjs';
 
 const Plot = Loadable({ loader: () => import('./RefinementPlotly'), loading: () => <Spin /> });
 
@@ -26,8 +26,11 @@ function regionBounds(region) {
   return [region.two_theta - 0.5, region.two_theta + 0.5];
 }
 
-/** Side-by-side comparison of two fits (any selections) of one task. */
-export default function FitCompare({ taskId, a, b, open, onClose, onAdoptB, adopting, onViewB }) {
+/**
+ * Side-by-side comparison of two fits (any selections) of one task; the single comparison window.
+ * A and B are chosen with the selects (`onSelect(a, b)` updates the parent's state).
+ */
+export default function FitCompare({ taskId, a, b, open, onClose, onAdoptB, adopting, onViewB, allResults = [], versions = [], onSelect }) {
   const [data, setData] = React.useState(null);
   const [error, setError] = React.useState('');
   const view = usePlotView();
@@ -46,6 +49,7 @@ export default function FitCompare({ taskId, a, b, open, onClose, onAdoptB, adop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, taskId, selA, selB]);
 
+  const groups = selectOptionGroups(allResults, versions);
   const labelA = data?.a?.label || String(selA);
   const labelB = data?.b?.label || String(selB);
   const weightPhases = data ? [...new Set([...Object.keys(data.a?.weight_percent || {}), ...Object.keys(data.b?.weight_percent || {})])] : [];
@@ -70,10 +74,16 @@ export default function FitCompare({ taskId, a, b, open, onClose, onAdoptB, adop
   });
   return <Modal title="Compare fits — same measured pattern" open={open} width="95vw" footer={null} onCancel={onClose}
     wrapClassName="dara-compare-modal" destroyOnClose>
+    <Space wrap style={{ marginBottom: 12 }}>
+      <Tag color="blue">A</Tag>
+      <Select aria-label="Fit A" style={{ width: 340 }} value={selA ?? undefined} options={groups}
+        onChange={value => onSelect?.(value, selB)} disabled={!onSelect} />
+      <Tag color="orange">B</Tag>
+      <Select aria-label="Fit B" style={{ width: 340 }} value={selB ?? undefined} options={groups}
+        onChange={value => onSelect?.(selA, value)} disabled={!onSelect} />
+    </Space>
     {error ? <Alert showIcon type="error" message={error} /> : !data ? <Spin /> : <>
       <Space wrap style={{ marginBottom: 12 }}>
-        <Tag color="blue">{`A: ${labelA}`}</Tag>
-        <Tag color="orange">{`B: ${labelB}`}</Tag>
         {verdictTag(data.verdict)}
         <Tooltip title="Adopt fit B as the scientific choice and save the current lab notes">
           <Button type="primary" loading={adopting} disabled={!onAdoptB} onClick={() => onAdoptB(selB)}>Adopt B</Button>

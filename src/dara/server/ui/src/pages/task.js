@@ -1,17 +1,16 @@
 import React from 'react';
 import styled from 'styled-components';
 import Layout from '../components/Layout';
-import { Alert, Button, Descriptions, Divider, message, Modal, Spin, Tag, List, Space, Switch, Tooltip, Typography, Table, Select } from 'antd';
-import { DeleteOutlined, DownloadOutlined, InfoCircleOutlined, TableOutlined } from '@ant-design/icons';
+import { Alert, Button, Descriptions, Divider, Dropdown, message, Modal, Spin, Tag, List, Space, Switch, Tooltip, Typography, Table, Select } from 'antd';
+import { DeleteOutlined, DownOutlined, DownloadOutlined, InfoCircleOutlined, TableOutlined } from '@ant-design/icons';
 import Loadable from 'react-loadable'
 import parse from 'html-react-parser';
 import {STATE_COLOR} from './results';
 import { buildRefinementView, isTraceSelected, legendKey } from '../components/refinementPlotState.mjs';
 import { viewChangeFromRelayout } from '../components/plotNavigation.mjs';
 import { formatParameterWithEsd, latticeParameterRows } from '../components/latticeParameters.mjs';
-import { AdoptButton, RefineSelectionButton, ReportDownloadButton, RetryActions, ReviewPanel, useTaskReview } from '../components/ResultWorkflows';
+import { PhaseSelectionButton, ReportDownloadButton, RetryActions, ReviewPanel, useTaskReview } from '../components/ResultWorkflows';
 import { TaskProgress } from '../components/PracticalControls';
-import CandidateComparison from '../components/CandidateComparison';
 import FitCautions from '../components/FitCautionsPanel';
 import { cautionSortValue, cautionTagColor, cautionTooltip, countCautions } from '../components/fitCautions.mjs';
 import { levelRank, missingCell, unexplainedSummary, unexplainedTooltipLines } from '../components/confidence.mjs';
@@ -26,10 +25,9 @@ import { SHORTCUT_HELP } from '../components/keyboardShortcuts.mjs';
 import {
   collectHints, hintText, hintsPending, observedPeak, peakFromClick, peakShapes, phaseGroupNames, previewTrace, updatePeakSelection,
 } from '../components/peakSelection.mjs';
-import { appendStoredFit, compareHref } from '../components/fitOverlay.mjs';
 import {
-  alternativeOfVerdict, baselineRequest, deltaStrip, deltaText, DRIFT_NOTE, formatSelection, parseSelection,
-  plotQuery, refSourceForHint, removeRequest, selectionLabel, showsDriftNote, swapKind, swapRequest,
+  alternativeOfVerdict, baselineRequest, comparisonBase, deltaStrip, deltaText, formatSelection, needsBaseline, parseSelection,
+  plotQuery, removeRequest, selectOptionGroups, selectionLabel, swapKind, swapRequest,
 } from '../components/versions.mjs';
 
 const { Text } = Typography;
@@ -573,7 +571,7 @@ function normalizePlotId(value) {
   return typeof parsed === 'number' ? parsed : `version:${parsed.version}`;
 }
 
-function DeltaStrip({ rows, driftNote }) {
+function DeltaStrip({ rows }) {
   const shown = rows.filter(row => row.a !== null || row.b !== null);
   if (!shown.length) return null;
   return <div style={{ marginBottom: 8 }}>
@@ -583,25 +581,15 @@ function DeltaStrip({ rows, driftNote }) {
         {`${row.label} ${deltaText(row)}`}
       </Tag>)}
     </Space>
-    {driftNote ? <div><Text type="secondary" style={{ fontSize: 12 }}>{DRIFT_NOTE}</Text></div> : null}
   </div>;
 }
 
-function HintList({ diagnostics, onAdd, busy }) {
+function HintText({ diagnostics }) {
   const hints = collectHints(diagnostics);
   if (!hints.length) return null;
   return <div style={{ marginTop: 8 }} aria-label="Trace phase hints">
-    {hints.map(hint => {
-      const target = refSourceForHint(hint);
-      return <div key={hint.phase} style={{ marginBottom: 4 }}>
-        <Space wrap size="small">
-          <Text>{hintText(hint)}</Text>
-          <Tooltip title={!target ? 'No local CIF is available for this reference.' : busy ? 'A re-refinement is already running.' : 'Add this phase and refine again as a new version'}>
-            <span><Button size="small" disabled={!target || busy} onClick={() => onAdd(hint, target)}>Add and re-refine</Button></span>
-          </Tooltip>
-        </Space>
-      </div>;
-    })}
+    {hints.map(hint => <div key={hint.phase}><Text type="secondary">{hintText(hint)}</Text></div>)}
+    <Text type="secondary">{'Use “Add phase…” to add one of these.'}</Text>
   </div>;
 }
 
@@ -640,7 +628,7 @@ function TaskDetail({ data, task_id }) {
     const rwpText = item?.rwp != null && Number.isFinite(Number(item.rwp)) ? ` (Rwp ${Number(item.rwp).toFixed(2)} %)` : '';
     if (meta.afterDone === 'compare') {
       message.success(`Version v${n} ready${rwpText}`);
-      setCompare({ a: meta.base ?? 'best', b: `version:${n}` });
+      setCompare({ a: comparisonBase(meta.base ?? 'best', list, n), b: `version:${n}` });
     } else if (plotIdRef.current !== undefined) {
       message.success(`Version v${n} ready${rwpText}`);
       setPlotId(`version:${n}`);
@@ -668,7 +656,9 @@ function TaskDetail({ data, task_id }) {
   const currentSel = plot_id === null || plot_id === undefined ? 'best' : plot_id;
   const versionNumber = typeof plot_id === 'string' ? (parseSelection(plot_id)?.version ?? null) : null;
   const versionData = versionNumber ? versionDetails[versionNumber] : null;
-  const baseParsed = versionData ? parseSelection(versionData.origin?.base ?? 'best') : null;
+  // Deltas against 'best' use the baseline version (same code as the new version) when it exists.
+  const effectiveBase = versionData ? comparisonBase(versionData.origin?.base ?? 'best', store.versions, versionNumber) : null;
+  const baseParsed = effectiveBase !== null ? parseSelection(effectiveBase) : null;
   const baseVersionNumber = baseParsed && typeof baseParsed === 'object' ? baseParsed.version : null;
   React.useEffect(() => {
     const wanted = [versionNumber, baseVersionNumber].filter(n => n && !versionDetails[n]);
@@ -699,41 +689,47 @@ function TaskDetail({ data, task_id }) {
     if (typeof parsed === 'number') return data.all_results.find((result, index) => (result.source_index ?? index) === parsed);
     return versionDetails[parsed.version]?.final_result;
   };
-  const baseSummary = versionData ? findSummary(versionData.origin?.base ?? 'best') : null;
+  const baseSummary = versionData ? findSummary(effectiveBase) : null;
   const deltaRows = versionData?.final_result && baseSummary ? deltaStrip(baseSummary, versionData.final_result) : [];
   const displayedPhases = displayedResult ? (displayedResult.highlighted_phases || displayedResult.phases || []) : [];
   // Explicit background polynomial degree of the displayed fit (null: BGMN chooses it).
   const baseDegree = versionNumber ? (versionData?.background?.degree ?? null)
     : (data.final_refinement_params?.background_degree ?? null);
 
-  const runQuick = (body, meta = {}) => {
+  const baselineQueued = React.useRef(false);
+  const runQuick = async (body, meta = {}) => {
     if (quick.busy) {
       message.info('A re-refinement is already running for this task.');
       return;
     }
-    quick.start({ base: currentSel, ...body }, { base: currentSel, afterDone: 'view', ...meta });
+    const request = { base: currentSel, ...body };
+    if (!baselineQueued.current && needsBaseline(store.baselineStale, store.versions, request)) {
+      // The stored result predates the current refinement code: queue a baseline with today's code
+      // first (silently; the server runs jobs in order) so comparisons use the same code.
+      baselineQueued.current = true;
+      try {
+        await postJson(`/task/${task_id}/quick-refine`, baselineRequest());
+      } catch (_) {
+        baselineQueued.current = false; // not queued; the user's own job still runs
+      }
+    }
+    quick.start(request, { base: currentSel, afterDone: 'view', ...meta });
   };
   const addHint = (hint, target) => runQuick({
     phases: [target], origin: 'add_hint', label: `Added ${hint.formula || hint.phase} (hint)`,
   });
   // The API nests the alternatives under `verdict.evidence`.
   const alternativeOf = phase => alternativeOfVerdict(displayedResult?.confidence?.phases?.[phase]);
-  const rebaseline = () => {
-    if (quick.busy) {
-      message.info('A re-refinement is already running for this task.');
-      return;
-    }
-    quick.start(baselineRequest(), { base: 'best', afterDone: 'compare' });
-  };
   const rowActions = row => {
     const alternative = alternativeOf(row.phase);
     const swap = alternative ? swapRequest({ phase: row.phase }, alternative, data.all_results, displayedPhases, displayedResult?.phase_metadata) : null;
-    const kind = alternative ? swapKind(alternative) : null;
+    const otherSet = alternative && swapKind(alternative) === 'phase_set' && alternative.source_index != null ? alternative : null;
     return <Space size="small" wrap>
-      {swap ? <Tooltip title={kind === 'model'
-        ? `Replace this phase with the other structure model of the same compound from candidate ${alternative.candidate_number ?? ''}, refine again, then compare`
-        : `Switch to the phase set of candidate ${alternative.candidate_number ?? ''}, refine again, then compare`}>
-        <Button size="small" disabled={quick.busy} onClick={() => runQuick(swap, { afterDone: 'compare' })}>{kind === 'model' ? 'Swap' : 'Switch'}</Button>
+      {swap ? <Tooltip title={`Replace this phase with the other structure model of the same compound from candidate ${alternative.candidate_number ?? ''}, refine again, then compare`}>
+        <Button size="small" disabled={quick.busy} onClick={() => runQuick(swap, { afterDone: 'compare' })}>Swap</Button>
+      </Tooltip> : null}
+      {otherSet ? <Tooltip title="A candidate phase set explains this region with other phases; this shows its stored fit without refining again">
+        <Button size="small" onClick={() => setPlotId(otherSet.source_index)}>{`View candidate ${otherSet.candidate_number ?? otherSet.source_index + 1}`}</Button>
       </Tooltip> : null}
       {displayedPhases.length >= 2 ? <Tooltip title="Refine again without this phase, then compare">
         <Button size="small" disabled={quick.busy} onClick={() => runQuick(removeRequest(row.phase), { afterDone: 'compare' })}>Remove</Button>
@@ -774,25 +770,14 @@ function TaskDetail({ data, task_id }) {
     'clear-peaks': clearPeaks,
     close: () => setPlotId(undefined),
   });
-  const addToComparison = () => {
-    try {
-      const list = appendStoredFit(window.localStorage, task_id, currentSel);
-      message.success(<span>Added to comparison. <a href={compareHref(list)}>Open comparison</a></span>, 6);
-    } catch (_) {
-      message.warning('Could not store the comparison list in this browser.');
-    }
-  };
   const modalTitle = plot_id === undefined ? 'Fit'
     : plot_id === null ? 'Best fit'
       : versionNumber ? selectionLabel(plot_id, { versions: store.versions })
         : `Candidate ${(data.all_results.findIndex((r, i) => (r.source_index ?? i) === plot_id)) + 1} — refinement`;
-  const selectOptions = [
-    { label: 'Best fit', options: [{ value: 'best', label: 'Best fit' }] },
-    { label: 'Candidates', options: data.all_results.map((r, i) => ({ value: r.source_index ?? i, label: `Candidate ${i + 1} — Rwp ${r.rwp}%` })) },
-    ...(store.versions.some(item => item.version > 1) ? [{ label: 'Versions',
-      options: store.versions.filter(item => item.version > 1).map(item => ({ value: `version:${item.version}`,
-        label: `v${item.version} — ${item.label || 'Re-refinement'}${item.rwp != null ? ` — Rwp ${Number(item.rwp).toFixed(2)}%` : ''}` })) }] : []),
-  ];
+  const selectOptions = selectOptionGroups(data.all_results, store.versions);
+  const [backgroundOpen, setBackgroundOpen] = React.useState(false);
+  const firstOtherCandidate = data.all_results.length
+    ? (data.all_results[1] ?? data.all_results[0]).source_index ?? (data.all_results.length > 1 ? 1 : 0) : null;
 
   return (
     <>
@@ -808,7 +793,7 @@ function TaskDetail({ data, task_id }) {
       </TitleContriner>
       <Divider />
       <ConfidenceBanner confidence={data.final_result?.confidence} />
-      <ReviewPanel taskId={task_id} data={data} review={review} onView={setPlotId} versions={store.versions} />
+      <ReviewPanel taskId={task_id} data={data} review={review} versions={store.versions} />
       <Descriptions bordered column={2} size='small'>
         <Descriptions.Item label="Pattern file name" span={2}>{data.task_label}</Descriptions.Item>
         <Descriptions.Item label="Best_Rwp" span={2}><Tag color="green">{data.best_rwp} %</Tag></Descriptions.Item>
@@ -873,8 +858,6 @@ function TaskDetail({ data, task_id }) {
       </Descriptions>
       <h3 style={{ marginTop: 20 }}>Final refined phase parameters</h3>
       <Space wrap style={{ marginBottom: 12 }}>
-        <AdoptButton review={review} selection="best" />
-        <RefineSelectionButton taskId={task_id} phases={data.final_result.phases} renderPhase={renderReference} />
         <ReportDownloadButton taskId={task_id} selection="best" disabled={review.loading || review.saving || review.dirty || !!review.error}>Best-fit report</ReportDownloadButton>
       </Space>
       <Text type="secondary">Uncertainties are BGMN estimated standard deviations where reported. Weight uncertainty is propagated after normalization and is omitted when unavailable.</Text>
@@ -882,7 +865,6 @@ function TaskDetail({ data, task_id }) {
         <PhaseRefinementTable phases={data.final_result.phases} metadata={data.final_result.phase_metadata} details={data.final_result.phase_details} confidence={data.final_result.confidence} />
       </div>
       <VersionsPanel taskId={task_id} store={store} review={review}
-        onRebaseline={quickShown ? rebaseline : null} rebaselineBusy={quick.busy}
         onView={setPlotId} onCompare={(a, b) => setCompare({ a, b })}
         extra={quickShown ? <QuickRefineProgress job={quick.job} onCancel={quick.cancel} onDismiss={quick.dismiss} /> : null} />
       <ResultTitleContainer>
@@ -900,7 +882,8 @@ function TaskDetail({ data, task_id }) {
       {data.instrument_profile_details ? <Alert type={data.instrument_profile_details.verified ? 'info' : 'warning'} showIcon style={{marginBottom:12}}
         message={`Instrument: ${data.instrument_profile_details.label} — ${data.instrument_profile_details.verified ? 'operator-verified' : 'unverified'}`}
         description={<>{data.instrument_profile_details.geometry} · {data.instrument_profile_details.radiation}<br />{data.instrument_profile_details.notes}</>} /> : null}
-      <CandidateComparison taskId={task_id} candidates={data.all_results} renderPhase={renderReference} />
+      <Button disabled={firstOtherCandidate === null} style={{ marginBottom: 8 }}
+        onClick={() => setCompare({ a: 'best', b: firstOtherCandidate })}>Compare fits</Button>
       {data.final_refinement_params ? <details style={{marginBottom:12}}><summary>Final-refinement settings used</summary><pre>{JSON.stringify(data.final_refinement_params, null, 2)}</pre></details> : null}
       <Text type="secondary">Sort columns to compare candidates. Candidate numbers and downloads keep their original identity. Fractions are normalized over modeled crystalline phases; diagnostic counts are review flags, not confidence scores.</Text>
       <Table size="small" pagination={false} scroll={{ x: 900 }} style={{ marginTop: 12, marginBottom: 24 }}
@@ -930,7 +913,7 @@ function TaskDetail({ data, task_id }) {
             sorter: (a,b) => levelRank(a.confidence?.overall?.level)-levelRank(b.confidence?.overall?.level),
             render: (_,row) => <OverallTag confidence={row.confidence} /> },
           { title: 'No. of phases', sorter: (a,b) => a.highlighted_phases.length-b.highlighted_phases.length, render: (_,row) => row.highlighted_phases.length },
-          { title: 'Actions', render: (_,row) => <Space wrap><Button size="small" onMouseEnter={() => preloadPlot(task_id, row.source_index)} onFocus={() => preloadPlot(task_id, row.source_index)} onClick={() => setPlotId(row.source_index)}>View fit</Button><DownloadButton taskId={task_id} resultIndex={row.source_index} size="small" icon={<DownloadOutlined />} aria-label={`Download candidate ${row.candidate_number}`} /><AdoptButton size="small" review={review} selection={row.source_index} /></Space> },
+          { title: 'Actions', render: (_,row) => <Space wrap><Button size="small" onMouseEnter={() => preloadPlot(task_id, row.source_index)} onFocus={() => preloadPlot(task_id, row.source_index)} onClick={() => setPlotId(row.source_index)}>View fit</Button><DownloadButton taskId={task_id} resultIndex={row.source_index} size="small" icon={<DownloadOutlined />} aria-label={`Download candidate ${row.candidate_number}`} /></Space> },
         ]} />
       {data.duplicate_results_removed > 0 ? (
         <Alert
@@ -990,6 +973,18 @@ function TaskDetail({ data, task_id }) {
         <Space wrap style={{ marginBottom: 12 }}>
           <Select aria-label="Displayed candidate" style={{ width: 360 }} value={currentSel}
             onChange={value => setPlotId(value === 'best' ? null : value)} options={selectOptions} />
+          {quickShown && displayedResult ? <>
+            <Button onClick={() => setDrawerOpen(true)}>Add phase…</Button>
+            <PhaseSelectionButton taskId={task_id} phases={displayedPhases} renderPhase={renderReference} busy={quick.busy}
+              onSubmit={request => runQuick(request, { afterDone: 'compare' })} />
+            <Dropdown trigger={['click']} menu={{ items: [{ key: 'background', label: 'Background…', disabled: quick.busy }],
+              onClick: ({ key }) => { if (key === 'background') setBackgroundOpen(true); } }}>
+              <Button>Advanced <DownOutlined /></Button>
+            </Dropdown>
+            <BackgroundEditor open={backgroundOpen} onOpenChange={setBackgroundOpen} busy={quick.busy} disabled={quick.busy} baseDegree={baseDegree}
+              getView={() => plotRef.current?.getViewRange?.() || null}
+              onSubmit={(background, label) => runQuick({ phases: [], background, origin: 'background', label })} />
+          </> : null}
           <Tooltip title="Left and right arrow keys step through the fits; press ? for all shortcuts"><Text type="secondary">← / → to switch fits</Text></Tooltip>
         </Space>
         {quickShown ? <QuickRefineProgress job={quick.job} onCancel={quick.cancel} onDismiss={quick.dismiss} /> : null}
@@ -997,18 +992,10 @@ function TaskDetail({ data, task_id }) {
         {versionNumber && !versionData && !versionError ? <Spin /> : null}
         {displayedResult ? <>
           <Space wrap style={{ marginBottom: 12 }}>
-            <AdoptButton review={review} selection={currentSel} />
-            {versionNumber ? null : <RefineSelectionButton taskId={task_id} selection={currentSel}
-              phases={displayedResult.highlighted_phases || displayedResult.phases || []} renderPhase={renderReference} />}
-            {quickShown ? <BackgroundEditor busy={quick.busy} disabled={quick.busy} baseDegree={baseDegree}
-              getView={() => plotRef.current?.getViewRange?.() || null}
-              onSubmit={(background, label) => runQuick({ phases: [], background, origin: 'background', label })} /> : null}
             <ReportDownloadButton taskId={task_id} selection={currentSel} disabled={review.loading || review.saving || review.dirty || !!review.error}>This fit's report</ReportDownloadButton>
             <FigureExportActions taskId={task_id} selection={currentSel} />
-            <Tooltip title="Add this fit to the comparison list used by the Compare page"><Button onClick={addToComparison}>Add to comparison</Button></Tooltip>
-            <Button onClick={() => setHelpOpen(true)}>Shortcuts (?)</Button>
           </Space>
-          {versionNumber ? <DeltaStrip rows={deltaRows} driftNote={showsDriftNote(versionData)} /> : null}
+          {versionNumber ? <DeltaStrip rows={deltaRows} /> : null}
           <div style={{ marginBottom: 12 }}>
             <FitQualitySummary quality={displayedResult.fit_quality} />
             <div style={{ marginTop: 4 }}>
@@ -1016,7 +1003,7 @@ function TaskDetail({ data, task_id }) {
               <DisplacementTag confidence={displayedResult.confidence} />
             </div>
             <FitCautions cautions={displayedResult.cautions} />
-            {quickShown ? <HintList diagnostics={displayedResult.peak_diagnostics} busy={quick.busy} onAdd={addHint} /> : null}
+            {quickShown ? <HintText diagnostics={displayedResult.peak_diagnostics} /> : null}
           </div>
           <PhaseRefinementTable phases={displayedPhases}
             metadata={displayedResult.phase_metadata} details={displayedResult.phase_details} confidence={displayedResult.confidence}
@@ -1035,10 +1022,12 @@ function TaskDetail({ data, task_id }) {
           peaks={peaks} previewSticks={preview?.sticks || null} onGroups={setPhaseGroups}
           onPeakClick={quickShown ? onPeakClick : undefined} />
       </Modal>
-      <PeakCandidatesDrawer taskId={task_id} sel={currentSel} peaks={peaks} open={drawerOpen && peaks.length > 0 && plot_id !== undefined}
+      <PeakCandidatesDrawer taskId={task_id} sel={currentSel} peaks={peaks} open={drawerOpen && plot_id !== undefined}
+        diagnostics={displayedResult?.peak_diagnostics} onAddHint={(hint, target) => { setDrawerOpen(false); addHint(hint, target); }}
         onClose={() => setDrawerOpen(false)} onPreview={setPreview} previewRef={preview?.key} onAdd={addCandidate} busy={quick.busy} />
       <FitCompare taskId={task_id} a={compare?.a} b={compare?.b} open={Boolean(compare)} onClose={() => setCompare(null)}
-        adopting={review.saving} onAdoptB={async sel => { await review.save(sel); setCompare(null); }}
+        adopting={review.saving} allResults={data.all_results} versions={store.versions} onSelect={(a, b) => setCompare({ a, b })}
+        onAdoptB={async sel => { await review.save(sel); setCompare(null); }}
         onViewB={sel => { setCompare(null); setPlotId(sel); }} />
       <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
     </>
@@ -1139,14 +1128,13 @@ function TaskPage({ location }) {
         <Title>
         <h2>Task {task_id}</h2>
         <Space>
-          {data ? <Button href={`/?clone_task=${task_id}`}>Copy conditions &amp; rerun</Button> : null}
+          {data && data.status !== 'FIZZLED' ? <Button href={`/?clone_task=${task_id}`}>Copy conditions &amp; rerun</Button> : null}
           {data && data.status === 'COMPLETED' ? (
             <DownloadButton taskId={task_id} icon={<DownloadOutlined />}>Download all</DownloadButton>
           ) : null}
           {data && !['READY','RUNNING','CANCELLING'].includes(data.status) ? (
             <Button danger icon={<DeleteOutlined />} onClick={deleteTask}>Delete</Button>
           ) : null}
-          <Button type="primary" href={`https://github.com/CederGroupHub/dara/issues/new`} target="_blank">Open Github Issue</Button>
         </Space>
         </Title>
         {data && data.status !== 'COMPLETED' ? <TaskProgress taskId={task_id} onStatusChange={handleStatusChange} /> : null}

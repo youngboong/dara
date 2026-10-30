@@ -2,7 +2,7 @@
 
 분말 XRD 상 동정과 Rietveld 정밀화를 자동으로 수행하는 웹 프로그램
 
-> 기준 버전: 저장소 main 브랜치(2026-10-28). 저장소 [youngboong/dara](https://github.com/youngboong/dara).
+> 기준 버전: 저장소 main 브랜치(2026-10-30). 저장소 [youngboong/dara](https://github.com/youngboong/dara).
 > 화면 문구는 앱의 영어 표기를 그대로 적음. 예: Submit, Results, High confidence.
 
 | 장 | 내용 |
@@ -12,7 +12,7 @@
 | 03 설치와 실행 | START.cmd, 첫 실행 과정, 자동 종료, 여러 창 |
 | 04 분석 제출 | 분석 모드, 원소·전구체, 전구체 양 입력, DB, 속도 조절, 장비·파장, CIF |
 | 05 시리즈 분석 | 여러 패턴 일괄 제출과 추세 그래프 |
-| 06 결과 보기 | 결과 목록, 신뢰도 배너, 상별 판정, 미설명 피크, 재정밀화, 그래프 조작, 질량 균형, 빠른 재정밀화와 버전, 피크 클릭 후보, 상 교체·비교, 배경 조정, 단축키, 피팅 겹쳐 비교, 실패 작업 재시도 |
+| 06 결과 보기 | 결과 목록, 신뢰도 배너, 상별 판정, 미설명 피크, 재정밀화, 그래프 조작, 질량 균형, 빠른 재정밀화와 버전, 상 추가(Add phase), 상 교체, 두 피팅 비교, 배경 조정, 단축키, 실패 작업 재시도 |
 | 07 보고서와 내보내기 | 논문형 보고서, 그림, CSV, 외부 프로그램용 파일 |
 | 08 결과 해석 시 주의 | 상대 wt%, 비정질, 계산 구조, 질량 균형 해석, 검토 원칙 |
 | 09 문제 해결 | 자주 겪는 상황과 대처 |
@@ -34,13 +34,14 @@ XRD는 직접 측정하지만 Rietveld 전용 소프트웨어는 익숙하지 �
 - 후보 사전 필터, 참조별 선별 시간 제한, 최대 분석 시간, 제출 전 예상 시간 표시
 - 결과마다 신뢰도 배너(High confidence / Check recommended / Expert review recommended)와 상별 판정
 - 설명되지 않은 피크를 significant / minor / instrument / noise로 구분하고 미량상 후보 제시
+- 완료된 작업에서 상 추가·제거·교체와 배경 조정 후 바로 재정밀화. 결과는 같은 작업의 버전으로 쌓이고 두 피팅을 나란히 비교
 - 논문형 영문 보고서, 그림(PNG/SVG), CSV 표, Profex·TOPAS·GSAS-II·HighScore용 내보내기
 
 ### 화면 구성
 
 상단 메뉴는 Submit, Results, Series, Tutorial, Documentation 순서. 서버 주소는 http://localhost:8898. 브라우저 창을 여러 개 열어도 같은 서버를 공유함.
 
-> 이 설명서의 그림은 2026-10-27 현재 화면을 캡처한 것. 시료 이름과 수치는 조작 설명용이며 검증된 분석 결과로 인용하면 안 됨.
+> 이 설명서의 그림은 2026-10-27~10-30 화면을 캡처한 것. 시료 이름과 수치는 조작 설명용이며 검증된 분석 결과로 인용하면 안 됨.
 
 ## 02 준비물
 
@@ -271,7 +272,7 @@ Reference library CIFs는 서버에 저장해 두고 여러 작업에서 다시 
 | --- | --- |
 | READY / RUNNING | 대기 중 / 분석 중. 작업 페이지에서 진행 단계와 후보 처리 수 확인. 필요하면 Stop analysis |
 | COMPLETED | 완료. 신뢰도 배너부터 확인 |
-| FIZZLED | 실패. 태그에 마우스를 올리면 원인 요약과 조치 힌트 표시 |
+| FIZZLED | 실패. 태그에 마우스를 올리면 원인 요약 표시. 옆의 Copy conditions & rerun(자동 조치가 있으면 Retry with fix도)으로 다시 제출 |
 | CANCELLING / CANCELLED | 중단 처리 중 / 중단됨 |
 
 ### 작업 페이지 첫 화면
@@ -345,35 +346,34 @@ BGMN의 EPS2를 장비 프로파일의 고니오미터 반경으로 환산해 mm
 
 ## 06 결과 보기 · 후보 비교와 재정밀화
 
-![그림 8. 작업 페이지 아래쪽. 상별 판정·정량·격자 표와 Candidate comparison 표.](images/task-high-lower.png){height=330}
+![그림 8. 작업 페이지 아래쪽(Task 18). 위는 상별 판정·정량·격자 표, 아래는 Candidate comparison 표. 점선 위치는 Versions 표 등 중간 부분 생략.](images/task-high-lower.png){height=420}
 
-(1) Edit phases: 상 선택 재정밀화 창 열기.
-(2) Verdict: 상별 판정(Confident, Ambiguous, Weak evidence).
-(3) Quantity / Lattice parameters: wt%와 격자상수, 표준편차.
-(4) Compare two candidate fits: 두 후보 피팅 겹쳐 보기. 후보가 둘 이상일 때 사용 가능.
-(5) Confidence: 후보별 신뢰도 태그. 열 머리글로 정렬 가능.
-(6) View fit / Adopt: 후보 피팅 보기와 채택.
+(1) Verdict: 상별 판정(Confident, Ambiguous, Weak evidence).
+(2) Quantity / Lattice parameters: wt%와 격자상수, 표준편차.
+(3) Compare fits: 비교 창 열기. 처음에는 A에 Best fit, B에 다음 후보가 들어감. 후보가 둘 이상일 때 사용 가능.
+(4) Confidence: 후보별 신뢰도 태그. 열 머리글로 정렬 가능.
+(5) View fit: 후보 피팅 보기.
 
 ### 후보 비교
 
-Candidate comparison 표는 Rwp, GOF, Missing, Extra, Intensity mismatch, Cautions, Confidence 열로 정렬 가능. 모든 후보에 같은 기준의 신뢰도 태그가 붙으므로 대안 상 조합도 같은 눈금으로 비교됨. 후보가 둘 이상이면 Compare two candidate fits로 두 피팅을 같은 2θ 축에 겹쳐 보고 차이가 큰 위치로 바로 이동함.
+Candidate comparison 표는 Rwp, GOF, Missing, Extra, Intensity mismatch, Cautions, Confidence 열로 정렬 가능. 모든 후보에 같은 기준의 신뢰도 태그가 붙으므로 대안 상 조합도 같은 눈금으로 비교할 수 있음. 후보가 둘 이상이면 표 위의 Compare fits로 비교 창(그림 18)을 열어 두 피팅을 같은 2θ 축에 겹쳐 봄. A와 B는 창 안에서 다시 고를 수 있음.
 
 ### 채택과 메모
 
-Adopted result & lab notes에서 과학적으로 맞다고 판단한 후보를 고르고 메모를 적은 뒤 Save review. 자동 최저 Rwp 결과와 채택 결과는 따로 저장됨. View adopted fit으로 채택한 피팅을 다시 확인.
+Adopted result & lab notes에는 메모를 적고 Save review로 저장. 채택 버튼은 Versions 표의 Adopt(그림 15)와 비교 창의 Adopt B(그림 18) 두 곳에만 있음. 후보를 채택하려면 비교 창에서 그 후보를 B로 고른 뒤 Adopt B를 누름. 후보를 채택하면 이 패널에 "★ Candidate N adopted"가 표시됨. 자동 최저 Rwp 결과와 채택 결과는 따로 저장됨.
 
-![그림 9. Edit phases → Select phases & re-refine. 체크한 상만 함께 정밀화함.](images/phase-selection.png){height=380}
+![그림 9. 피팅 창의 Select phases… 창(Task 9). 체크한 상만 다시 정밀화해 같은 작업의 새 버전으로 저장. 예시는 Rutile 체크를 해제한 상태.](images/phase-selection.png){height=380}
 
 (1) 화학식이나 COD / MP 참조 ID로 목록 거르기.
-(2) Final refinement controls: 새 작업에 쓸 최종 정밀화 조건.
-(3) 선택한 상 수 표시(최대 20).
-(4) 체크박스: 함께 정밀화할 상 선택.
-(5) Starting candidate: 원래 후보에 들어 있던 상은 Included 표시.
-(6) Run as new task: 새 작업으로 실행. 원래 결과는 유지.
+(2) 선택한 상 수 표시(최대 20).
+(3) 체크박스: 함께 정밀화할 상 선택.
+(4) In this fit: 지금 보고 있는 피팅에 들어 있는 상은 Included 표시.
+(5) Final refinement controls: 이번 재정밀화에 쓸 최종 정밀화 조건.
+(6) Re-refine and compare: 새 버전으로 재정밀화한 뒤 비교 창 열기. 선택이 지금 피팅과 같으면 꺼져 있음.
 
 ### 선택 상 재정밀화
 
-Final refined phase parameters의 Edit phases를 누르면 저장된 참조 상 목록이 열림. 넣을 상만 체크하고 Run as new task. 원래 패턴, 장비, 2θ 범위, 제외 구간, 최종 정밀화 설정을 그대로 쓰며 DB 검색은 반복하지 않음. 원래 결과는 유지되고 새 작업이 생김. 미량상 힌트가 나온 상을 추가하거나 의심스러운 상을 빼서 비교할 때 유용함.
+피팅 창 위쪽의 Select phases…를 누르면 이 작업에 저장된 참조 상 목록이 열림. 넣을 상만 체크하고 Re-refine and compare를 누르면 됨. 빠른 재정밀화(06장 결과 수정과 버전)로 처리되므로 새 작업은 생기지 않고 같은 작업에 버전이 하나 늘어남. 끝나면 원래 피팅(A)과 새 버전(B)의 비교 창이 열림. 패턴, 장비, 2θ 범위, 제외 구간은 원래 값 그대로 쓰고 DB 검색은 다시 하지 않음. 원래 결과도 그대로 남음. 의심스러운 상을 빼 보거나 저장된 다른 참조로 바꿔 비교할 때 유용함.
 
 ## 06 결과 보기 · 피팅 그래프 조작
 
@@ -388,7 +388,7 @@ Final refined phase parameters의 Edit phases를 누르면 저장된 참조 상 
 
 ### 마우스 조작
 
-작업 페이지의 View fit, Visualize final result, Visualize result 창과 Compare two candidate fits 창, Results의 Compare selected로 여는 패턴 비교 화면이 같은 방식으로 움직임.
+작업 페이지의 View fit, Visualize final result, Visualize result 창과 Compare fits 비교 창, Results의 Compare selected로 여는 패턴 비교 화면이 같은 방식으로 움직임.
 
 <!-- widths: 150,337 -->
 | 동작 | 결과 |
@@ -440,54 +440,52 @@ Final refined phase parameters의 Edit phases를 누르면 저장된 참조 상 
 - 이 점검만으로 등급이 Expert review recommended까지 올라가지는 않음.
 - 예: Fe2O3 + 2 TiO2(Fe:Ti = 1:1)가 Fe2TiO5 + TiO2로 반응했다면 75 wt% Fe2TiO5, 25 wt% TiO2가 나와야 함. 26.8/73.2로 정량된 결과는 Fe:Ti = 0.18:0.82(편차 0.32)라 warning.
 - 문턱값 근거: 쌍 반응 기준 시료 20개의 전문가 정밀화 중 12개는 0.07 미만, 5개는 0.11~0.17(미동정 물질이나 모델에 빠진 상), 3개는 0.29 초과.
-- 결과는 보고서의 질량 균형 문단과 표(그림 25), Table (CSV)와 Export table의 mass_balance_deviation 열에도 남음.
+- 결과는 보고서 4.2 Mass balance 문단과 Table 4(그림 24), Table (CSV)와 Export table의 mass_balance_deviation 열에도 남음.
 
 ## 06 결과 보기 · 결과 수정과 버전
 
 완료된 작업에서 상을 더하거나 빼고 배경 조건을 바꿔 그 자리에서 다시 정밀화할 수 있음(빠른 재정밀화). 결과는 같은 작업 안에 v2, v3 … 버전으로 쌓이고 원래 자동 분석(v1)은 그대로 남음.
 
-![그림 13. 미량상 힌트의 Add and re-refine을 누른 직후(Task 9). 피팅 창 위쪽에 진행 막대가 뜸.](images/quick-hint-progress.png){height=190}
+![그림 13. Add phase 창에서 미량상 Fe2O3의 Add를 누른 직후(Task 9). 피팅 창 위쪽에 진행 막대가 뜸. 예전 코드로 끝난 작업이라 자동 기준 재계산이 먼저 돌고 있어 Queued (1 ahead)로 표시됨.](images/quick-progress.png){height=110}
 
-(1) 미량상 힌트와 Add and re-refine. 힌트의 상을 넣고 다시 정밀화해 새 버전 생성.
-(2) 진행 막대의 작업 이름(Added Fe2O3 (hint))과 현재 단계(BGMN refinement).
-(3) 경과 시간(4 s)과 남은 시간 추정(15 s left).
+(1) Add phase…: 상 추가 창 열기(그림 16).
+(2) 진행 막대의 작업 이름(Added Fe2O3 (hint))과 현재 단계. 여기서는 앞선 기준 재계산을 기다리는 중(Queued (1 ahead)).
+(3) 경과 시간. 실행 단계에 들어가면 남은 시간 추정(… left 또는 estimating…)도 함께 나옴.
 (4) Cancel: 진행 중인 재정밀화 취소.
 
 ### 빠른 재정밀화
 
-- DB 검색과 후보 탐색을 다시 하지 않음. 바꾼 상 조합만 정밀화.
+- 시작하는 곳: 피팅 창의 Add phase…(상 추가), Select phases…(상 선택), 상 표의 Swap·Remove, Advanced → Background…(배경 조건).
+- DB 검색과 후보 탐색은 다시 하지 않음. 바꾼 상 조합만 정밀화.
 - 정밀화 조건은 자동 분석의 최종 정밀화와 같음. 패턴, 장비 프로파일, 파장, 2θ 범위, 제외 구간, Final refinement controls를 그대로 씀.
-- 대기열을 거치지 않고 서버 안에서 바로 시작함. 걸리는 시간은 거의 BGMN 계산 시간. Task 9 실측: 상 2개 16 s, 상 3개 24 s.
+- 대기열을 거치지 않고 서버 안에서 바로 시작함. 걸리는 시간은 대부분 BGMN 계산 시간. Task 9 실측: 상 2개 16 s, 상 3개 21~24 s.
 - 진행 단계는 Queued → Preparing inputs → BGMN refinement → Peak diagnostics → Storing version 순.
 - 남은 시간은 같은 작업에서 상 수와 배경 항 수가 같은 이전 버전의 BGMN 시간(중앙값)으로 추정. 비교할 버전이 없으면 "estimating…" 표시.
-- 한 작업에서는 한 번에 하나만 실행. 다른 작업의 재정밀화가 먼저 돌고 있으면 "Queued (n ahead)" 표시.
-- 피팅 창을 닫아도 계속 진행되고 페이지를 새로 고쳐도 진행 막대가 다시 붙음.
-- Cancel을 누르면 "Re-refinement cancelled." 표시 후 버전을 만들지 않음. 실패하면 빨간 알림에 원인이 나옴.
-- 끝나면 "Version vN ready (Rwp …%)" 알림과 함께 피팅 창이 새 버전으로 바뀜.
+- 한 작업에서는 한 번에 하나만 실행. 앞에 다른 재정밀화가 있으면 "Queued (n ahead)" 표시.
+- 피팅 창을 닫아도 계속 진행되고 페이지를 새로 고쳐도 진행 막대가 다시 나타남.
+- Cancel을 누르면 "Re-refinement cancelled." 표시되고 버전은 만들어지지 않음. 실패하면 빨간 알림에 원인이 나옴.
+- 끝나면 "Version vN ready (Rwp …%)" 알림과 함께 피팅 창이 새 버전으로 바뀜. Select phases…, Swap, Remove로 만든 버전은 비교 창이 바로 열림.
 
-Edit phases → Run as new task(그림 9)는 별도 작업을 새로 만들어 대기열에서 실행함. 빠른 재정밀화는 같은 작업 안에 버전만 추가하므로 상 하나를 넣거나 빼 보는 비교에 더 적합함.
-
-![그림 14. 버전 v3를 연 피팅 창(Task 9). 기준 피팅 대비 변화가 태그로 나옴.](images/version-delta.png){height=140}
+![그림 14. 버전 v3(Fe2O3 추가)를 연 피팅 창(Task 9). 기준 피팅 대비 변화가 태그로 나옴.](images/version-delta.png){height=150}
 
 (1) 표시할 피팅 선택. Best fit, 후보, 버전(v2, v3 …) 순으로 나열.
-(2) Change from the base fit: 기준 피팅 대비 Rwp, GOF, χ², 미설명 피크 수, 상별 wt% 변화. 좋아진 값은 초록, 나빠진 값은 주황.
-(3) 기준이 v1일 때 붙는 안내. v1은 작업 실행 당시 코드로 계산됐다는 뜻.
-(4) 이 버전의 신뢰도 등급. 버전마다 새로 판정함.
+(2) Change from the base fit: 기준 피팅 대비 Rwp, GOF, χ², 미설명 피크 수, 상별 wt% 변화. 좋아진 값은 초록, 나빠진 값은 주황. 여기서 기준은 자동 기준 재계산 버전 v2.
+(3) 이 버전의 신뢰도 등급. 버전마다 새로 판정함.
 
-### 미량상 힌트에서 추가
+### 미량상 힌트
 
-피팅 창의 Review cautions 아래에 "Trace Fe2O3 (R-3c) matches 33.44°, 35.89°" 같은 힌트가 줄마다 나오고 오른쪽에 Add and re-refine 버튼이 붙음. 누르면 그 상을 넣어 바로 재정밀화함(라벨 "Added Fe2O3 (hint)"). 로컬에 CIF가 없는 참조나 다른 재정밀화가 도는 중에는 버튼이 꺼짐. Candidate comparison 표의 Missing 칸에 마우스를 올려도 같은 힌트를 볼 수 있음.
+피팅 창의 Review cautions 아래에 "Trace Fe2O3 (R-3c) matches 33.44°, 35.89°" 같은 힌트가 회색 글씨로 줄마다 나오고, 끝에 "Use “Add phase…” to add one of these." 안내가 붙음. 힌트 자체에는 버튼이 없음. 추가는 Add phase 창의 Suggested by DARA에서 함(그림 16). 추가한 버전의 라벨은 "Added Fe2O3 (hint)" 형식. Candidate comparison 표의 Missing 칸에 마우스를 올려도 같은 힌트를 볼 수 있음.
 
 ## 06 결과 보기 · 버전 관리
 
-![그림 15. Versions 표(Task 9). v1 자동 분석, v2 기준 재계산, v3 힌트 추가, v4 배경 변경. v3를 채택한 상태.](images/versions-panel.png){height=230}
+![그림 15. Versions 표(Task 9). v1 자동 분석, v2 자동 기준 재계산, v3 힌트 추가, v4 배경 변경. v3를 채택한 상태.](images/versions-panel.png){height=250}
 
 (1) Versions 제목과 채택 표시(v3 adopted).
-(2) Re-refine baseline: 원래 상 조합을 현재 코드로 다시 정밀화.
+(2) 채택한 버전의 Version 칸에 붙는 ★.
 (3) Origin: 버전을 만든 방법.
 (4) Rwp (%), GOF, Phases, Unexplained: 버전별 적합도, 상 목록, 미설명 피크 수.
-(5) View / Compare: 피팅 창에서 열기 / 채택 결과(없으면 v1)와 나란히 비교.
-(6) Adopt: 이 버전을 채택하고 현재 lab notes도 함께 저장.
+(5) View / Compare: 피팅 창에서 열기 / 비교 창 열기. A는 채택 결과, 채택이 없으면 기준 피팅.
+(6) Adopt: 이 버전을 채택하고 현재 lab notes도 함께 저장. 채택된 행에는 Adopted로 표시.
 (7) Report: 이 버전의 논문형 보고서.
 (8) Export: 이 버전을 Profex, TOPAS, GSAS-II, HighScore 형식으로 내보내기.
 (9) 삭제(휴지통). v1과 채택 중인 버전은 삭제 불가.
@@ -500,100 +498,110 @@ Edit phases → Run as new task(그림 9)는 별도 작업을 새로 만들어 �
 | Origin | 만든 방법 |
 | --- | --- |
 | Automatic | 자동 분석 결과(v1) |
-| Hint | 미량상 힌트의 Add and re-refine |
-| Peak search | 피크 클릭 후보 창의 Add and re-refine |
-| Swap / Remove | 상 표의 Swap·Switch / Remove |
-| Background | Background… 창의 Re-refine |
-| Manual | Re-refine baseline 등 그 밖의 재정밀화 |
+| Hint | Add phase 창 Suggested by DARA의 Add |
+| Peak search | Add phase 창 Search by clicked peaks의 Add |
+| Swap / Remove | 상 표의 Swap / Remove |
+| Background | Advanced → Background… 창의 Re-refine |
+| Manual | Select phases…의 Re-refine and compare, 자동 기준 재계산(Baseline (current code)) |
 
 - 지운 버전 번호는 다시 쓰지 않음. 채택 중인 버전을 지우려면 다른 결과를 먼저 채택해야 함("Un-adopt first").
-- 채택한 버전은 Adopted result & lab notes의 View adopted fit과 Report (saved choice)에 쓰임. 선택을 지정하지 않고 받는 보고서·내보내기도 채택 결과 기준.
+- 채택한 버전은 Report (saved choice)에 쓰임. 선택을 지정하지 않고 받는 보고서·내보내기도 채택 결과 기준.
 
-### Re-refine baseline과 기준 차이
+### 자동 기준 재계산
 
-v1은 작업을 실행한 당시의 코드로 정밀화된 결과임. 이후 코드가 바뀌었다면 새 버전과 v1의 차이에는 상 조합 효과와 코드 변경 효과가 섞임. 그래서 v1을 기준으로 한 변화 표시에는 "v1 was refined when the task ran; re-refine the baseline to compare with the current code." 안내가 붙음(그림 14의 (3)). Re-refine baseline을 누르면 원래 상 조합을 현재 코드로 다시 계산한 버전(라벨 "Baseline (current code)")이 생기고, 끝나면 v1과의 비교 창이 열림. 이 버전과 다른 버전을 비교하면 상 조합 효과만 볼 수 있음. Task 9는 v1과 기준 재계산이 모두 Rwp 2.96%로 같았음.
+2026-10-28 이전에 끝난 작업의 v1은 예전 정밀화 코드로 계산된 결과임. 이런 작업에서 처음 재정밀화를 하면 DARA가 원래 상 조합을 현재 코드로 다시 계산한 버전(라벨 "Baseline (current code)")을 먼저 대기열에 넣음. 그림 13의 Queued (1 ahead)가 이 경우임. 이후 변화 표시(그림 14)와 비교 창은 이 버전을 기준(A)으로 쓰므로 코드 변경 효과가 빠지고 상 조합 효과만 남음. 새로 실행한 작업은 v1이 이미 현재 코드라 기준 재계산이 생기지 않음. 따로 누를 버튼은 없음. Task 9에서는 v1과 기준 재계산의 Rwp가 2.96%로 같았음.
 
-## 06 결과 보기 · 피크 클릭과 상 교체
+## 06 결과 보기 · 상 추가와 교체
 
-![그림 16. 피팅 그래프에서 미설명 피크 두 개(33.44°, 35.89°)를 고른 뒤 열린 후보 창(Task 9). 첫 후보의 반사 위치를 미리 표시한 상태.](images/peak-drawer.png){height=380}
+![그림 16. Add phase 창(Task 9). 미설명 피크 두 개(33.44°, 35.89°)를 고른 뒤 첫 후보의 반사 위치를 미리 표시한 상태.](images/add-phase-drawer.png){height=380}
 
 (1) 고른 피크 위치(빨간 점선). 보라색 세로선은 Preview ticks로 띄운 후보의 반사 위치.
 (2) Selected peaks: 고른 피크 칩(×로 하나씩 해제), Show candidates, Clear.
-(3) 후보 창 제목. 고른 피크 위치 표시.
-(4) 후보 정보: 화학식, 공간군, 출처(This task, Library, COD), 점수 막대, 맞은 피크 수, 강한 반사 수, 참조 이름.
-(5) Preview ticks / Hide ticks: 후보의 반사 위치를 그래프에 겹쳐 보기.
-(6) Add and re-refine: 이 후보를 넣어 재정밀화.
+(3) Suggested by DARA: 미량상 힌트 목록. Add를 누르면 그 상을 넣어 재정밀화.
+(4) Search by clicked peaks: 고른 피크 위치로 찾은 후보 목록.
+(5) 후보 정보: 화학식, 공간군, 출처(This task, Library, COD), 점수 막대, 맞은 피크 수, 강한 반사 수, 참조 이름.
+(6) Preview ticks / Hide ticks: 후보의 반사 위치를 그래프에 겹쳐 보기.
+(7) Add: 이 후보를 넣어 재정밀화.
 
-### 피크 클릭으로 후보 찾기
+### Add phase 창
 
-- 미설명 피크 표시(삼각형)나 관측점을 클릭하면 그 피크가 선택되고 오른쪽에 후보 창이 열림. 관측점은 0.3° 안의 미설명 피크 표시, 없으면 ±0.15° 안의 극대점으로 맞춰짐.
+피팅 창의 Add phase…를 누르거나 그래프에서 피크를 클릭하면 오른쪽에 열림. 위쪽은 DARA가 제안하는 상, 아래쪽은 직접 고른 피크로 찾는 상.
+
+- Suggested by DARA: 미량상 힌트가 줄마다 나오고 오른쪽에 Add가 붙음. 로컬 CIF가 없는 참조이거나 다른 재정밀화가 도는 중에는 Add가 꺼짐. 힌트가 없으면 "No trace-phase suggestions for this fit." 표시.
+- Search by clicked peaks: 미설명 피크 표시(삼각형)나 관측점을 클릭하면 그 피크가 선택되고 후보 검색이 시작됨. 관측점은 0.3° 안의 미설명 피크 표시, 없으면 ±0.15° 안의 극대점으로 맞춰짐.
 - Shift+클릭으로 피크를 더함(최대 10개). 같은 피크를 다시 Shift+클릭하면 빠짐.
 - 후보는 이 작업의 후보 구조, 입력 CIF, 참조 라이브러리, 로컬 COD 캐시에서 찾음. 첫 검색은 15초까지 걸릴 수 있고 COD를 더 찾는 중이면 "Still searching COD…" 표시.
 - 점수는 고른 피크를 얼마나 설명하는지 기준. 그 상의 강한 반사가 데이터에 안 보이면 "… not seen in the data"가 붙고 점수가 내려감. 점수만으로 존재를 판정하지 말고 Preview ticks로 다른 반사 위치도 확인할 것.
-- 로컬 CIF가 없는 후보는 Add and re-refine이 꺼짐. 추가한 버전의 라벨은 "Added … (peak search)".
+- 로컬 CIF가 없는 후보는 Add가 꺼짐. 추가한 버전의 라벨은 "Added … (peak search)".
 - Esc를 누르면 피크 선택이 먼저 지워지고 한 번 더 누르면 피팅 창이 닫힘.
 
-![그림 17. 피팅 창의 상 표(Task 18). Ambiguous로 판정된 Calcite 행에 Swap 버튼이 붙음.](images/phase-swap.png){height=140}
+![그림 17. 피팅 창의 상 표. 위는 Task 18(Calcite에 Swap), 아래는 Task 19(대안이 다른 후보 상 조합인 TiNb·Nb2Al에 View candidate). 점선은 서로 다른 작업 화면의 경계.](images/phase-swap.png){height=330}
 
-(1) Ambiguous 판정. 거의 같은 Rwp로 다른 구조 모델을 쓴 후보가 있음.
-(2) Swap: 대안 구조 모델로 바꿔 재정밀화 후 비교.
+(1) Ambiguous 판정. 거의 같은 Rwp로 다른 모델을 쓴 후보가 있음.
+(2) Swap: 같은 화합물의 다른 구조 모델로 바꿔 재정밀화 후 비교.
 (3) Remove: 이 상을 빼고 재정밀화 후 비교. 상이 2개 이상일 때만 표시.
+(4) View candidate N: 대안 후보 N의 저장된 피팅 보기. 다시 계산하지 않음.
 
-### Swap, Switch, Remove
+### Swap, Remove, View candidate
 
-피팅 창의 상 표 Actions 열에 나옴. 상별 판정 근거에 대안 후보가 있을 때만 Swap 또는 Switch가 보임.
+피팅 창의 상 표 Actions 열에 나옴. 상별 판정 근거에 대안 후보가 있을 때만 Swap 또는 View candidate N이 보임.
 
-<!-- widths: 80,407 -->
+<!-- widths: 110,377 -->
 | 버튼 | 동작 |
 | --- | --- |
 | Swap | 같은 화합물의 다른 구조 모델(다른 공간군·다형)로 이 상만 바꿈. 다른 상은 그대로 |
-| Switch | 대안 후보 N의 상 조합으로 통째로 바꿈. 없는 상은 넣고 후보에 없는 상은 뺌 |
 | Remove | 이 상만 빼고 다시 정밀화 |
+| View candidate N | 대안이 다른 상 조합인 후보 N일 때 표시. 그 후보의 저장된 피팅으로 화면만 바꿈. 재정밀화와 새 버전 없음 |
 
-세 버튼 모두 끝나면 원래 피팅(A)과 새 버전(B)을 나란히 보는 비교 창이 바로 열림.
+Swap이나 Remove가 끝나면 원래 피팅(A)과 새 버전(B)을 나란히 보는 비교 창이 바로 열림. View candidate로 본 후보를 채택하려면 비교 창에서 그 후보를 B로 고른 뒤 Adopt B를 누름.
 
 ## 06 결과 보기 · 두 피팅 비교(FitCompare)
 
-![그림 18. Swap 직후 열린 비교 창(Task 18). Calcite R-3c를 P12₁/c1 모델로 바꾸자 Rwp가 11.43%에서 11.85%로 오르고 미설명 피크가 2개에서 6개로 늘어 A가 더 나음.](images/fit-compare.png){height=470}
+![그림 18. Compare fits — same measured pattern 창(Task 18). A는 자동 기준 재계산 v3, B는 CaCO3를 뺀 v4. B는 Rwp가 11.43%에서 24.03%로 오르고 미설명 피크가 2개에서 18개로 늘어 A가 더 나음.](images/fit-compare.png){height=470}
 
-(1) A·B 이름과 판정 태그(A fits better, B fits better, Similar fit). 괄호 안은 B - A의 Rwp 차이.
-(2) Adopt B / Keep A / View B. B 채택, 채택 변경 없이 닫기, B를 피팅 창에서 열기.
-(3) 지표 표: Rwp, GOF, χ², 상별 wt%, Mass balance, Unexplained peaks, Cautions.
-(4) 관측점과 두 계산 패턴. A는 파란 실선, B는 주황 점선.
-(5) 두 피팅의 관측-계산 잔차.
-(6) 두 계산 패턴이 가장 크게 다른 2θ 위치. 누르면 그 구간으로 확대. 그래프에서는 노란 띠로 표시.
+(1) Fit A / Fit B 선택 상자. Best fit, 후보, 버전 중에서 고름.
+(2) 판정 태그(A fits better, B fits better, Similar fit). 괄호 안은 B − A의 Rwp 차이.
+(3) Adopt B / Keep A / View B. B 채택, 채택 변경 없이 닫기, B를 피팅 창에서 열기.
+(4) 지표 표: Rwp, GOF, χ², 상별 wt%, Mass balance, Unexplained peaks, Cautions.
+(5) 관측점과 두 계산 패턴. A는 파란 실선, B는 주황 점선.
+(6) 두 피팅의 관측-계산 잔차.
+(7) 두 계산 패턴이 가장 크게 다른 2θ 위치. 누르면 그 구간으로 확대. 그래프에서는 노란 띠로 표시.
 
 ### 비교 창 읽기
 
-- 같은 측정 패턴의 두 피팅을 같은 축에 겹쳐 보여 줌. 확대·이동 방식은 다른 피팅 그래프와 같음.
+- 여는 곳: Candidate comparison 표 위의 Compare fits, Versions 표의 Compare. Select phases…, Swap, Remove로 재정밀화가 끝났을 때도 자동으로 열림.
+- 같은 작업, 같은 측정 패턴의 두 피팅만 비교함. 서로 다른 시료의 측정 패턴을 겹쳐 보려면 Results의 Compare selected 사용.
+- A와 B는 창 위쪽 선택 상자에서 언제든 바꿀 수 있음. 확대·이동 방식은 다른 피팅 그래프와 같음.
 - Keep A를 눌러도 B 버전은 Versions 표에 남음. 나중에 Compare 버튼으로 다시 열 수 있음.
-- Adopt B는 B를 채택하면서 현재 lab notes를 함께 저장함.
-- 노란 띠는 두 모델이 서로 다른 구간일 뿐, 어느 쪽이 맞다는 증거는 아님. Rwp 하나보다 잔차, 상의 화학 조성, 물리적 타당성을 함께 볼 것.
+- Adopt B는 후보든 버전이든 B를 채택하면서 현재 lab notes를 함께 저장함.
+- 노란 띠는 두 모델이 서로 다른 구간을 나타낼 뿐, 어느 쪽이 맞다는 증거는 아님. Rwp 하나보다 잔차, 상의 화학 조성, 물리적 타당성을 함께 볼 것.
 
 ## 06 결과 보기 · 배경 조정과 단축키
 
-![그림 19. 피팅 창의 Background… 설정 창. Auto를 끄고 배경 다항식 항 12개, 제외 구간 14–18°를 넣은 예.](images/background-popover.png){height=280}
+![그림 19. 피팅 창의 Advanced 메뉴(위)와 Background 창(아래). Auto를 끄고 배경 다항식 항 12개, 제외 구간 14–18°를 넣은 예.](images/background.png){height=330}
 
-(1) Background…: 배경 설정 창 열기.
-(2) Background polynomial terms: Auto(BGMN이 결정) 또는 항 수 2~20 직접 지정.
-(3) Exclude a hump: 피팅에서 뺄 2θ 구간(비정질 언덕 등). Add interval로 추가, Use current view로 지금 보이는 2θ 범위를 그대로 추가, 휴지통으로 삭제.
-(4) 주의 문구. 배경이나 제외 구간을 바꾸면 Rwp도 바뀌므로 같은 조건의 피팅끼리만 비교.
-(5) Re-refine: 이 조건으로 재정밀화. 라벨 예 "Background: 12 terms".
+(1) Advanced: 고급 메뉴 열기.
+(2) Background…: 배경 설정 창 열기.
+(3) Background polynomial terms: Auto(BGMN이 결정) 또는 항 수 2~20 직접 지정.
+(4) Exclude a hump: 피팅에서 뺄 2θ 구간(비정질 언덕 등). Add interval로 추가, Use current view로 지금 보이는 2θ 범위를 그대로 추가, 휴지통으로 삭제.
+(5) 주의 문구. 배경이나 제외 구간을 바꾸면 Rwp도 바뀌므로 같은 조건의 피팅끼리만 비교.
+(6) Re-refine: 이 조건으로 재정밀화. 라벨 예 "Background: 12 terms".
 
 ### 배경 조정 시 주의
 
+- 배경 설정은 피팅 창 도구 모음의 Advanced 메뉴 안에 있음. Background…를 고르면 별도 창이 열림.
 - 항 수를 늘리면 BGMN 계산이 크게 느려짐. Task 9에서 Auto는 16~24 s, 12항은 98 s 걸림. 남은 시간 추정도 같은 항 수의 이전 버전만 참고하므로 처음에는 "estimating…" 표시.
-- 배경을 바꾼 버전에는 "Background model or excluded ranges changed from the original analysis; compare Rwp only with fits that use the same ranges." caution이 붙음. Rwp가 낮아졌다고 모델이 나아졌다고 보면 안 됨.
+- 배경을 바꾼 버전에는 "Background model or excluded ranges changed from the original analysis; compare Rwp only with fits that use the same ranges." caution이 붙음. Rwp가 낮아졌다고 해서 모델이 나아졌다고 보면 안 됨.
 - 추가한 제외 구간은 그래프에 음영으로 표시되고 원래 작업의 제외 구간 위에 더해짐.
 
-![그림 20. 피팅 창에서 ?를 눌러 연 Keyboard shortcuts 창.](images/shortcuts.png){height=230}
+![그림 20. 피팅 창 도구 모음(위)과 ?를 눌러 연 Keyboard shortcuts 창(아래).](images/shortcuts.png){height=300}
 
-(1) Shortcuts (?): 단축키 표 열기. ?키와 같음.
+(1) "← / → to switch fits" 안내. 마우스를 올리면 ?로 전체 단축키를 볼 수 있다는 설명이 뜸.
 (2) 단축키 표.
 
 ### 키보드 단축키
 
-피팅 창(View fit, Visualize final result 등)이 열려 있을 때만 동작함. 비교 창이 떠 있으면 꺼짐.
+피팅 창(View fit, Visualize final result 등)이 열려 있을 때만 동작함. 비교 창이 떠 있으면 꺼짐. 단축키 표를 여는 버튼은 따로 없음. 피팅 창에서 ?를 누르면 Keyboard shortcuts 창이 열림.
 
 <!-- widths: 90,397 -->
 | 키 | 동작 |
@@ -605,37 +613,19 @@ v1은 작업을 실행한 당시의 코드로 정밀화된 결과임. 이후 코
 | Esc | 피크 선택 해제, 선택이 없으면 피팅 창 닫기. 오른쪽 끌기 확대 중에는 상자만 취소 |
 | ? | 단축키 표 보기 |
 
-입력란, 선택 상자, 숫자 칸에 글자를 치는 중에는 단축키가 동작하지 않음(lab notes 작성, Background… 숫자 입력 등). Ctrl, Alt, Cmd를 함께 누른 경우도 무시함.
+입력란, 선택 상자, 숫자 칸에 글자를 치는 중에는 단축키가 동작하지 않음(lab notes 작성, Background 숫자 입력 등). Ctrl, Alt, Cmd를 함께 누른 경우도 무시함.
 
-## 06 결과 보기 · 피팅 겹쳐 비교와 실패 작업 재시도
+## 06 결과 보기 · 실패 작업 재시도
 
-![그림 21. Compare fits 화면(?fits=9:best,9:version:3). Task 9의 best fit(파랑)과 v3(주황) 계산 패턴이 거의 겹침. 아래 패널에 A - B 차이 표시.](images/compare-fits.png){height=440}
-
-(1) Compare fits 화면. Back to Results, Measured patterns only(측정 패턴 비교로 전환), Clear stored comparison list.
-(2) Show calculated / Show observed: 계산 패턴, 관측 패턴 표시.
-(3) Show difference A - B: 목록 첫 두 피팅의 차이를 아래 패널에 표시. 피팅이 2개 이상일 때 사용 가능.
-(4) 겹친 계산 패턴. Normalize max intensity to 100, Vertical offset으로 보기만 조정.
-(5) A - B 차이 패널.
-(6) 피팅 목록: Fit, Pattern, Rwp (%), Points, Wavelength (Å). 이름을 누르면 그 작업으로 이동.
-
-### 여러 피팅 겹쳐 보기
-
-- 피팅 창의 Add to comparison을 누르면 그 피팅(최적 결과, 후보, 버전)이 브라우저에 저장된 비교 목록에 들어감. 알림의 Open comparison으로 바로 열 수 있음.
-- 목록은 최대 6개이며 넘치면 오래된 것부터 빠짐. Compare 화면 위쪽 "N fits in your comparison list" 알림의 Compare fits 버튼으로도 열림.
-- 주소는 /compare?fits=작업:선택 형식. 선택은 best, 후보 번호(0부터), version:n. 예: /compare?fits=9:best,9:version:3.
-- Show phase markers를 켜면 상별 반사 위치가 0 아래에 표시됨.
-- 파장이 다른 피팅이 섞이면 "Check the radiation before comparing peak positions." 경고. 같은 2θ가 같은 d를 뜻하지 않음.
-- Rwp는 같은 데이터, 같은 피팅 범위끼리만 비교 가능.
-
-![그림 22. 실패 작업(Task 16, EFLECH 시간 초과) 페이지(위)와 Results 목록의 Retry(아래, Task 24).](images/retry.png){height=230}
+![그림 21. 실패 작업(Task 16, EFLECH 시간 초과) 페이지(위)와 Results 목록의 FIZZLED 행(아래, Task 24). 두 작업 모두 자동 조치가 없는 원인이라 Copy conditions & rerun만 보임.](images/retry.png){height=230}
 
 (1) 실패 원인 요약과 조치 힌트.
-(2) Retry unchanged: 같은 조건으로 새 작업 실행. 자동 조치가 있는 원인이면 왼쪽에 Retry with suggested fix (…) 버튼이 함께 나옴.
-(3) Results 목록의 Retry: 확인 후 같은 조건으로 재실행.
+(2) Copy conditions & rerun: 원래 패턴과 조건이 채워진 Submit 화면 열기. 자동 조치가 있는 원인이면 왼쪽에 Retry with suggested fix (…) 버튼이 함께 나옴.
+(3) Results 목록의 Copy conditions & rerun. 자동 조치가 있으면 앞에 Retry with fix가 붙음.
 
 ### 실패 작업 재시도
 
-FIZZLED 작업 페이지 위쪽에 원인 요약과 재시도 버튼이 나옴. 어느 버튼이든 새 작업을 만들고 실패한 작업은 그대로 남기며 새 작업 페이지로 이동함. Retry with suggested fix를 누르면 바꿀 설정 목록(설정 이름 → 새 값)을 먼저 보여 주고 Retry with fix로 확정함.
+FIZZLED 작업 페이지 위쪽에 원인 요약과 버튼이 나옴. Retry with suggested fix (…)는 자동 조치가 있는 원인일 때만 보임. 누르면 바꿀 설정 목록(설정 이름 → 새 값)을 먼저 보여 주고 Retry with fix로 확정함. 그러면 새 작업이 대기열에 들어가고 새 작업 페이지로 이동함. 실패한 작업은 그대로 남음. Copy conditions & rerun은 원래 조건이 채워진 Submit 화면을 열어 줌. 값을 고쳐 제출하면 되고, 그대로 다시 돌리려면 바로 Submit. Results 목록의 FIZZLED 행에도 같은 두 버튼(Retry with fix, Copy conditions & rerun)이 있으며 Retry with fix는 확인 창을 한 번 거침.
 
 <!-- widths: 150,337 -->
 | 원인 | Retry with suggested fix가 바꾸는 것 |
@@ -645,37 +635,57 @@ FIZZLED 작업 페이지 위쪽에 원인 요약과 재시도 버튼이 나옴. 
 | 메모리 부족 | Retry with fewer MP structures and the candidate pre-filter. Candidate pre-filter 켜기, MP 구조 수 최대 50 |
 | 후보 구조 없음 | Retry with COD enabled and more MP structures. COD 켜기, MP 사용 시 구조 수 300 이상 |
 | 모든 후보 최종 정밀화 실패 | Retry with lattice refinement limited to 3 %. 격자 변화 3% 제한 |
-| EFLECH 시간 초과, 중단, 피크 없음, BGMN 오류, Ray 오류 | 자동 조치 없음. Retry unchanged만 표시 |
+| EFLECH 시간 초과, 중단, 피크 없음, BGMN 오류, Ray 오류 | 자동 조치 없음. Copy conditions & rerun만 표시 |
 
-- EFLECH(피크 검출)는 고정 시간 제한이 있어 선별 시간을 늘려도 소용없음. 2θ 범위를 좁히거나 잡음 구간을 제외 구간으로 빼서 Copy conditions & rerun으로 다시 제출할 것.
-- 선택 상 재정밀화로 만든 작업은 Retry unchanged만 가능.
-- 이미 시간 제한이 최댓값이라 바꿀 값이 없으면 자동 조치 버튼 대신 안내 메시지가 나옴.
+- EFLECH(피크 검출)는 고정 시간 제한이 있어 선별 시간을 늘려도 소용없음. Copy conditions & rerun에서 2θ 범위를 좁히거나 잡음 구간을 제외 구간으로 빼서 다시 제출할 것.
+- 이미 시간 제한이 최댓값이라 바꿀 값이 없으면 새 작업 대신 안내 메시지가 나옴.
 
 ## 07 보고서와 내보내기
 
-![그림 23. 논문형 영문 보고서(HTML) 앞부분. Summary, Experimental and methods, 기록된 조건 순으로 이어짐.](images/report.png){height=330}
+![그림 22. 논문형 영문 보고서(HTML) 앞부분(Task 22). 제목, 1 Summary, 2 Experimental and methods, Table 1 순으로 이어짐.](images/report.png){height=360}
 
-(1) 제목과 작업 정보: Task 번호, 생성 시각, 최저 Rwp.
-(2) Summary: 종합 판정과 상별 정량 요약.
-(3) Experimental and methods: 측정·정밀화 방법 문단.
-(4) Recorded settings: 기록된 분석 조건 표.
+(1) 제목 "XRD phase analysis — 파일 이름"과 작성 정보 줄(Task 번호 · 생성 날짜 · DARA 버전).
+(2) 1. Summary: 종합 판정, 상별 wt% ± esd, Rwp·GOF, 질량 균형 요약.
+(3) 2. Experimental and methods: 측정·정밀화 방법 문단. 참고문헌 번호 [1]~[5]가 붙음.
+(4) Table 1. Analysis conditions: 분석 모드, 원소, 전구체, DB, 장비 프로파일, 파장, 2θ 범위, 최종 정밀화 조건 등.
 
 ### 논문형 보고서
 
-Best-fit report는 최저 Rwp 결과, Report (saved choice)는 채택한 후보(없으면 최저 Rwp)를 보고서로 내보냄. 인터넷 없이 열리는 단일 HTML 파일이며 Summary, Experimental and methods, Results, 표, 그림, 참고문헌으로 구성. 방법 문단에는 DARA·BGMN 버전, 파장, 고니오미터 반경, 데이터 범위, 정밀화 변수가 문장으로 들어가 논문 초안에 옮기기 쉬움. PDF가 필요하면 브라우저에서 열고 Ctrl+P → PDF로 저장.
+Best-fit report는 자동 최저 Rwp 결과를, Report (saved choice)는 채택한 결과(없으면 최저 Rwp)를 보고서로 내보냄. 피팅 창의 This fit's report와 Versions 표의 Report는 지금 보고 있는 피팅이나 그 버전을 내보냄. 인터넷 없이 열리는 단일 HTML 파일임. 표는 논문식 흑백 괘선 표(booktabs 형식)이고 표마다 위에 번호 붙은 제목이 달림.
 
-![그림 24. 보고서 Results의 표 부분(피팅 그림은 그림 26과 같아 생략).](images/report-tables.png){height=450}
+<!-- widths: 150,337 -->
+| 절 | 내용 |
+| --- | --- |
+| 제목·작성 정보 | "XRD phase analysis — 파일 이름", Task 번호 · 날짜 · DARA 버전. 채택 결과나 버전을 내보낸 경우 어떤 결과인지 한 줄 더 표시 |
+| 1. Summary | 종합 판정, 상별 정량, Rwp·GOF, 질량 균형 요약 |
+| 2. Experimental and methods | 방법 문단과 Table 1 Analysis conditions |
+| 3. Results | 피팅 그림(Figure 1), Table 2 Fit statistics, Table 3 Phase quantification |
+| 4. Assessment | 4.1 Phase verdicts, 4.2 Mass balance(Table 4), 4.3 Unexplained peaks(Table 5), 4.4 Review cautions |
+| 5. Limitations | 상대 wt%, esd 범위 등 해석상 한계 |
+| 6. References | DARA, BGMN, COD, Materials Project, pymatgen 등 참고문헌 |
 
-(1) Fit statistics: Rwp, Rp, Rexp, GOF, χ², Durbin–Watson, 2θ 범위, 데이터 점 수.
-(2) Phase quantification and crystallography: 상별 wt% ± esd, 격자상수, 판정, 참조 구조.
-(3) Confidence assessment and review cautions: 상별 판정 근거 표.
-(4) Unexplained observed peaks: 미설명 피크의 위치, 상대 높이, S/N, 등급.
+- 방법 문단에는 DARA·BGMN 버전, 파장, 장비 프로파일, 고니오미터 반경, 데이터 범위, 정밀화 변수가 문장으로 들어가 논문 초안에 옮기기 쉬움.
+- 4.1 Phase verdicts는 상별 판정과 그 근거를 한 줄씩 짧게 적음. 4.3 Unexplained peaks와 4.4 Review cautions는 해당 내용이 있을 때만 나옴.
+- lab notes가 비어 있으면 메모 절을 넣지 않음.
+- PDF가 필요하면 브라우저에서 열고 Ctrl+P → PDF로 저장.
 
-![그림 25. 보고서의 질량 균형 문단과 원소 표(Task 22). 자동 점검 표에도 mass_balance 행이 들어감.](images/report-mass-balance.png){height=300}
+![그림 23. 보고서 3장 Results의 표와 4.1 Phase verdicts(Task 22). 피팅 그림(Figure 1)은 그림 25와 같아 생략.](images/report-tables.png){height=330}
 
-(1) Mass balance 문단: 상 분율과 전구체의 원소 비, 판정(differ moderately), 최대 편차, 제외한 휘발 원소.
-(2) 원소별 비교 표: Precursors (mole fraction), Refined phases, Deviation.
-(3) 자동 점검 표의 mass_balance 행(Level info).
+(1) Table 2. Fit statistics: Rwp, Rp, Rexp, GOF, χ², Durbin–Watson d, 시료 변위(mm).
+(2) Table 3. Phase quantification: 상별 공간군, wt% ± esd, 격자상수, 결정자 크기, 판정, 참조 구조(예: COD 1513300).
+(3) 표 아래 주석. wt%는 모델에 넣은 결정상 기준 정규화 값이고 "—"는 정밀화하지 않은 값이라는 설명.
+(4) 4.1 Phase verdicts: 상별 판정과 근거 요약.
+
+### 표 읽기
+
+- Crystallite size (nm)는 실제로 정밀화된 경우에만 값이 나오고 나머지는 "—"로 표시됨.
+- Reference 열은 출처와 번호(COD 1513300 등)를 보여 줌.
+
+![그림 24. 보고서 4장 Assessment의 질량 균형과 미설명 피크 부분(Task 22, 2Fe3O4-3Y2O3).](images/report-mass-balance.png){height=230}
+
+(1) 4.2 Mass balance 문단: 상 분율과 전구체의 원소 비, 판정(differ moderately), 최대 편차, 비교에서 뺀 원소.
+(2) Table 4. Element mole fractions: 원소별 Precursors, Refined, Deviation.
+(3) 4.3 Unexplained peaks와 Table 5: 미설명 피크의 2θ, 최강 피크 대비 높이, S/N, 등급, 해석.
 
 ### 그림과 표
 
@@ -697,7 +707,7 @@ Best-fit report는 최저 Rwp 결과, Report (saved choice)는 채택한 후보(
 
 Download all results는 계산 산출물 전체(.lst 포함)를 ZIP으로 묶음. 원본 측정 파일, 사용한 CIF, 장비 조건, 보고서와 함께 시료별 폴더에 보관하면 재검토가 쉬움. 서버 데이터는 사용자 홈의 .dara-server 폴더에 있으며 Git 저장소와 별개임.
 
-![그림 26. Figure (PNG) 출력 예시.](images/figure.png){height=330}
+![그림 25. Figure (PNG) 출력 예시.](images/figure.png){height=330}
 
 (1) 범례: Observed, Calculated, Background, Difference.
 (2) 관측(검은색)과 계산(빨간색) 패턴. 가장 강한 반사 부근 예시.
@@ -729,7 +739,7 @@ MP 구조는 실험 구조보다 격자가 몇 % 어긋나는 일이 흔함. DAR
 
 - 휘발 손실: 고온에서 Bi, Pb, Li, Na, K 같은 원소가 일부 날아가면 실제 조성이 전구체 비율과 달라짐. 이런 원소가 있는 계에서는 편차 자체가 실제 현상일 수 있음.
 - 비정질·미동정 상: wt%는 모델에 넣은 결정상끼리 정규화한 값. 비정질이나 DB에 없는 상에 들어간 원소는 계산에서 빠지므로 남은 상의 원소 비가 치우침. 배경 언덕, significant 미설명 피크와 함께 확인.
-- 미반응·누락 상: 반응이 끝나지 않아 남은 전구체나 중간상이 모델에 없으면 편차가 커짐. 미량상 힌트가 있으면 Edit phases로 넣고 재정밀화해 비교.
+- 미반응·누락 상: 반응이 끝나지 않아 남은 전구체나 중간상이 모델에 없으면 편차가 커짐. 미량상 힌트가 있으면 Add phase…로 넣고 재정밀화해 비교.
 - 정량 문제: 우선 배향, 미세흡수, 잘못된 구조 모델, 비슷한 상끼리 강도를 나눠 갖는 현상 때문에 wt%가 틀릴 수 있음. 판정이 Ambiguous인 상이 있거나 Durbin–Watson 주의가 함께 뜨면 이쪽을 먼저 의심.
 - 입력 문제: 전구체 양이 실제 칭량과 다르면 맞는 결과도 어긋나 보임. 아래 파일 이름 규칙 확인.
 
@@ -758,9 +768,9 @@ High confidence도 정답 보증이 아님. 시료 이력, 합성 조건, 가능
 | BGMN refinement program failed | 이상한 CIF나 프로파일·파장 불일치가 흔한 원인. 의심 CIF를 빼고 장비 프로파일 확인. |
 | The parallel worker (Ray) could not start | 다른 DARA 창을 닫거나 PC 재시작. 보안 프로그램이 로컬 포트를 막는지 확인. |
 | 질량 균형 경고가 뜸 | 배너나 Review cautions에 "Mass balance: …"가 보이면 먼저 전구체 양이 맞는지 확인. 파일 이름에서 읽었다는 표시가 있으면 이름 속 계수가 실제 칭량과 같은지 점검. 다르면 Copy conditions & rerun에서 Precursor / expected formulas에 양을 적어 다시 제출. 입력이 맞다면 08장 질량 균형 편차 해석 참조. |
-| 재정밀화가 오래 걸림 | 진행 막대의 단계와 남은 시간 확인. 대부분 BGMN 계산 시간이며 배경 다항식 항 수와 상 수가 많을수록 늘어남(Task 9: Auto 16 s, 12항 98 s). Background…에서 Auto로 되돌리거나 항 수를 줄이고, 불필요한 상은 Remove로 뺀 뒤 다시 시도. 기다리기 어려우면 Cancel. |
-| 재정밀화 취소·실패 | Cancel하면 버전이 생기지 않음. 빨간 "Re-refinement failed" 알림이 뜨면 문구 확인 후 다시 시도. 다른 재정밀화가 도는 중에는 Add and re-refine, Swap 등이 꺼져 있으므로 끝날 때까지 기다리거나 Cancel. |
-| 실패 작업을 다시 돌리고 싶음 | 작업 페이지의 Retry with suggested fix 또는 Retry unchanged, Results 목록의 Retry 사용. EFLECH 시간 초과는 자동 조치가 없으므로 2θ 범위를 좁혀 Copy conditions & rerun으로 재제출(06장 실패 작업 재시도 참조). |
+| 재정밀화가 오래 걸림 | 진행 막대의 단계와 남은 시간 확인. 대부분 BGMN 계산 시간이며 배경 다항식 항 수와 상 수가 많을수록 늘어남(Task 9: Auto 16 s, 12항 98 s). Advanced → Background…에서 Auto로 되돌리거나 항 수를 줄이고, 불필요한 상은 Remove로 뺀 뒤 다시 시도. 예전 코드로 끝난 작업의 첫 재정밀화는 자동 기준 재계산이 먼저 돌아 시간이 더 걸림. 기다리기 어려우면 Cancel. |
+| 재정밀화 취소·실패 | Cancel하면 버전이 생기지 않음. 빨간 "Re-refinement failed" 알림이 뜨면 문구 확인 후 다시 시도. 다른 재정밀화가 도는 중에는 Add, Select phases…, Swap, Remove 등이 꺼져 있으므로 끝날 때까지 기다리거나 Cancel. |
+| 실패 작업을 다시 돌리고 싶음 | 작업 페이지나 Results 목록에서 Retry with suggested fix(자동 조치가 있을 때만) 또는 Copy conditions & rerun 사용. EFLECH 시간 초과는 자동 조치가 없으므로 2θ 범위를 좁혀 Copy conditions & rerun으로 재제출(06장 실패 작업 재시도 참조). |
 | 피팅이 나쁨 | 파장, 장비 프로파일, 원소 목록, 후보 CIF, 분석 범위 순으로 점검. Rwp를 낮추려고 중요한 피크를 제외 구간으로 지우지 말 것. |
 
 ### 폴더 안내

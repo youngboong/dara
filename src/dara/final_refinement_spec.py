@@ -40,6 +40,10 @@ _EXCLUDED_KWARGS = frozenset(
 
 SELECTED_WORKFLOW = "selected_phase_refinement"
 
+#: Tasks finished before this moment were refined by older final-refinement code.
+#: Bump when final-refinement behaviour changes.
+REFINEMENT_CODE_DATE = "2026-10-28T00:00:00+00:00"
+
 
 @dataclass(frozen=True)
 class FinalRefinementSpec:

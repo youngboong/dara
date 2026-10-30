@@ -10,7 +10,7 @@ import logging
 import math
 import threading
 from collections import OrderedDict
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
@@ -24,6 +24,7 @@ logger = logging.getLogger("dara.server.versions")
 
 router = APIRouter(prefix="/api")
 
+BASELINE_LABEL = "Baseline (current code)"  # same label as versions.mjs
 SIMILAR_RWP_POINTS = 0.1  # |delta Rwp| below this many percentage points counts as "similar"
 _CACHE_HEADERS = {"Cache-Control": "private, max-age=3600"}
 
@@ -128,6 +129,25 @@ def _original_entry(task: dict, document=None) -> dict:
     }
 
 
+def _baseline_stale(task: dict, records: list[dict]) -> bool:
+    """True when the stored result predates the current refinement code and has no baseline yet."""
+    from dara.final_refinement_spec import REFINEMENT_CODE_DATE
+
+    if any(record.get("label") == BASELINE_LABEL for record in records):
+        return False
+    finished = task.get("end_time")
+    if isinstance(finished, str):
+        try:
+            finished = datetime.fromisoformat(finished)
+        except ValueError:
+            return False
+    if not isinstance(finished, datetime):
+        return False
+    if finished.tzinfo is None:
+        finished = finished.replace(tzinfo=timezone.utc)
+    return finished < datetime.fromisoformat(REFINEMENT_CODE_DATE)
+
+
 # --------------------------------------------------------------------------- versions
 @router.get("/task/{task_id}/versions")
 async def list_task_versions(task_id: int):
@@ -138,6 +158,7 @@ async def list_task_versions(task_id: int):
     return {
         "task_id": task_id,
         "adopted": _adopted(task),
+        "baseline_stale": _baseline_stale(task, records),
         "versions": [_original_entry(task, document)] + [_version_entry(r) for r in records],
     }
 

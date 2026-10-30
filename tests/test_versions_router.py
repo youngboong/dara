@@ -123,6 +123,26 @@ def test_listing_synthesizes_v1_and_lists_saved_versions(monkeypatch, api):
     assert set(stored) == {2, 3}
 
 
+def test_baseline_stale_flag(monkeypatch, api):
+    from datetime import datetime
+
+    from dara.server.versions_router import BASELINE_LABEL
+
+    # The fixture task finished on 2026-09-08, before REFINEMENT_CODE_DATE.
+    assert _call(versions_router.list_task_versions(7))["baseline_stale"] is True
+    api["workers"].docs[0]["end_time"] = datetime(2026, 11, 1, 0, 0, 0)
+    assert _call(versions_router.list_task_versions(7))["baseline_stale"] is False
+    api["workers"].docs[0]["end_time"] = datetime(2026, 9, 8, 1, 0, 0)
+    monkeypatch.setattr(quick_refine, "do_refinement", _sequence_fake([4.0]))
+
+    async def main():
+        job = await quick_refine.submit_quick_refine(7, QuickRefineRequest(controls=RefinementControls(), label=BASELINE_LABEL))
+        await _wait(job["job_id"])
+
+    asyncio.run(main())
+    assert _call(versions_router.list_task_versions(7))["baseline_stale"] is False
+
+
 def test_get_version_and_delete_rules(monkeypatch, api):
     _make_versions(monkeypatch, api)
     original = _call(versions_router.get_task_version(7, 1))
@@ -273,11 +293,10 @@ def test_report_and_figure_accept_sel(monkeypatch, api):
     _make_versions(monkeypatch, api)
     response = _call(review_router.download_report(7, None, False, "version:2"))
     html = response.body.decode("utf-8")
-    assert "Version 2" in html and "Removed" in html
-    assert "Minimum-Rwp final result" not in html
+    assert "Result shown: version 2" in html and "Removed" in html
     assert "version_2_report.html" in response.headers["content-disposition"]
     best = _call(review_router.download_report(7, None, False, None))
-    assert "Minimum-Rwp final result" in best.body.decode("utf-8")
+    assert "Result shown" not in best.body.decode("utf-8")
     with pytest.raises(HTTPException) as exc:
         _call(review_router.download_report(7, 0, True, None))
     assert exc.value.status_code == 422
@@ -305,8 +324,8 @@ def test_report_defaults_to_the_adopted_version(monkeypatch, api):
     _make_versions(monkeypatch, api)
     _call(review_router.save_review(7, review_router.ReviewUpdate(selection="version:2")))
     response = _call(review_router.download_report(7, None, False, None))
-    assert "Version 2" in response.body.decode("utf-8")
-    assert "User-adopted result" in response.body.decode("utf-8")
+    assert "Result shown: version 2" in response.body.decode("utf-8")
+    assert "adopted by the user" in response.body.decode("utf-8")
 
 
 def test_export_accepts_sel(monkeypatch, api):

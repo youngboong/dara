@@ -1,3 +1,4 @@
+import re
 import struct
 
 import numpy as np
@@ -125,4 +126,7 @@ def test_report_falls_back_to_builtin_svg_when_matplotlib_fails(monkeypatch):
     monkeypatch.setattr("dara.server.report.builder.fit_figure", boom)
     html = client.get("/api/task/9/report?best=true").text
     assert "<svg " in html and "Excluded from refinement" in html
+    # the figure caption stays below the figure; table captions sit above their tables
+    assert re.search(r"</svg><figcaption>Figure 1\. ", html)
+    assert re.search(r"<table><caption><b>Table 1\.</b> ", html)
     assert review_router._fit_svg  # fallback remains available

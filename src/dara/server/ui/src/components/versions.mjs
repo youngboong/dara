@@ -147,60 +147,61 @@ export function alternativeOfVerdict(verdict) {
 }
 
 /**
- * Quick-refine body for a swap offered by the confidence evidence (`null` when it cannot be built).
+ * Quick-refine body for a same-formula model swap (`null` when it cannot be built, and for a
+ * different phase set - that is viewed as a stored candidate instead, see `swapKind`).
  *
  * `structure_model_alternative` (same compound, other space group): add only the alternative
  * candidate's phase of that compound with `spacegroup_number` and remove the clicked phase;
  * nothing else of the candidate is touched.
  *
- * `alternative` (a different phase set): switch to exactly the alternative candidate's phase
- * set - candidate phases missing from `basePhases` are added and base phases the candidate does
- * not contain are removed. Phases are matched by compound AND space group. (The evidence's
- * `replaced_by` holds display labels only, so the candidate's own phase list is used instead.)
- *
  * `metadata` is the displayed result's `phase_metadata` (space-group symbols for the label).
  */
 export function swapRequest(row, alternative, allResults = [], basePhases = [], metadata = {}) {
   if (!row?.phase || !alternative) return null;
+  if (swapKind(alternative) !== 'model') return null;
   const sourceIndex = alternative.source_index;
   const result = (allResults || []).find((item, i) => (item.source_index ?? i) === sourceIndex);
   if (!result) return null;
   const base = [...new Set(basePhases || [])];
   const heads = headsOf(result);
   const symbolOf = (name, meta) => formatSpacegroup(meta?.[name]?.spacegroup_symbol, spacegroupOfPhase(name));
-
-  if (swapKind(alternative) === 'model') {
-    const formula = formulaOfPhase(row.phase);
-    const target = Number(alternative.spacegroup_number);
-    const head = heads.find(name => formulaOfPhase(name) === formula
-      && spacegroupOfPhase(name) === target && !base.includes(name));
-    if (!head) return null;
-    return {
-      phases: [{ ref: head, source: 'task' }],
-      remove: [row.phase],
-      origin: 'swap',
-      label: clip(`Swapped ${formula} (${symbolOf(row.phase, metadata)}) for ${formula} (${symbolOf(head, result.phase_metadata)})`),
-    };
-  }
-
-  const wanted = new Map(heads.map(name => [structureKey(name), name]));
-  const keep = new Set();
-  const removes = [];
-  for (const name of base) {
-    const key = structureKey(name);
-    if (wanted.has(key) && !keep.has(key)) keep.add(key); else removes.push(name);
-  }
-  const adds = heads.filter(name => !keep.has(structureKey(name)));
-  if (!adds.length || !removes.length || base.length - removes.length + adds.length < 1) return null;
-  if (!removes.includes(row.phase)) return null; // the candidate keeps this phase: not an alternative to it
-  const number = alternative.candidate_number ?? (sourceIndex != null ? sourceIndex + 1 : '?');
-  const names = list => list.map(formulaOfPhase).join(', ');
+  const formula = formulaOfPhase(row.phase);
+  const target = Number(alternative.spacegroup_number);
+  const head = heads.find(name => formulaOfPhase(name) === formula
+    && spacegroupOfPhase(name) === target && !base.includes(name));
+  if (!head) return null;
   return {
-    phases: adds.map(ref => ({ ref, source: 'task' })),
-    remove: removes,
+    phases: [{ ref: head, source: 'task' }],
+    remove: [row.phase],
     origin: 'swap',
-    label: clip(`Switched to candidate ${number} phases (−${names(removes)}; +${names(adds)})`),
+    label: clip(`Swapped ${formula} (${symbolOf(row.phase, metadata)}) for ${formula} (${symbolOf(head, result.phase_metadata)})`),
   };
+}
+
+/**
+ * Quick-refine body for the "Select phases" checklist: adds the checked references that are not in
+ * the displayed fit and removes the displayed ones that were unchecked (only references that were
+ * offered in the checklist). `null` when nothing changes or nothing would be left.
+ */
+export function selectedPhasesRequest({ current = [], selected = [], available = [], controls = null, defaultControls = null }) {
+  const have = new Set(current);
+  const want = new Set(selected);
+  const offered = new Set(available);
+  const add = [...want].filter(name => !have.has(name));
+  const remove = [...have].filter(name => offered.has(name) && !want.has(name));
+  // Refinement controls alone (same phases) are a valid request too.
+  const changedControls = controls && JSON.stringify(controls) !== JSON.stringify(defaultControls) ? controls : null;
+  if (!add.length && !remove.length && !changedControls) return null;
+  if (have.size - remove.length + add.length < 1) return null;
+  const names = [...have].filter(name => !remove.includes(name)).concat(add).map(formulaOfPhase);
+  const body = {
+    phases: add.map(ref => ({ ref, source: 'task' })),
+    remove,
+    origin: 'manual',
+    label: clip(add.length || remove.length ? `Selected phases: ${names.join(', ')}` : 'Changed refinement controls'),
+  };
+  if (changedControls) body.controls = changedControls;
+  return body;
 }
 
 /** Quick-refine body that drops one phase. */
@@ -284,15 +285,43 @@ export function baselineRequest() {
   return { base: 'best', controls: {}, origin: 'manual', label: BASELINE_LABEL };
 }
 
-/** Note under the delta strip when a version is compared with the stored automatic result (v1). */
-export const DRIFT_NOTE = 'v1 was refined when the task ran; re-refine the baseline to compare with the current code.';
+/** The stored baseline version (v1 re-refined with today's code), or `null`. */
+export function baselineVersion(versions = []) {
+  return (versions || []).find(item => item.version > 1 && item.label === BASELINE_LABEL) || null;
+}
 
-/** True when the delta strip compares `version` against the stored original analysis (v1 or a stored candidate). */
-export function showsDriftNote(version) {
-  if (!version) return false;
-  if (version.label === BASELINE_LABEL) return false;
-  const base = parseSelection(version.origin?.base ?? 'best');
-  return base === 'best' || typeof base === 'number'; // stored candidates were refined at task time too
+/**
+ * Selection used as "the original fit" in comparisons and deltas: the baseline version when it
+ * exists (same code as the new version), otherwise the stored automatic result. `self` is the
+ * version being compared (the baseline itself is compared with 'best').
+ */
+export function comparisonBase(sel, versions = [], self = null) {
+  const parsed = parseSelection(sel);
+  if (parsed !== 'best') return sel;
+  const baseline = baselineVersion(versions);
+  return baseline && baseline.version !== self ? `version:${baseline.version}` : 'best';
+}
+
+/** True when the first re-refinement should be preceded by a silent baseline job. */
+export function needsBaseline(baselineStale, versions = [], body = {}) {
+  if (!baselineStale || baselineVersion(versions)) return false;
+  if (body?.label === BASELINE_LABEL) return false;
+  return parseSelection(body?.base ?? 'best') === 'best';
+}
+
+/**
+ * Option groups for the fit selector (Best fit / Candidates / Versions); values are selections:
+ * 'best', a candidate source index or 'version:n'. Used by the fit modal and the compare window.
+ */
+export function selectOptionGroups(allResults = [], versions = []) {
+  const shown = (versions || []).filter(item => item.version > 1);
+  return [
+    { label: 'Best fit', options: [{ value: 'best', label: 'Best fit' }] },
+    { label: 'Candidates', options: (allResults || []).map((r, i) => ({ value: r.source_index ?? i, label: `Candidate ${i + 1} — Rwp ${r.rwp}%` })) },
+    ...(shown.length ? [{ label: 'Versions',
+      options: shown.map(item => ({ value: `version:${item.version}`,
+        label: `v${item.version} — ${item.label || 'Re-refinement'}${finite(item.rwp) ? ` — Rwp ${Number(item.rwp).toFixed(2)}%` : ''}` })) }] : []),
+  ];
 }
 
 /** Tag text for the results list / review panel. `null` for 'best' and unset. */

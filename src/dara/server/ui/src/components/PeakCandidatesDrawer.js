@@ -1,7 +1,8 @@
 import React from 'react';
 import { Alert, Button, Drawer, List, Progress, Space, Spin, Tag, Tooltip, Typography } from 'antd';
 import { NOT_AVAILABLE, postJson } from './QuickRefineProgress';
-import { formatSelection } from './versions.mjs';
+import { formatSelection, refSourceForHint } from './versions.mjs';
+import { collectHints, hintText } from './peakSelection.mjs';
 
 const { Text } = Typography;
 const POOLS = ['candidate', 'input', 'library', 'cod'];
@@ -24,8 +25,11 @@ export function candidateFormula(candidate) {
   return candidate.formula || String(candidate.ref || candidate.name || '').replace(/_\d+_\(.*$/, '');
 }
 
-/** Reference candidates that explain the selected peaks (POST /task/{id}/peak-candidates). */
-export default function PeakCandidatesDrawer({ taskId, sel, peaks, open, onClose, onPreview, previewRef, onAdd, busy }) {
+/**
+ * "Add phase" drawer: trace-phase hints suggested by DARA (`diagnostics`, added with `onAddHint`)
+ * and reference candidates that explain the selected peaks (POST /task/{id}/peak-candidates).
+ */
+export default function PeakCandidatesDrawer({ taskId, sel, peaks, open, onClose, onPreview, previewRef, onAdd, busy, diagnostics = null, onAddHint }) {
   const [candidates, setCandidates] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [pending, setPending] = React.useState(false);
@@ -66,17 +70,34 @@ export default function PeakCandidatesDrawer({ taskId, sel, peaks, open, onClose
 
   React.useEffect(() => { if (!open && onPreview) onPreview(null); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <Drawer title={`Candidates for ${(peaks || []).map(peak => `${Number(peak).toFixed(2)}°`).join(', ')}`} placement="right" width={480}
+  const hints = collectHints(diagnostics);
+  return <Drawer title="Add phase" placement="right" width={480}
     open={open} onClose={onClose} keyboard={false} mask={false} destroyOnClose={false} className="dara-peak-drawer">
-    {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
-    {loading ? <Space direction="vertical" style={{ width: '100%', padding: 24, textAlign: 'center' }}>
+    <Typography.Title level={5} style={{ marginTop: 0 }}>Suggested by DARA</Typography.Title>
+    {hints.length ? <div aria-label="Trace phase hints" style={{ marginBottom: 16 }}>
+      {hints.map(hint => {
+        const target = refSourceForHint(hint);
+        return <div key={hint.phase} style={{ marginBottom: 4 }}>
+          <Space wrap size="small">
+            <Text>{hintText(hint)}</Text>
+            <Tooltip title={!target ? 'No local CIF is available for this reference.' : busy ? 'A re-refinement is already running.' : 'Add this phase and refine again as a new version'}>
+              <span><Button size="small" type="primary" disabled={!target || busy || !onAddHint} onClick={() => onAddHint(hint, target)}>Add</Button></span>
+            </Tooltip>
+          </Space>
+        </div>;
+      })}
+    </div> : <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>No trace-phase suggestions for this fit.</Text>}
+    <Typography.Title level={5}>{peaks?.length ? `Search by clicked peaks (${peaks.map(peak => `${Number(peak).toFixed(2)}°`).join(', ')})` : 'Search by clicked peaks'}</Typography.Title>
+    {!peaks?.length ? <Text type="secondary">Click unexplained peaks in the plot (Shift+click for several) to search for matching phases.</Text> : null}
+    {peaks?.length && error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
+    {peaks?.length && loading ? <Space direction="vertical" style={{ width: '100%', padding: 24, textAlign: 'center' }}>
       <Spin />
       <Text type="secondary">Searching references… (first search can take up to 15 s)</Text>
     </Space> : null}
-    {!loading && !error && !candidates.length ? <Text type="secondary">
+    {peaks?.length && !loading && !error && !candidates.length ? <Text type="secondary">
       No reference matched the selected peaks.{pending ? ' Still searching COD…' : ''}</Text> : null}
-    {pending && candidates.length ? <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Still searching COD…</Text> : null}
-    <List dataSource={candidates} rowKey={item => `${item.source}|${item.ref}`} renderItem={candidate => {
+    {peaks?.length && pending && candidates.length ? <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Still searching COD…</Text> : null}
+    <List locale={{ emptyText: peaks?.length ? undefined : " " }} dataSource={peaks?.length ? candidates : []} rowKey={item => `${item.source}|${item.ref}`} renderItem={candidate => {
       const previewing = previewRef === `${candidate.source}|${candidate.ref}`;
       const disabledReason = candidate.cif_available === false ? 'The CIF file for this reference is not available locally.'
         : busy ? 'Another re-refinement is running.' : null;
@@ -86,7 +107,7 @@ export default function PeakCandidatesDrawer({ taskId, sel, peaks, open, onClose
           {previewing ? 'Hide ticks' : 'Preview ticks'}
         </Button>,
         <Tooltip key="add" title={disabledReason}>
-          <span><Button size="small" type="primary" disabled={Boolean(disabledReason)} onClick={() => onAdd(candidate)}>Add and re-refine</Button></span>
+          <span><Button size="small" type="primary" disabled={Boolean(disabledReason)} onClick={() => onAdd(candidate)}>Add</Button></span>
         </Tooltip>,
       ]}>
         <List.Item.Meta

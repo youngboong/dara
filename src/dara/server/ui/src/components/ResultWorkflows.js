@@ -1,9 +1,10 @@
 import React from 'react';
 import { Alert, Button, Input, message, Modal, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
-import { CheckOutlined, EditOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons';
-import { DEFAULT_CONTROLS, RefinementControlsEditor } from './PracticalControls';
+import { EditOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons';
 import { runAfterSuccess } from './submitHelpers.mjs';
 import { NOT_AVAILABLE, postJson, requestJson } from './QuickRefineProgress';
+import { DEFAULT_CONTROLS, RefinementControlsEditor } from './PracticalControls';
+import { selectedPhasesRequest } from './versions.mjs';
 
 const API = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 
@@ -72,7 +73,7 @@ export function ReportDownloadButton({ taskId, selection, children = 'Download r
   return <Button icon={<FileTextOutlined />} {...props} loading={loading} onClick={download}>{children}</Button>;
 }
 
-export function ReviewPanel({ taskId, data, review, onView, versions = [] }) {
+export function ReviewPanel({ taskId, data, review, versions = [] }) {
   const candidates = [
     ...data.all_results.map((candidate, index) => ({
       value: candidate.source_index ?? index,
@@ -90,14 +91,14 @@ export function ReviewPanel({ taskId, data, review, onView, versions = [] }) {
     <h3>Adopted result &amp; lab notes</h3>
     {review.error ? <Alert type="error" showIcon message={review.error} /> : null}
     <p><Tag color={review.saved.selection == null ? 'default' : 'blue'}>{savedLabel}</Tag>
-      <Typography.Text type="secondary">Your scientific choice is saved separately from the automatic best fit.</Typography.Text></p>
+      {typeof review.saved.selection === 'number' ? <Typography.Text strong style={{ marginRight: 8 }}>{`★ ${(candidates.find(item => item.value === review.saved.selection)?.label || `Candidate ${review.saved.selection + 1}`).split(' — ')[0]} adopted`}</Typography.Text> : null}
+      <Typography.Text type="secondary">Your scientific choice is saved separately from the automatic best fit. Adopt a fit from the versions table or the comparison window.</Typography.Text></p>
     <Space wrap style={{ marginBottom: 12 }}>
       <Select aria-label="Adopted candidate" style={{ width: 330, maxWidth: '100%' }}
         disabled={review.loading || !!review.error || review.saving}
         value={review.selection ?? 'unselected'}
         onChange={value => review.setSelection(value === 'unselected' ? null : value)}
         options={[{ value: 'unselected', label: 'No adopted result' }, { value: 'best', label: `Minimum-Rwp best fit — ${data.best_rwp}%` }, ...candidates]} />
-      <Button disabled={review.saved.selection == null} onClick={() => onView(review.saved.selection === 'best' ? null : review.saved.selection)}>View adopted fit</Button>
       <ReportDownloadButton taskId={taskId} disabled={review.loading || !!review.error || review.dirty || review.saving}>Report (saved choice)</ReportDownloadButton>
     </Space>
     <Input.TextArea aria-label="Lab notes" value={review.notes} maxLength={10000} showCount rows={3}
@@ -111,67 +112,54 @@ export function ReviewPanel({ taskId, data, review, onView, versions = [] }) {
   </section>;
 }
 
-export function AdoptButton({ review, selection, ...props }) {
-  return <Tooltip title="Adopt this candidate and save the current lab notes">
-    <Button {...props} icon={<CheckOutlined />} loading={review.saving} disabled={review.loading || !!review.error}
-      onClick={() => review.save(selection)}>{review.saved.selection === selection ? 'Adopted' : 'Adopt'}</Button>
-  </Tooltip>;
-}
-
-export function RefineSelectionButton({ taskId, selection = 'best', phases = [], renderPhase, ...props }) {
-  const [controls, setControls] = React.useState(DEFAULT_CONTROLS);
-  const [savedParams, setSavedParams] = React.useState(null);
+/**
+ * "Select phases…" button and checklist modal. The checked phases are submitted through the quick
+ * re-refinement path (`onSubmit(request)`), which stores a new version of the same task.
+ */
+export function PhaseSelectionButton({ taskId, phases = [], renderPhase, busy = false, onSubmit, ...props }) {
   const [visible, setVisible] = React.useState(false);
   const [available, setAvailable] = React.useState([]);
   const [selected, setSelected] = React.useState([]);
   const [filter, setFilter] = React.useState('');
   const [loading, setLoading] = React.useState(false);
-  const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState('');
+  const [controls, setControls] = React.useState(DEFAULT_CONTROLS);
   const open = async () => {
-    setControls(DEFAULT_CONTROLS); setSavedParams(null);
     setVisible(true); setLoading(true); setFilter(''); setError(''); setAvailable([]); setSelected([]);
+    setControls(DEFAULT_CONTROLS);
     try {
       const body = await responseJson(await fetch(`${API}/task/${taskId}/phase-options`));
       setAvailable(body.phases);
-      setSavedParams(body.final_refinement_params);
       setSelected(phases.filter(phase => body.phases.includes(phase)));
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   };
-  const submit = async () => {
-    setSubmitting(true);
-    try {
-      const body = await responseJson(await fetch(`${API}/task/${taskId}/refine-selected`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phases: selected, selection, controls }),
-      }));
-      window.location.href = `/task/?id=${body.wf_id}`;
-    } catch (e) { setError(e.message); setSubmitting(false); }
+  const request = selectedPhasesRequest({ current: phases, selected, available, controls, defaultControls: DEFAULT_CONTROLS });
+  const submit = () => {
+    if (!request) return;
+    setVisible(false);
+    onSubmit(request);
   };
   return <>
-    <Tooltip title="Include/exclude stored reference phases and run a new refinement">
-      <Button {...props} icon={<EditOutlined />} onClick={open}>Edit phases</Button>
+    <Tooltip title="Check the stored reference phases to include, then refine again as a new version">
+      <Button {...props} icon={<EditOutlined />} disabled={busy || props.disabled} onClick={open}>Select phases…</Button>
     </Tooltip>
-    <Modal title="Select phases & re-refine" open={visible} width={850}
-      onCancel={() => !submitting && setVisible(false)} maskClosable={!submitting}
-      onOk={submit} okText="Run as new task" confirmLoading={submitting}
-      cancelButtonProps={{ disabled: submitting }} okButtonProps={{ disabled: loading || !available.length || !selected.length || selected.length > 20 }}>
+    <Modal title="Select phases" open={visible} width={850}
+      onCancel={() => setVisible(false)} onOk={submit} okText="Re-refine and compare"
+      okButtonProps={{ disabled: loading || !request || selected.length > 20 }}>
       <Alert type="info" showIcon style={{ marginBottom: 16 }}
         message="Only the checked phases will be refined together."
-        description="Uses this task's original pattern, instrument, fit range, excluded intervals and final-refinement settings. No database search is repeated and the original result is kept. Select just one reference per intended phase; equivalent CIFs are not extra components." />
+        description="The fit is refined again with the stored references of this task and saved as a new version; the original result is kept. Select just one reference per intended phase; equivalent CIFs are not extra components." />
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
       <Input.Search aria-label="Filter phase references" placeholder="Filter formula or COD / MP reference" value={filter} onChange={e => setFilter(e.target.value)} />
-      <RefinementControlsEditor value={controls} onChange={setControls} />
-      {savedParams ? <details><summary>Saved final-refinement parameters</summary><pre style={{whiteSpace:'pre-wrap'}}>{JSON.stringify(savedParams, null, 2)}</pre></details> : null}
       <p style={{ marginTop: 8 }}>{selected.length} selected (maximum 20)</p>
       <Table size="small" loading={loading} rowKey="reference" pagination={{ pageSize: 8 }}
-        rowSelection={{ selectedRowKeys: selected, preserveSelectedRowKeys: true, onChange: values => { setSelected(values); setError(''); },
-          getCheckboxProps: () => ({ disabled: submitting }) }}
+        rowSelection={{ selectedRowKeys: selected, preserveSelectedRowKeys: true, onChange: values => { setSelected(values); setError(''); } }}
         dataSource={available.filter(name => name.toLowerCase().includes(filter.toLowerCase())).map(reference => ({ reference }))}
         columns={[{ title: 'Reference phase', dataIndex: 'reference', render: ref => renderPhase ? renderPhase(ref) : ref },
           { title: 'Reference ID', dataIndex: 'reference', render: ref => <Typography.Text style={{ overflowWrap: 'anywhere' }} type="secondary">{ref}</Typography.Text> },
-          { title: 'Starting candidate', dataIndex: 'reference', render: ref => phases.includes(ref) ? <Tag>Included</Tag> : null }]} />
+          { title: 'In this fit', dataIndex: 'reference', render: ref => phases.includes(ref) ? <Tag>Included</Tag> : null }]} />
+      <RefinementControlsEditor value={controls} onChange={setControls} />
     </Modal>
   </>;
 }
@@ -190,7 +178,7 @@ export async function retryTask(taskId, applyRemedy) {
 
 const changeText = value => (value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value));
 
-/** Retry buttons of a failed task: suggested fix (after a confirmation of the changes) and unchanged. */
+/** Retry buttons of a failed task: suggested fix (after a confirmation of the changes) and a copy of the conditions. */
 export function RetryActions({ taskId, errorSummary }) {
   const [busy, setBusy] = React.useState(false);
   const remedy = errorSummary?.remedy;
@@ -199,7 +187,7 @@ export function RetryActions({ taskId, errorSummary }) {
     try {
       const plan = await requestJson(`/task/${taskId}/retry-plan`);
       if (plan.supported === false || !plan.changes) {
-        message.info(plan.reason || 'No automatic fix applies to this failure. Use “Retry unchanged”.');
+        message.info(plan.reason || 'No automatic fix applies to this failure. Use “Copy conditions & rerun”.');
         return;
       }
       Modal.confirm({
@@ -219,13 +207,8 @@ export function RetryActions({ taskId, errorSummary }) {
       setBusy(false);
     }
   };
-  const retryUnchanged = async () => {
-    setBusy(true);
-    await retryTask(taskId, false);
-    setBusy(false);
-  };
   return <Space wrap style={{ marginBottom: 12 }}>
     {remedy?.label ? <Button type="primary" loading={busy} onClick={retryWithFix}>{`Retry with suggested fix (${remedy.label})`}</Button> : null}
-    <Button type={remedy?.label ? 'default' : 'primary'} loading={busy} onClick={retryUnchanged}>Retry unchanged</Button>
+    <Button type={remedy?.label ? 'default' : 'primary'} href={`/?clone_task=${taskId}`}>Copy conditions &amp; rerun</Button>
   </Space>;
 }

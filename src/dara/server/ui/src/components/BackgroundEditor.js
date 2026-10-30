@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Checkbox, InputNumber, Popover, Space, Typography } from 'antd';
+import { Button, Checkbox, InputNumber, Modal, Popover, Space, Typography } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { backgroundRequest } from './versions.mjs';
 
@@ -59,11 +59,22 @@ function EditorForm({ busy, getView, onSubmit, baseDegree }) {
   </div>;
 }
 
-/** "Background…" popover of the fit view. `onSubmit(background, label)` starts a quick re-refinement. */
-export default function BackgroundEditor({ busy, disabled, getView, onSubmit, baseDegree = null }) {
-  const [open, setOpen] = React.useState(false);
-  return <Popover trigger="click" open={open} onOpenChange={setOpen} placement="bottomLeft" title="Background"
-    content={<EditorForm busy={busy} getView={getView} baseDegree={baseDegree} onSubmit={(background, label) => { setOpen(false); onSubmit(background, label); }} />}>
+/**
+ * "Background…" editor of the fit view. `onSubmit(background, label)` starts a quick re-refinement.
+ * Without `open` it is a button with a popover; with `open`/`onOpenChange` it is a modal opened
+ * from elsewhere (the Advanced menu).
+ */
+export default function BackgroundEditor({ busy, disabled, getView, onSubmit, baseDegree = null, open: controlledOpen, onOpenChange }) {
+  const [localOpen, setLocalOpen] = React.useState(false);
+  if (controlledOpen !== undefined) {
+    return <Modal title="Background" open={controlledOpen} footer={null} width={420} destroyOnClose
+      onCancel={() => onOpenChange?.(false)}>
+      <EditorForm busy={busy} getView={getView} baseDegree={baseDegree}
+        onSubmit={(background, label) => { onOpenChange?.(false); onSubmit(background, label); }} />
+    </Modal>;
+  }
+  return <Popover trigger="click" open={localOpen} onOpenChange={setLocalOpen} placement="bottomLeft" title="Background"
+    content={<EditorForm busy={busy} getView={getView} baseDegree={baseDegree} onSubmit={(background, label) => { setLocalOpen(false); onSubmit(background, label); }} />}>
     <Button disabled={disabled}>Background…</Button>
   </Popover>;
 }
