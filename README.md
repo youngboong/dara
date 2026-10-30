@@ -88,7 +88,7 @@ every ground-truth phase. See [`scripts/README.md`](scripts/README.md).
 
 ## 한국어 요약
 
-- DARA: 분말 XRD 패턴의 상 탐색과 BGMN Rietveld 정밀화를 브라우저에서 수행하는 프로그램. 원본(CederGroupHub/dara)에 설치 도구와 결과 검토 기능을 더한 맞춤판임.
+- DARA: 분말 XRD 패턴의 상 탐색과 BGMN Rietveld 정밀화를 브라우저에서 수행하는 프로그램. 원본(CederGroupHub/dara)에 설치 도구와 결과 검토 기능을 더한 맞춤판.
 - 실행: Windows에서 `START.cmd` 더블클릭. Python 사전 설치 불필요.
 - 첫 실행: 인터넷 필요. uv, Python 3.12, 패키지, BGMN을 DARA 폴더 안에 설치(수백 MB~약 1 GB, 5~15분). 이후 실행은 오프라인 가능, 단 COD/MP 검색에는 인터넷 필요.
 - MP API 키: 첫 실행 대화상자에서 입력(Save and continue) 또는 건너뛰기(Skip for now). 키 없이 쓰려면 Reference databases에서 MP를 끄고 COD 사용.

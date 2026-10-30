@@ -19,7 +19,7 @@
 
 ## 01 개요
 
-분말 X선 회절(XRD) 패턴에서 결정상 후보를 자동으로 찾고 BGMN 엔진으로 Rietveld 정밀화까지 끝내는 웹 프로그램임. Ceder 그룹이 공개한 원본(Chemistry of Materials, 2026)에 설치, 입력 형식, 결과 검토, 보고서 기능을 더한 맞춤판임. 자동 결과를 그대로 확정하는 도구는 아니며, 판정 근거를 함께 보여 줘 검토할 곳을 좁혀 줌.
+분말 X선 회절(XRD) 패턴에서 결정상 후보를 자동으로 찾고 BGMN 엔진으로 Rietveld 정밀화까지 끝내는 웹 프로그램. Ceder 그룹이 공개한 원본(Chemistry of Materials, 2026)에 설치, 입력 형식, 결과 검토, 보고서 기능을 더한 맞춤판. 자동 결과를 그대로 확정하는 도구는 아니며, 판정 근거를 함께 보여 줘 검토할 곳을 좁혀 줌.
 
 - 패턴 한 개 또는 여러 개(시리즈)를 올려 상 동정과 정량을 한 번에 수행
 - 분석 모드 3종: Phase identification, Known-phase refinement, Reaction check
@@ -146,7 +146,7 @@ Precursor / expected formulas에 전구체 양을 함께 적으면 결과에서 
 | Reference screening limit (s) | 선별 단계에서 참조 하나에 쓰는 BGMN 최대 시간. 기본 300 s, 입력 범위 60~1200. |
 | Maximum analysis time (min) | 5~720분. 시간이 지나면 그때까지의 최선 결과를 미완료 표시와 함께 반환. 비우면 제한 없음. |
 
-예상 후보 수와 실행 시간 범위(예: "Estimated run time 8 min–33 min (typically 16 min) on 12 workers")는 조건을 바꿀 때마다 갱신됨. 대략적인 값임.
+예상 후보 수와 실행 시간 범위(예: "Estimated run time 8 min–33 min (typically 16 min) on 12 workers")는 조건을 바꿀 때마다 갱신됨. 대략적인 값.
 
 ![그림 3. Submit 화면 아래쪽. 예상 실행 시간, 장비 프로파일, Final refinement controls, 파장, 2θ 범위, CIF 입력.](images/submit-estimate.png){height=460}
 
@@ -219,7 +219,7 @@ Reference library CIFs는 서버에 저장해 여러 작업에서 다시 쓰는 
 
 ### 신뢰도 배너
 
-배너 아래 항목이 그 등급을 정한 이유. 확률이 아니라 통계량에 대한 문턱값 판정임.
+배너 아래 항목이 그 등급을 정한 이유. 확률이 아니라 통계량에 대한 문턱값 판정.
 
 | 등급 | 조건(하나라도 해당하면 그 등급) |
 | --- | --- |
@@ -304,7 +304,7 @@ Unexplained 태그는 계산 패턴이 재현하지 못한 관측 피크 수. �
 
 ![그림 9. 질량 균형 caution 예시(Task 22, 2Fe3O4-3Y2O3). 신뢰도 배너 이유(위)와 Review cautions(아래). 점선 위치는 중간 표 생략.](images/task-mass-balance.png){height=200}
 
-(1) 신뢰도 배너. caution 수준이라 등급은 High confidence 그대로임.
+(1) 신뢰도 배너. caution 수준이라 등급은 High confidence 그대로.
 (2) 배너 이유 목록에 붙은 "Mass balance: …" 문장. 상 분율로 계산한 Fe:Y = 0.67:0.33, 파일 이름의 전구체 비율 0.50:0.50, 최대 편차 0.17.
 (3) Review cautions의 같은 내용(info).
 
@@ -485,7 +485,7 @@ Best-fit report는 자동 최저 Rwp 결과를, Report (saved choice)는 채택�
 | GSAS-II (CIF + data) | 정밀화된 CIF와 패턴 데이터 |
 | HighScore (CIF + data) | 정밀화된 CIF와 패턴 데이터 |
 
-서버 데이터는 사용자 홈의 .dara-server 폴더에 있으며 Git 저장소와 별개임.
+서버 데이터는 사용자 홈의 .dara-server 폴더에 있으며 Git 저장소와 별개.
 
 ## 08 결과 해석 시 주의
 
@@ -516,7 +516,7 @@ High confidence도 정답 보증이 아님. 시료 이력, 합성 조건, 가능
 | 첫 실행이 실패함 | 인터넷과 프록시 확인 후 START.cmd 재실행(받은 파일 재사용). 원인은 START 창의 마지막 메시지와 artifacts\launcher\setup-*.log에서 확인. |
 | 폴더를 옮긴 뒤 실행 안 됨 | START가 자동 재구성함. 그래도 안 되면 START.cmd -Reinstall 또는 .venv 폴더 삭제 후 재실행. |
 | MP key rejected / not configured | START.cmd 재실행 시 키를 다시 입력하거나 환경변수 MP_API_KEY 확인. 급하면 MP를 끄고 COD와 CIF로 분석. |
-| 서버가 혼자 꺼짐 | 모든 DARA 창을 닫으면 약 20초 뒤 종료되는 정상 동작임. START.cmd로 다시 실행. 비정상 종료로 "Unexpected shutdown of the worker process"가 뜬 작업은 다시 제출. |
+| 서버가 혼자 꺼짐 | 모든 DARA 창을 닫으면 약 20초 뒤 종료되는 정상 동작. START.cmd로 다시 실행. 비정상 종료로 "Unexpected shutdown of the worker process"가 뜬 작업은 다시 제출. |
 | 웹 화면이 안 열림 | http://localhost:8898을 직접 입력. 회사 프록시가 로컬 주소를 가로채는지 확인. |
 | 분석이 너무 느림 | 전구체를 알면 Reaction check. Candidate pre-filter 켜기, MP 구조 수 줄이기, Maximum analysis time 지정, 2θ 범위 좁히기 순으로 시도. |
 | COD 연결 오류, CERTIFICATE_VERIFY_FAILED | 인터넷·프록시 확인. 기관망 HTTPS 검사 환경이면 START.cmd로 다시 실행(인증서 묶음 자동 생성). 계속 실패하면 CIF를 직접 올려 분석. |
