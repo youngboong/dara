@@ -35,6 +35,8 @@ function attachRightDragZoom(gd) {
     return null;
   };
 
+  const freeIntensity = target => target.name === 'yaxis' && !target.ya.fixedrange;
+
   const clear = () => {
     if (box) box.remove();
     box = null;
@@ -49,8 +51,10 @@ function attachRightDragZoom(gd) {
     const clamp = (value, lo, hi) => Math.min(Math.max(value, lo), hi);
     const x0 = clamp(start.x - rect.left, xa._offset, xa._offset + xa._length);
     const x1 = clamp(event.clientX - rect.left, xa._offset, xa._offset + xa._length);
-    // In the residual panel only 2θ is zoomed (a vertical band).
-    const yOnly = start.target.name === 'yaxis';
+    // Only 2θ is zoomed (a vertical band) in the residual panel, and in the main panel
+    // while its intensity axis follows the visible window ("Fit intensity to view"):
+    // a box there would clip peak tops and hide the Bragg rows below the baseline.
+    const yOnly = freeIntensity(start.target);
     const y0 = yOnly ? clamp(start.y - rect.top, ya._offset, ya._offset + ya._length) : ya._offset;
     const y1 = yOnly ? clamp(event.clientY - rect.top, ya._offset, ya._offset + ya._length) : ya._offset + ya._length;
     return { x0, x1, y0, y1 };
@@ -68,12 +72,13 @@ function attachRightDragZoom(gd) {
   function onUp(event) {
     if (!start) return;
     const { x0, x1, y0, y1 } = geometry(event);
-    const { xa, ya, name } = start.target;
+    const { xa, ya } = start.target;
+    const freeY = freeIntensity(start.target);
     clear();
     if (Math.abs(x1 - x0) < MIN_BOX_PX) return;
     const update = boxZoomUpdate({
       xRange: [xa.p2l(x0 - xa._offset), xa.p2l(x1 - xa._offset)],
-      yRange: name === 'yaxis' && Math.abs(y1 - y0) >= MIN_BOX_PX
+      yRange: freeY && Math.abs(y1 - y0) >= MIN_BOX_PX
         ? [ya.p2l(y0 - ya._offset), ya.p2l(y1 - ya._offset)] : null,
     });
     Plotly.relayout(gd, update);
