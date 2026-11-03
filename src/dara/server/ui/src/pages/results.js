@@ -7,6 +7,19 @@ import { parseComparisonTaskIds } from '../components/patternComparison.mjs';
 import { runAfterSuccess } from '../components/submitHelpers.mjs';
 import { retryTask } from '../components/ResultWorkflows';
 import { adoptedLabel, formatFixed, phasesLabel, phasesTooltip, tasksQuery } from '../components/resultsList.mjs';
+import { overallColor, overallLabel } from '../components/confidence.mjs';
+
+/** Status tag of a completed task followed by its overall confidence (same labels as the task page). */
+function ConfidenceStatus({ tag, level }) {
+  const label = overallLabel(level);
+  if (!label) return tag;
+  return <Space size={4} wrap>
+    {tag}
+    <Tooltip title="Overall confidence of the automatic result. Open the task for the reasons.">
+      <Tag color={overallColor(level)}>{label}</Tag>
+    </Tooltip>
+  </Space>;
+}
 
 const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 
@@ -113,7 +126,7 @@ function ResultsPage({ location }) {
             onConfirm={() => retryTask(entry.fw_id, true)}
           ><Button type="link" size="small" style={{ padding: 0 }}>Retry with fix</Button></Popconfirm> : null}
           <Button type="link" size="small" style={{ padding: 0 }} href={`/?clone_task=${entry.fw_id}`}>Copy conditions &amp; rerun</Button>
-        </Space> : shown
+        </Space> : <ConfidenceStatus tag={shown} level={text === 'COMPLETED' ? entry.summary?.confidence_overall : null} />
       }
     },
     {

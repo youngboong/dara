@@ -226,11 +226,11 @@ Reference library CIFs는 서버에 저장해 두고 여러 작업에서 다시 
 
 ## 06 결과 보기
 
-![그림 5. Results 목록. 상태, Best Rwp, GOF, 최종 상, 채택 여부가 한눈에 들어온다.](images/results.png){height=270}
+![그림 5. Results 목록. 상태와 신뢰도, Best Rwp, GOF, 최종 상, 채택 여부가 한눈에 들어온다.](images/results.png){height=270}
 
 (1) Filter file name / Filter username: 파일 이름이나 사용자로 검색한다.
 (2) Compare selected / Export table: 체크한 작업을 겹쳐 보거나 결과 표를 CSV로 저장한다.
-(3) Status: 작업 상태 태그(COMPLETED, FIZZLED 등).
+(3) Status: 작업 상태 태그(COMPLETED, FIZZLED 등). 끝난 작업은 옆에 신뢰도 태그(High confidence, Check recommended, Expert review recommended)가 붙어 목록에서 바로 검토 우선순위를 정할 수 있다.
 (4) Best Rwp (%) / GOF: 최저 Rwp 결과의 적합도.
 (5) Final phases: 최종 정밀화된 상.
 (6) Adopted: 채택한 결과인지 표시한다.
