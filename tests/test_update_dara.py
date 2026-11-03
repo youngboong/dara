@@ -141,6 +141,7 @@ def test_check_only_reports_without_changing_anything(tmp_path, github):
     assert "Test update" in result.stdout
     assert (tmp_path / "changed.txt").read_bytes() == b"old content\n"
     assert github.raw_requests == []
+    assert not (tmp_path / ".dara-update").exists()
 
 
 def test_a_corrupt_download_changes_nothing(tmp_path, github):

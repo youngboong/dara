@@ -154,3 +154,6 @@ comparison_results/
 # Local/private diffraction files used during development
 dataset/precursor_mixture/CPD-3.RAW
 dataset/precursor_mixture/Cr2O3_CaF2_CaCO3.xrdml
+
+# DARA updater state (scripts/update_dara.ps1)
+.dara-update/

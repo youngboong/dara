@@ -168,7 +168,7 @@ function Invoke-DaraUpdate {
         $plan = Get-UpdatePlan $remote
         if ($plan.Download.Count -eq 0 -and $plan.Remove.Count -eq 0) {
             Write-Host 'DARA is up to date. / DARA가 최신 버전입니다.' -ForegroundColor Green
-            Write-Manifest $remote
+            if (-not $CheckOnly) { Write-Manifest $remote }
             return 0
         }
         $when = ''
