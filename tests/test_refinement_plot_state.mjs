@@ -47,5 +47,13 @@ console.log('Legend selection, compact rows, nonnegative ticks, toolbar persiste
   const fullMarkers = full.data.find(trace => trace.name === 'Missing peaks');
   const [flo, fhi] = full.layout.yaxis.range;
   assert.ok(fullMarkers.y.every(y => y >= flo && y <= fhi));
+  // A whole triangle fits: the markers keep clear of both the axis edge and the pattern.
+  const height = fhi - flo;
+  assert.ok(fullMarkers.y[0] - flo > 0.03 * height && 0 - fullMarkers.y[0] > 0.03 * height);
+  assert.equal(fullMarkers.cliponaxis, false);
+  const withTicks = buildRefinementView({ ...plot, data: [...plot.data,
+    { name: 'A', meta: 'reflection', legendgroup: 'A', x: [31], y: [0], marker: { color: '#000' } }] }, { selection: { A: true } });
+  const tickY = withTicks.data.find(trace => trace.meta === 'reflection').y[0];
+  assert.ok(tickY < withTicks.data.find(trace => trace.name === 'Missing peaks').y[0], 'Bragg rows sit below the markers');
   console.log('diagnostic marker position ok');
 }

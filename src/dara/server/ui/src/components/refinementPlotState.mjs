@@ -96,6 +96,13 @@ export function buildRefinementView(plot, {
   if (!Number.isFinite(minimum)) minimum = 0;
   if (!Number.isFinite(smallestPositive)) smallestPositive = 1;
   const span = Math.max(maximum - minimum, 1e-9);
+  const unit = fitted ? span : maximum;
+  // Peak markers get their own band between the pattern and the Bragg rows, so the
+  // observed points and the axis edge never cover them.
+  const markersShown = showDiagnostics && plot.data.some((trace, index) =>
+    trace.meta === 'diagnostic' && isTraceSelected(trace, index, selection) && numbers(trace.x).length);
+  const markerBand = markersShown ? 0.08 : 0;
+  const logMarkerBand = markersShown ? 4 : 1;
   const rows = [];
   const annotations = [];
   const data = plot.data.map((trace, index) => {
@@ -107,16 +114,16 @@ export function buildRefinementView(plot, {
     if (trace.meta === 'reflection') enabled = selected && showReflections;
     const visible = enabled ? true : 'legendonly';
     if (trace.meta === 'diagnostic' && enabled) {
-      // Peak markers arrive at intensity 0. Keep them just under the visible baseline so a
-      // zoom that rescales the intensity axis to the window does not push them off the plot.
-      const y = scale === 'log' ? smallestPositive / 1.6 : minimum - (fitted ? span : maximum) * 0.025;
-      return { ...trace, visible, x: numbers(trace.x), y: numbers(trace.x).map(() => y) };
+      // Peak markers arrive at intensity 0. Centre them in their band under the visible
+      // minimum, so a zoom that rescales the intensity axis keeps them in view.
+      const y = scale === 'log' ? smallestPositive / 2 : minimum - unit * markerBand / 2;
+      return { ...trace, visible, cliponaxis: false, x: numbers(trace.x), y: numbers(trace.x).map(() => y) };
     }
     if (trace.meta !== 'reflection' || !enabled) return { ...trace, visible };
     const row = rows.length;
     const position = scale === 'log'
-      ? smallestPositive / (4 ** (row + 1))
-      : minimum - (fitted ? span : maximum) * 0.095 * (row + 1);
+      ? smallestPositive / (logMarkerBand * 4 ** (row + 1))
+      : minimum - unit * (markerBand + 0.095 * (row + 1));
     rows.push(trace.legendgroup);
     const label = trace.name.replace(/ \([^)]* wt%\)$/, '');
     annotations.push({
@@ -127,10 +134,9 @@ export function buildRefinementView(plot, {
     });
     return { ...trace, visible, x: numbers(trace.x), y: numbers(trace.x).map(() => position) };
   });
-  const unit = fitted ? span : maximum;
   const defaultRange = scale === 'log'
-    ? [Math.log10(smallestPositive) - (rows.length + 0.5) * Math.log10(4), Math.log10(maximum) + 0.04]
-    : [minimum - unit * (rows.length ? 0.095 * (rows.length + 0.55) : 0.035), maximum + unit * 0.05];
+    ? [Math.log10(smallestPositive / logMarkerBand) - (rows.length + 0.5) * Math.log10(4), Math.log10(maximum) + 0.04]
+    : [minimum - unit * (markerBand + (rows.length ? 0.095 * (rows.length + 0.55) : 0.035)), maximum + unit * 0.05];
   const range = yRange || defaultRange;
   const yaxis = { ...baseLayout.yaxis, type: scale, range, autorange: false,
     // While the intensity axis follows the 2θ window, wheel/pan act on 2θ only.
