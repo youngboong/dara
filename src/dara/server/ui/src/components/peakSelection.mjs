@@ -176,3 +176,14 @@ export function autoMatchStrength(candidate, nPeaks = 0) {
   if (matched >= need && contradicted <= 0.15) return { label: 'Possible match', color: 'gold' };
   return { label: 'Weak match', color: 'default' };
 }
+
+/**
+ * Reflections in the measured range above which adding a candidate is likely to take minutes.
+ * Measured with 11 BGMN threads: ~280 lines 37 s, ~650 lines 66–146 s, ~1800 lines 217 s.
+ */
+export const SLOW_LINES = 600;
+
+/** True when a candidate has so many reflections that its re-refinement will be slow. */
+export function isSlowCandidate(candidate) {
+  return Number(candidate?.n_lines) >= SLOW_LINES;
+}

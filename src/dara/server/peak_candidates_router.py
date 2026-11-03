@@ -251,6 +251,7 @@ def _compute(document, refinement, request: PeakCandidatesRequest, ctx, window) 
             "matched": entry["matched"],
             "strong_unobserved": entry["strong_unobserved"],
             "n_strong": entry["n_strong"],
+            "n_lines": entry.get("n_lines"),
             "score": entry["score"],
             "cif_available": available,
             "sticks": entry["sticks"],

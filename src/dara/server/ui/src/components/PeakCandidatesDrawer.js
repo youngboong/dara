@@ -2,7 +2,7 @@ import React from 'react';
 import { Alert, Button, Drawer, List, Progress, Space, Spin, Tag, Tooltip, Typography } from 'antd';
 import { NOT_AVAILABLE, postJson } from './QuickRefineProgress';
 import { formatSelection, refSourceForHint } from './versions.mjs';
-import { autoMatchStrength, collectHints, hintText, matchStrength, significantPeaks } from './peakSelection.mjs';
+import { autoMatchStrength, collectHints, hintText, isSlowCandidate, matchStrength, significantPeaks } from './peakSelection.mjs';
 
 const { Text } = Typography;
 const POOLS = ['candidate', 'input', 'library', 'cod'];
@@ -106,6 +106,9 @@ function CandidateList({ search, peaks, limit, previewRef, onPreview, onAdd, bus
             <Tag>{SOURCE_LABEL[sourceKind(candidate.source)] || candidate.source}</Tag>
             {strength ? <Tooltip title="Strong: explains the selected peaks with no contradicting reflection. Possible: explains several peaks with few contradictions; add it and compare the fits. Weak: only some peaks overlap, often by chance.">
               <Tag color={strength.color}>{strength.label}</Tag>
+            </Tooltip> : null}
+            {isSlowCandidate(candidate) ? <Tooltip title={`${candidate.n_lines} reflections in the measured range. Adding it may take several minutes.`}>
+              <Tag color="orange">Slow to refine</Tag>
             </Tooltip> : null}
           </Space>}
           description={<div>

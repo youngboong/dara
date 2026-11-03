@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   collectHints, hintText, hintsPending, observedPeak, peakFromClick, peakShapes, phaseGroupNames, previewTrace,
-  updatePeakSelection, significantPeaks, matchStrength, autoMatchStrength,
+  updatePeakSelection, significantPeaks, matchStrength, autoMatchStrength, isSlowCandidate,
 } from '../src/dara/server/ui/src/components/peakSelection.mjs';
 
 const plot = {
@@ -109,3 +109,9 @@ assert.equal(hintsPending({ final_result: { peak_diagnostics: { hints_pending: f
   assert.equal(autoMatchStrength({ matched: [1, 2, 3], n_strong: 8, strong_unobserved: 2 }, 5).label, 'Weak match');
   assert.equal(autoMatchStrength({}, 4).label, 'Weak match');
 }
+
+// Candidates with many reflections in range are flagged as slow to refine.
+assert.equal(isSlowCandidate({ n_lines: 653 }), true);   // Bi4O7, P-1: 146 s
+assert.equal(isSlowCandidate({ n_lines: 283 }), false);  // NaP5: 37 s
+assert.equal(isSlowCandidate({}), false);                // older servers send no count
+console.log('slow candidate flag ok');

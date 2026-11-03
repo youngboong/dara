@@ -464,6 +464,8 @@ def _evaluate_pattern(
         "position": position,
         "rel_int": rel_int,
         "strong_mask": strong,
+        # Reflections in the measured range: BGMN run time grows with this number.
+        "n_lines": int(np.count_nonzero(keep)),
         "matched_targets": matched_targets,
         "top_ok": top_ok,
         "summed": float(np.sum(s_int[hit.any(axis=1)])),
@@ -657,6 +659,7 @@ def _rank(
                 "matched": [float(targets[i]) for i in matched_targets],
                 "strong_unobserved": unobserved,
                 "n_strong": n_strong,
+                "n_lines": result["n_lines"],
                 "score": score,
                 "sticks": [
                     [round(float(p), 3), round(float(r), 1)]

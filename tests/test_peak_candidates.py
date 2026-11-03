@@ -190,13 +190,14 @@ def test_endpoint_shape_and_cod_pending(setup):
     first = response["candidates"][0]
     assert set(first) == {
         "ref", "source", "name", "formula", "spacegroup_number", "spacegroup_symbol",
-        "pattern_source", "matched", "strong_unobserved", "n_strong", "score", "cif_available",
+        "pattern_source", "matched", "strong_unobserved", "n_strong", "n_lines", "score", "cif_available",
         "sticks",
     }
     assert first["ref"] == "BiFeO3" and first["source"] == "task"
     assert first["matched"] == TARGETS and first["score"] == pytest.approx(1.0 - 0.5 / 3, abs=1e-4)
     assert first["cif_available"] is True
     assert first["strong_unobserved"] == 1 and first["n_strong"] == 3
+    assert first["n_lines"] >= first["n_strong"]
     assert response["candidates"][1]["ref"] == "Bi2Fe4O9"
     assert response["candidates"][1]["score"] == pytest.approx(0.25)
     assert response["elapsed_s"] < 2

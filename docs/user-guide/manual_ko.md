@@ -383,7 +383,7 @@ View fit 창은 위에서부터 적합도 태그, 피팅 그래프, 상 표, Rev
 
 - 시작하는 곳: 피팅 창의 Add phase…, Select phases…, 상 표의 Swap·Remove, Advanced → Background….
 - DB를 다시 검색하지 않고 바꾼 상 조합만 정밀화한다. 패턴, 장비, 파장, 2θ 범위, 제외 구간, Final refinement controls는 원래 값을 그대로 가져간다.
-- 대부분 수십 초 안에 끝나고 한 작업에서는 한 번에 하나만 실행된다. 단독 계산이라 CPU 코어를 여러 개(코어 수 − 1) 쓴다.
+- 대부분 수십 초 안에 끝나고 한 작업에서는 한 번에 하나만 실행된다. 예전에 끝난 작업은 첫 재정밀화 앞에 기준 재계산이 먼저 돌며, 진행 막대에 Waiting for Baseline (current code)와 그 경과 시간이 나온다. 단독 계산이라 CPU 코어를 여러 개(코어 수 − 1) 쓴다.
 - 피팅 창을 닫아도 계산은 계속되지만 Cancel하면 버전이 만들어지지 않는다.
 - 끝나면 "Version vN ready (Rwp …%)" 알림과 함께 새 버전이 열린다. Select phases…, Swap, Remove로 만든 버전은 비교 창이 바로 열린다.
 - Select phases…: 이 작업에 저장된 참조 상 목록에서 넣을 상만 체크하고 Re-refine and compare를 누른다. 의심스러운 상을 빼 보거나 다른 참조로 바꿔 비교할 때 알맞다.
@@ -437,6 +437,7 @@ Versions 표는 작업 페이지의 Final refined phase parameters 표 아래에
 - 점수만으로 존재를 판정하면 안 된다. Preview ticks로 다른 반사 위치까지 살펴봐야 한다. Add로 넣은 뒤 비교 창에서 Rwp가 뚜렷하게 내려가고 화학적으로도 타당할 때만 채택한다.
 - 힌트와 검색은 모두 이 PC에 받아 둔 구조만 대상으로 한다(작업 후보, 입력 CIF, 참조 라이브러리, 로컬 COD 캐시). 실제 상이 여기에 없으면 그 상의 CIF를 구해 입력 CIF나 참조 라이브러리로 추가한다.
 - 로컬 CIF가 없는 후보이거나 다른 재정밀화가 도는 중이면 Add가 꺼진다.
+- 측정 범위 안의 반사가 600개를 넘는 후보에는 주황색 Slow to refine 태그가 붙는다. 대칭이 낮고 단위포가 큰 상이 대부분이며, 넣으면 재정밀화에 몇 분이 걸릴 수 있다.
 
 ![그림 15. 피팅 창의 상 표. 위는 Task 18(Calcite에 Swap), 아래는 Task 19(TiNb·Nb2Al에 View candidate, 대안은 상 조합이 다른 후보). 점선은 서로 다른 작업 화면의 경계.](images/phase-swap.png){height=330}
 
