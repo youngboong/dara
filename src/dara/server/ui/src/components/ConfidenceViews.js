@@ -11,7 +11,7 @@ const API = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8
 const lines = values => <div style={{ whiteSpace: 'pre-line' }}>{values.join('\n')}</div>;
 
 /** Overall banner at the top of a completed result; nothing for tasks without confidence data. */
-export function ConfidenceBanner({ confidence }) {
+export function ConfidenceBanner({ confidence, action = null }) {
   const overall = confidence?.overall;
   if (!overall?.level) return null;
   const reasons = reasonsText(overall);
@@ -22,7 +22,10 @@ export function ConfidenceBanner({ confidence }) {
     message={overall.label || overall.level}
     description={<>
       {reasons.length ? <ul style={{ margin: 0, paddingLeft: 20 }}>{reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul> : null}
-      <a href="/tutorial#result-confidence">How is this assessed?</a>
+      <Space wrap size="middle" style={{ marginTop: 4 }}>
+        {action}
+        <a href="/tutorial#result-confidence">How is this assessed?</a>
+      </Space>
     </>}
   />;
 }

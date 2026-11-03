@@ -22,6 +22,7 @@ from dara.schema import PhaseSearchDocument
 from dara.server import api_router, selected_refinement_router
 from dara.server.selected_refinement_router import SelectedRefinementRequest
 from dara.xrd import XRDData
+from dara.refine import single_refinement_threads
 
 
 @pytest.fixture
@@ -153,7 +154,10 @@ def test_maker_retains_settings_and_builds_serializable_candidate(monkeypatch, t
     assert [path.name for path in captured["phases"]] == ["Bi2Fe4O9.cif"]
     assert captured["instrument_profile"] == "test-device"
     assert captured["wavelength"] == "Cu"
-    assert captured["refinement_params"] == document.search_kwargs["refinement_params"]
+    # Same settings as the search plus the BGMN thread count of a lone refinement.
+    assert captured["refinement_params"] == {
+        **document.search_kwargs["refinement_params"], "n_threads": single_refinement_threads()
+    }
     assert captured["phase_params"] == document.final_refinement_params
     assert "max_phases" not in captured
     assert "max_num_results" not in captured

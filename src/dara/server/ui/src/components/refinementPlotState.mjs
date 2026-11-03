@@ -106,6 +106,12 @@ export function buildRefinementView(plot, {
     if (trace.meta === 'phase-profile') enabled = selected && showPhaseProfiles;
     if (trace.meta === 'reflection') enabled = selected && showReflections;
     const visible = enabled ? true : 'legendonly';
+    if (trace.meta === 'diagnostic' && enabled) {
+      // Peak markers arrive at intensity 0. Keep them just under the visible baseline so a
+      // zoom that rescales the intensity axis to the window does not push them off the plot.
+      const y = scale === 'log' ? smallestPositive / 1.6 : minimum - (fitted ? span : maximum) * 0.025;
+      return { ...trace, visible, x: numbers(trace.x), y: numbers(trace.x).map(() => y) };
+    }
     if (trace.meta !== 'reflection' || !enabled) return { ...trace, visible };
     const row = rows.length;
     const position = scale === 'log'

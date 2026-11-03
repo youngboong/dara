@@ -50,6 +50,19 @@ logger = get_logger(__name__, level="INFO")
 
 _DARA_SETTINGS = DaraSettings()
 BGMN_N_THREADS = _DARA_SETTINGS.BGMN_N_THREADS
+RAY_NUM_CPUS = _DARA_SETTINGS.RAY_NUM_CPUS
+
+
+def batch_threads(n_jobs: int, total_cpus: int = RAY_NUM_CPUS) -> int:
+    """BGMN threads per refinement when ``n_jobs`` run side by side.
+
+    A small batch (fewer refinements than cores) would leave most cores idle with one thread
+    each, so the cores are shared out; a large batch keeps the configured single thread.
+    BGMN's results do not depend on the thread count, only the run time does.
+    """
+    if n_jobs <= 0:
+        return BGMN_N_THREADS
+    return max(BGMN_N_THREADS, int(total_cpus or 1) // n_jobs)
 
 #: Minimum relative Rwp improvement (parent -> child) required for a branch
 #: flagged by the intensity-order heuristic to survive anyway.
@@ -198,14 +211,16 @@ def batch_refinement(
     refinement_params: dict[str, float] | None = None,
     bgmn_timeout: float | None = None,
 ) -> list[RefinementResult]:
+    threads = batch_threads(len(cif_paths))
+    params = {**(refinement_params or {}), "n_threads": threads}
     handles = [
-        remote_do_refinement_no_saving.options(num_cpus=BGMN_N_THREADS).remote(
+        remote_do_refinement_no_saving.options(num_cpus=threads).remote(
             pattern_path,
             cif_paths,
             wavelength=wavelength,
             instrument_profile=instrument_profile,
             phase_params=phase_params,
-            refinement_params=refinement_params,
+            refinement_params=params,
             bgmn_timeout=bgmn_timeout,
         )
         for cif_paths in cif_paths

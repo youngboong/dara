@@ -861,7 +861,7 @@ def _overall(target, phases, weights, displacement, background, *, counts_like, 
 
     info = _info_reasons(missing_summary) if classified else []
     if expert:
-        level, reasons = "expert", expert + check + info
+        level, reasons = "expert", list(dict.fromkeys(expert + check + info))
     elif check or not phases:
         level, reasons = "check", (check or ["No refined phases were found."]) + info
     else:

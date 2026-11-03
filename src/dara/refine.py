@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -15,6 +16,27 @@ from dara.bgmn_worker import BGMNWorker
 from dara.cif2str import cif2str
 from dara.generate_control_file import generate_control_file
 from dara.result import RefinementMetrics, RefinementResult, get_result
+
+
+def single_refinement_threads() -> int:
+    """BGMN threads for a refinement that runs on its own (final candidates, quick re-refinement).
+
+    Screening runs many single-thread refinements in parallel; a lone refinement can use the
+    whole machine instead. BGMN's results do not depend on the thread count (identical y_calc
+    and Rwp for 1, 4, 8 and 12 threads), only the run time does. ``DARA_SINGLE_BGMN_THREADS``
+    overrides the default of all cores but one.
+    """
+    value = os.environ.get("DARA_SINGLE_BGMN_THREADS", "").strip()
+    if value.isdigit() and int(value) > 0:
+        return int(value)
+    return max(1, (os.cpu_count() or 2) - 1)
+
+
+def with_single_refinement_threads(refinement_kwargs: dict) -> dict:
+    """Copy of ``do_refinement`` keyword arguments that runs BGMN with all available threads."""
+    params = dict(refinement_kwargs.get("refinement_params") or {})
+    params["n_threads"] = single_refinement_threads()
+    return {**refinement_kwargs, "refinement_params": params}
 from dara.xrd import convert_pattern_to_xy
 
 

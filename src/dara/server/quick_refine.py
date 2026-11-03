@@ -54,7 +54,7 @@ from dara.bgmn_worker import RefinementCancelled
 from dara.cif import Cif
 from dara.cif2str import cif2str
 from dara.final_refinement_spec import build_final_refinement_spec
-from dara.refine import do_refinement
+from dara.refine import do_refinement, with_single_refinement_threads
 from dara.refinement_controls import RefinementControls
 from dara.selected_refinement import valid_reference_filename
 from dara.server import versions
@@ -844,7 +844,7 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
             show_progress=False,
             observed_peaks=lazy_peaks,
             cancel_event=job.cancel,
-            **spec.refinement_kwargs,
+            **with_single_refinement_threads(spec.refinement_kwargs),
         )
     except BaseException:
         if job.cancel.is_set():

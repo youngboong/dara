@@ -17,7 +17,7 @@ from pymatgen.core import Composition
 
 from dara.cif import Cif
 from dara.prediction.core import PhasePredictor
-from dara.refine import RefinementPhase, do_refinement, do_refinement_no_saving
+from dara.refine import RefinementPhase, do_refinement, do_refinement_no_saving, with_single_refinement_threads
 from dara.schema import PhaseSearchDocument, RefinementDocument
 from dara.search import candidate_cost, search_phases
 from dara.search.data_model import SearchResult
@@ -558,7 +558,7 @@ class PhaseSearchMaker(Maker):
                         working_dir=candidate_dir,
                         phase_params=final_refinement_params,
                         show_progress=True,
-                        **refinement_kwargs,
+                        **with_single_refinement_threads(refinement_kwargs),
                     )
                 except Exception:
                     logger.exception(

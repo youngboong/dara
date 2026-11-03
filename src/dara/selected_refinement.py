@@ -8,7 +8,7 @@ from pathlib import Path, PureWindowsPath
 from jobflow import Maker, job
 
 from dara.cif import Cif
-from dara.refine import do_refinement
+from dara.refine import do_refinement, with_single_refinement_threads
 from dara.schema import PhaseSearchDocument
 from dara.xrd import XRDData
 
@@ -70,7 +70,7 @@ class SelectedPhaseRefinementMaker(Maker):
         refined = do_refinement(
             pattern_path=pattern_path, phases=phases,
             working_dir=Path("selected_phase_refinement"),
-            phase_params=phase_params, show_progress=True, **options,
+            phase_params=phase_params, show_progress=True, **with_single_refinement_threads(options),
         )
         checkpoint_candidate(1, refined, Path("selected_phase_refinement"))
         report_progress("Refining user-selected phases", 1, 1)

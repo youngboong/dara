@@ -2,7 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import Layout from '../components/Layout';
 import { Alert, Badge, Button, Descriptions, Divider, Dropdown, List, message, Modal, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd';
-import { DeleteOutlined, DownOutlined, DownloadOutlined, InfoCircleOutlined, TableOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownOutlined, DownloadOutlined, InfoCircleOutlined, LineChartOutlined, SearchOutlined, TableOutlined } from '@ant-design/icons';
 import Loadable from 'react-loadable'
 import parse from 'html-react-parser';
 import {STATE_COLOR} from './results';
@@ -23,8 +23,9 @@ import BackgroundEditor from '../components/BackgroundEditor';
 import useKeyboardShortcuts, { FIT_MODAL_CLASS, HELP_MODAL_CLASS } from '../components/useKeyboardShortcuts';
 import { SHORTCUT_HELP } from '../components/keyboardShortcuts.mjs';
 import {
-  collectHints, hintText, hintsPending, observedPeak, peakFromClick, peakShapes, phaseGroupNames, previewTrace, updatePeakSelection,
+  collectHints, hintText, hintsPending, observedPeak, peakFromClick, peakShapes, phaseGroupNames, previewTrace, significantPeaks, updatePeakSelection,
 } from '../components/peakSelection.mjs';
+import { searchOptionsText } from '../components/resultsList.mjs';
 import {
   alternativeOfVerdict, baselineRequest, comparisonBase, deltaStrip, deltaText, formatSelection, needsBaseline, parseSelection,
   plotQuery, removeRequest, selectOptionGroups, selectionLabel, swapKind, swapRequest,
@@ -584,12 +585,12 @@ function DeltaStrip({ rows }) {
   </div>;
 }
 
-function HintText({ diagnostics }) {
+function HintText({ diagnostics, onOpen }) {
   const hints = collectHints(diagnostics);
   if (!hints.length) return null;
   return <div style={{ marginTop: 8 }} aria-label="Trace phase hints">
-    {hints.map(hint => <div key={hint.phase}><Text type="secondary">{hintText(hint)}</Text></div>)}
-    <Text type="secondary">{'Use “Add phase…” to add one of these.'}</Text>
+    <Text type="secondary">{`${hints.length} trace-phase hint${hints.length === 1 ? '' : 's'} for the unexplained peaks. `}</Text>
+    <a onClick={onOpen}>Review in Add phase…</a>
   </div>;
 }
 
@@ -672,11 +673,14 @@ function TaskDetail({ data, task_id }) {
     });
     return () => { active = false; };
   }, [task_id, versionNumber, baseVersionNumber, versionDetails]);
+  // "Find phases for the unexplained peaks" opens the fit and the drawer together.
+  const openDrawerWithFit = React.useRef(false);
   React.useEffect(() => {
     // A different fit has different peaks: drop the selection and any tick preview.
     setPeaks([]);
     setPreview(null);
-    setDrawerOpen(false);
+    setDrawerOpen(openDrawerWithFit.current && plot_id !== undefined);
+    openDrawerWithFit.current = false;
   }, [plot_id]);
 
   const displayedResult = plot_id === undefined ? undefined
@@ -783,21 +787,25 @@ function TaskDetail({ data, task_id }) {
   return (
     <>
       <TitleContriner>
-        <h3>Task details (<a onMouseEnter={() => preloadPlot(task_id, null)} onFocus={() => preloadPlot(task_id, null)} onClick={() => setPlotId(null)}>Visualize final result</a>)</h3>
+        <Space wrap align="center">
+          <h3 style={{ margin: 0 }}>Task details</h3>
+          <Button type="primary" icon={<LineChartOutlined />} onMouseEnter={() => preloadPlot(task_id, null)}
+            onFocus={() => preloadPlot(task_id, null)} onClick={() => setPlotId(null)}>View fit</Button>
+        </Space>
         <Space wrap>
-          <DownloadButton taskId={task_id} type="primary" icon={<DownloadOutlined />}>
-            Download all results
-          </DownloadButton>
           <Button icon={<TableOutlined />} href={`${URL}/task/${task_id}/table.csv`}>Table (CSV)</Button>
           <FigureExportActions taskId={task_id} />
         </Space>
       </TitleContriner>
       <Divider />
-      <ConfidenceBanner confidence={data.final_result?.confidence} />
+      <ConfidenceBanner confidence={data.final_result?.confidence} action={significantPeaks(data.final_result?.peak_diagnostics).length
+        ? <Button type="primary" size="small" icon={<SearchOutlined />} onClick={() => { openDrawerWithFit.current = true; setPlotId(null); }}>
+          Find phases for the unexplained peaks
+        </Button> : null} />
       <ReviewPanel taskId={task_id} data={data} review={review} versions={store.versions} />
       <Descriptions bordered column={2} size='small'>
         <Descriptions.Item label="Pattern file name" span={2}>{data.task_label}</Descriptions.Item>
-        <Descriptions.Item label="Best_Rwp" span={2}><Tag color="green">{data.best_rwp} %</Tag></Descriptions.Item>
+        <Descriptions.Item label="Best Rwp" span={2}><Tag color="green">{data.best_rwp} %</Tag></Descriptions.Item>
         <Descriptions.Item label="Analysis mode" span={2}>{({
           known_mixture: 'Known-phase refinement',
           elemental: 'Phase identification',
@@ -812,7 +820,7 @@ function TaskDetail({ data, task_id }) {
           <ScreeningTags candidateSummary={data.candidate_summary} />
         </Descriptions.Item>
         <Descriptions.Item label="Hypothesis search" span={2}><SearchSummary summary={data.search_summary} /></Descriptions.Item>
-        <Descriptions.Item label="Additional search options" span={2}><code style={{backgroundColor: 'transparent'}}>{JSON.stringify(data.additional_search_options)}</code></Descriptions.Item>
+        <Descriptions.Item label="Additional search options" span={2}>{searchOptionsText(data.additional_search_options)}</Descriptions.Item>
         {data.additional_search_options?.refinement_params?.excluded_ranges?.length ? <Descriptions.Item label="Excluded 2θ intervals" span={2}>
           {data.additional_search_options.refinement_params.excluded_ranges.map(([lo, hi]) => `${lo}–${hi}°`).join(', ')} (shaded in the fit plot; omitted from fitting)
         </Descriptions.Item> : null}
@@ -977,7 +985,8 @@ function TaskDetail({ data, task_id }) {
           {quickShown && displayedResult ? <>
             <Tooltip title={suggestionCount ? `${suggestionCount} possible or strong match${suggestionCount === 1 ? '' : 'es'} for the significant unexplained peaks` : null}>
               <Badge count={suggestionCount} size="small" offset={[-4, 2]}>
-                <Button onClick={() => setDrawerOpen(true)}>Add phase…</Button>
+                <Button type={suggestionCount || collectHints(displayedResult?.peak_diagnostics).length ? 'primary' : 'default'}
+                  onClick={() => setDrawerOpen(true)}>Add phase…</Button>
               </Badge>
             </Tooltip>
             <PhaseSelectionButton taskId={task_id} phases={displayedPhases} renderPhase={renderReference} busy={quick.busy}
@@ -996,10 +1005,6 @@ function TaskDetail({ data, task_id }) {
         {versionError ? <Alert type="error" showIcon message={versionError} style={{ marginBottom: 12 }} /> : null}
         {versionNumber && !versionData && !versionError ? <Spin /> : null}
         {displayedResult ? <>
-          <Space wrap style={{ marginBottom: 12 }}>
-            <ReportDownloadButton taskId={task_id} selection={currentSel} disabled={review.loading || review.saving || review.dirty || !!review.error}>This fit's report</ReportDownloadButton>
-            <FigureExportActions taskId={task_id} selection={currentSel} />
-          </Space>
           {versionNumber ? <DeltaStrip rows={deltaRows} /> : null}
           <div style={{ marginBottom: 12 }}>
             <FitQualitySummary quality={displayedResult.fit_quality} />
@@ -1007,13 +1012,7 @@ function TaskDetail({ data, task_id }) {
               <OverallTag confidence={displayedResult.confidence} />
               <DisplacementTag confidence={displayedResult.confidence} />
             </div>
-            <FitCautions cautions={displayedResult.cautions} />
-            {quickShown ? <HintText diagnostics={displayedResult.peak_diagnostics} /> : null}
           </div>
-          <PhaseRefinementTable phases={displayedPhases}
-            metadata={displayedResult.phase_metadata} details={displayedResult.phase_details} confidence={displayedResult.confidence}
-            rowActions={quickShown ? rowActions : null} />
-          <Divider />
         </> : null}
         {peaks.length ? <Space wrap style={{ marginBottom: 8 }}>
           <Text type="secondary">Selected peaks:</Text>
@@ -1026,6 +1025,20 @@ function TaskDetail({ data, task_id }) {
           excludedRanges={[...(data.additional_search_options?.refinement_params?.excluded_ranges || []), ...(versionData?.background?.excluded_ranges || [])]}
           peaks={peaks} previewSticks={preview?.sticks || null} onGroups={setPhaseGroups}
           onPeakClick={quickShown ? onPeakClick : undefined} />
+        {displayedResult ? <>
+          <Divider />
+          <PhaseRefinementTable phases={displayedPhases}
+            metadata={displayedResult.phase_metadata} details={displayedResult.phase_details} confidence={displayedResult.confidence}
+            rowActions={quickShown ? rowActions : null} />
+          <div style={{ margin: '12px 0' }}>
+            <FitCautions cautions={displayedResult.cautions} />
+            {quickShown ? <HintText diagnostics={displayedResult.peak_diagnostics} onOpen={() => setDrawerOpen(true)} /> : null}
+          </div>
+          <Space wrap>
+            <ReportDownloadButton taskId={task_id} selection={currentSel} disabled={review.loading || review.saving || review.dirty || !!review.error}>This fit's report</ReportDownloadButton>
+            <FigureExportActions taskId={task_id} selection={currentSel} />
+          </Space>
+        </> : null}
       </Modal>
       <PeakCandidatesDrawer taskId={task_id} sel={currentSel} peaks={peaks} open={drawerOpen && plot_id !== undefined}
         diagnostics={displayedResult?.peak_diagnostics} onAddHint={(hint, target) => { setDrawerOpen(false); addHint(hint, target); }}

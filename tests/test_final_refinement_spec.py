@@ -19,6 +19,7 @@ from dara.refinement_controls import (
 )
 from dara.structure_quality import MP_LATTICE_WINDOW, apply_mp_lattice_window, widen_for_mp
 from test_selected_refinement import _document, _refined, references  # noqa: F401
+from dara.refine import with_single_refinement_threads
 
 
 def test_plain_document_matches_selected_refinement_arguments(monkeypatch, tmp_path, references):
@@ -42,7 +43,10 @@ def test_plain_document_matches_selected_refinement_arguments(monkeypatch, tmp_p
     )
     assert spec.phase_params == captured["phase_params"] == document.final_refinement_params
     skipped = {"pattern_path", "phases", "working_dir", "phase_params", "show_progress"}
-    assert spec.refinement_kwargs == {k: v for k, v in captured.items() if k not in skipped}
+    # The selected-phase run adds only the BGMN thread count, which does not change results.
+    assert with_single_refinement_threads(spec.refinement_kwargs) == {
+        k: v for k, v in captured.items() if k not in skipped
+    }
     assert spec.effective_phase_params() == {
         cif.filename: document.final_refinement_params for cif in references
     }

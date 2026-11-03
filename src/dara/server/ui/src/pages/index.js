@@ -7,7 +7,7 @@ import { DEFAULT_CONTROLS, InstrumentManager, RefinementControlsEditor } from '.
 import { detailMessage, qualityAlertItems, qualityStatText, wavelengthMismatch } from '../components/dataQuality.mjs';
 import { MpKeyStatus, ReferenceLibraryField, useReferenceLibrary } from '../components/ReferenceLibrary';
 import { MAX_SERIES_FILES, seriesPreviewRows } from '../components/seriesTrends.mjs';
-import { runAfterSuccess } from '../components/submitHelpers.mjs';
+import { forgetRemembered, readRemembered, runAfterSuccess, writeRemembered } from '../components/submitHelpers.mjs';
 
 const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 const { confirm } = Modal;
@@ -102,6 +102,26 @@ function Submission() {
   const [msg, setMsg] = useState(null);
   const [spinning, setSpinning] = useState(false);
   const [cloneSource, setCloneSource] = useState(null);
+  const [usingRemembered, setUsingRemembered] = useState(false);
+  const browserStorage = () => (typeof window === 'undefined' ? null : window.localStorage);
+  // Settings from the last submission in this browser (user, modes, databases, limits, instrument).
+  const applyRemembered = saved => {
+    if (!saved) return false;
+    form.setFieldsValue(saved.fields);
+    setAnalysisMode(saved.fields.analysis_mode ?? 'elemental');
+    setSynchrotron(Boolean(saved.fields.synchrotron));
+    if (saved.controls) setRefinementControls(saved.controls);
+    setUsingRemembered(true);
+    return true;
+  };
+  const resetToDefaults = () => {
+    forgetRemembered(browserStorage());
+    form.resetFields();
+    setAnalysisMode('elemental');
+    setSynchrotron(false);
+    setRefinementControls(DEFAULT_CONTROLS);
+    setUsingRemembered(false);
+  };
   const [loadingClone, setLoadingClone] = useState(false);
   const [seriesMode, setSeriesMode] = useState(false);
   const [seriesPreview, setSeriesPreview] = useState(null);
@@ -174,6 +194,12 @@ function Submission() {
   }, [watchedMode, watchedElements, watchedPrecursors, watchedUseCod, watchedUseMp, watchedEHull, watchedMaxMp,
     watchedPrefilter, watchedMaxMinutes, watchedWavelengthLab, watchedWavelengthSync, watchedThetaMax,
     synchrotron, inspectedThetaMax, inspectedPoints]);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('clone_task')) return;
+    applyRemembered(readRemembered(browserStorage()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const sourceId = new URLSearchParams(window.location.search).get('clone_task');
@@ -353,19 +379,23 @@ function Submission() {
           if (data.message === 'submitted' && data.series_id) {
             const seriesUrl = `/series/?id=${encodeURIComponent(data.series_id)}`;
             runAfterSuccess([
+              () => writeRemembered(browserStorage(), form.getFieldsValue(true), refinementControls),
               () => message.success(`The series was submitted (${(data.task_ids || []).length} tasks).`),
               () => { window.location.href = seriesUrl; },
             ]);
             return false;
           }
           if (data.message === 'submitted') {
+            const remembered = { fields: form.getFieldsValue(true), controls: refinementControls };
             runAfterSuccess([
+              () => writeRemembered(browserStorage(), remembered.fields, remembered.controls),
               () => form.resetFields(),
               () => { autoElements.current = null; },
               () => setCloneSource(null),
               () => setPatternInspection(null),
               () => setAnalysisMode('elemental'),
               () => setSynchrotron(false),
+              () => applyRemembered(readRemembered(browserStorage())),
               () => message.success('The refinement task was submitted.'),
             ]);
             return false;
@@ -427,7 +457,11 @@ function Submission() {
             if (Object.prototype.hasOwnProperty.call(changed, 'elements')) autoElements.current = null;
           }}
         >
-          <Form.Item label="User" name="user" rules={[{ required: true, message: 'Please input your username.' }]}>
+          <Form.Item label="User" name="user" rules={[{ required: true, message: 'Please input your username.' }]}
+            extra={usingRemembered && !cloneSource ? <span>
+              Name and settings are filled in from your last submission in this browser.{' '}
+              <a onClick={resetToDefaults}>Reset to defaults</a>
+            </span> : null}>
             <Input placeholder="Username" />
           </Form.Item>
           {loadingClone ? <Alert type="info" showIcon message="Loading saved pattern and conditions..." style={{ marginBottom: 20 }} /> : null}

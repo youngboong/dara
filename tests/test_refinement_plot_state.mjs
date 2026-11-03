@@ -27,3 +27,25 @@ assert(log.data[6].y.every(value => value > 0));
 assert.equal(log.layout.annotations[0].y, Math.log10(log.data[6].y[0]));
 assert.deepEqual(plot.data[6].y, [-20, -20]); // plotting state never mutates source
 console.log('Legend selection, compact rows, nonnegative ticks, toolbar persistence and log scale passed.');
+
+{
+  // Peak markers come at intensity 0; zooming to a window whose baseline is ~1500 must keep them
+  // just under the visible range instead of far below it.
+  const plot = {
+    layout: { xaxis: { range: [10, 80] }, yaxis: {} },
+    data: [
+      { name: 'Observed', x: [20, 30, 40, 50], y: [1500, 4000, 1600, 1550] },
+      { name: 'Missing peaks', meta: 'diagnostic', x: [30, 45], y: [0, 0], mode: 'markers' },
+    ],
+  };
+  const zoomed = buildRefinementView(plot, { xRange: [25, 45], fitY: true });
+  const markers = zoomed.data.find(trace => trace.name === 'Missing peaks');
+  const [lo, hi] = zoomed.layout.yaxis.range;
+  assert.ok(markers.y.every(y => y >= lo && y <= hi), `markers ${markers.y} outside ${lo}..${hi}`);
+  assert.ok(markers.y[0] < 1600 && markers.y[0] > 1400, 'markers sit just under the visible baseline');
+  const full = buildRefinementView(plot, {});
+  const fullMarkers = full.data.find(trace => trace.name === 'Missing peaks');
+  const [flo, fhi] = full.layout.yaxis.range;
+  assert.ok(fullMarkers.y.every(y => y >= flo && y <= fhi));
+  console.log('diagnostic marker position ok');
+}

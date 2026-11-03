@@ -206,7 +206,11 @@ Reference library CIFs는 서버에 저장해 두고 여러 작업에서 다시 
 
 ### 제출과 조건 재사용
 
-맨 아래 Submit을 누르고 확인 창에서 확정한다. 기존 작업에서 Copy conditions & rerun을 누르면 Submit 화면이 열리고 원래 패턴과 조건이 채워져 있다. 바꿀 항목만 고쳐 제출하면 새 작업이 생기고 원본은 그대로 남는다.
+맨 아래 Submit을 누르고 확인 창에서 확정한다.
+
+같은 브라우저에서는 마지막으로 제출한 User 이름과 설정(분석 모드, DB, 시간 제한, 장비, 파장, Final refinement controls)이 다음 Submit 화면에 미리 채워진다. 패턴 파일과 원소·전구체는 매번 새로 넣는다. 기본값으로 되돌리려면 User 칸 아래 Reset to defaults를 누른다.
+
+기존 작업에서 Copy conditions & rerun을 누르면 Submit 화면이 열리고 원래 패턴과 조건이 채워져 있다. 바꿀 항목만 고쳐 제출하면 새 작업이 생기고 원본은 그대로 남는다.
 
 ## 05 시리즈 분석
 
@@ -246,7 +250,7 @@ Reference library CIFs는 서버에 저장해 두고 여러 작업에서 다시 
 ![그림 6. High confidence 예시(Task 9). minor 미설명 피크 3개는 판정에 영향이 없다. 이 피크들에는 위치가 미량 Fe2O3와 맞는다는 힌트가 붙는다.](images/task-high.png){height=300}
 
 (1) Copy conditions & rerun: 같은 패턴·조건이 채워진 Submit 화면이 열린다.
-(2) Download all results: 계산 산출물 전체 ZIP.
+(2) View fit: 피팅 창을 연다. 그래프, 상 표, 상 추가와 재정밀화가 모두 이 창에 있다.
 (3) Table (CSV), Figure (PNG), Figure (SVG): 결과 표와 피팅 그림 저장.
 (4) Export for...: Profex, TOPAS, GSAS-II, HighScore용 내보내기.
 (5) 신뢰도 배너. 등급과 그 등급이 나온 이유를 보여 준다.
@@ -256,6 +260,8 @@ Reference library CIFs는 서버에 저장해 두고 여러 작업에서 다시 
 ### 신뢰도 배너
 
 배너 아래 항목은 그 등급이 나온 이유다. 등급은 통계량이 문턱값을 넘었는지로 정한 판정이며 확률을 뜻하지 않는다.
+
+significant 미설명 피크가 있으면 배너에 파란색 Find phases for the unexplained peaks 버튼이 붙는다. 누르면 피팅 창과 Add phase 창이 함께 열리고 그 피크들로 후보 검색이 바로 시작된다.
 
 | 등급 | 조건(하나라도 해당하면 그 등급) |
 | --- | --- |
@@ -317,6 +323,8 @@ Unexplained 태그의 숫자는 계산 패턴이 재현하지 못한 관측 피�
 
 ## 06 결과 보기 · 피팅 그래프와 질량 균형
 
+View fit 창은 위에서부터 적합도 태그, 피팅 그래프, 상 표, Review cautions와 미량상 힌트 한 줄, 보고서·그림 버튼 순서로 놓인다.
+
 ![그림 9. View fit 창의 피팅 그래프(Task 9). 오른쪽 버튼으로 끌어 확대 상자를 그리는 장면.](images/fit-navigation.png){height=330}
 
 (1) Fit intensity to view: 기본으로 켜져 있다. 보이는 2θ 구간에 맞춰 강도 축이 자동으로 조정된다.
@@ -375,7 +383,7 @@ Unexplained 태그의 숫자는 계산 패턴이 재현하지 못한 관측 피�
 
 - 시작하는 곳: 피팅 창의 Add phase…, Select phases…, 상 표의 Swap·Remove, Advanced → Background….
 - DB를 다시 검색하지 않고 바꾼 상 조합만 정밀화한다. 패턴, 장비, 파장, 2θ 범위, 제외 구간, Final refinement controls는 원래 값을 그대로 가져간다.
-- 대부분 수십 초 안에 끝나고 한 작업에서는 한 번에 하나만 실행된다.
+- 대부분 수십 초 안에 끝나고 한 작업에서는 한 번에 하나만 실행된다. 단독 계산이라 CPU 코어를 여러 개(코어 수 − 1) 쓴다.
 - 피팅 창을 닫아도 계산은 계속되지만 Cancel하면 버전이 만들어지지 않는다.
 - 끝나면 "Version vN ready (Rwp …%)" 알림과 함께 새 버전이 열린다. Select phases…, Swap, Remove로 만든 버전은 비교 창이 바로 열린다.
 - Select phases…: 이 작업에 저장된 참조 상 목록에서 넣을 상만 체크하고 Re-refine and compare를 누른다. 의심스러운 상을 빼 보거나 다른 참조로 바꿔 비교할 때 알맞다.
@@ -422,7 +430,7 @@ Versions 표는 작업 페이지의 Final refined phase parameters 표 아래에
 피팅 창에서 Add phase…를 누르거나 그래프의 피크를 클릭하면 오른쪽에 열린다.
 
 - Suggested by DARA: 미량상 힌트가 줄마다 나오고 오른쪽에 Add가 붙는다. 추가한 버전의 라벨은 "Added … (hint)"다.
-- Matches for the significant unexplained peaks: 피팅 창을 열면 significant 미설명 피크 전체로 후보 검색이 자동으로 돈다. 피크를 하나씩 클릭하지 않아도 된다. 쓸 만한 후보(Possible match)가 있으면 Add phase… 버튼에 개수 배지가 붙는다. 위쪽 5개만 보이고 나머지는 개수로 알려 준다.
+- Matches for the significant unexplained peaks: 피팅 창을 열면 significant 미설명 피크 전체로 후보 검색이 자동으로 돈다. 피크를 하나씩 클릭하지 않아도 된다. 쓸 만한 후보(Possible match)나 힌트가 있으면 Add phase… 버튼이 파란색으로 바뀌고 후보 개수 배지가 붙는다. 위쪽 5개만 보이고 나머지는 개수로 알려 준다.
 - Search by clicked peaks: 미설명 피크 표시(삼각형)나 관측점을 클릭하면 그 피크로 후보를 검색한다. Shift+클릭하면 피크를 더할 수 있다(최대 10개). 첫 검색은 15초까지 걸릴 수 있다.
 - 일치 강도 태그로 먼저 거른다. Strong match는 고른 피크를 거의 다 설명하고(점수 0.75 이상) 그 상의 강한 반사 중 측정에 없는 것이 15% 이하인 경우다. Possible match는 점수가 0.5를 넘는 경우, Weak match는 일부 피크만 우연히 겹친 경우다.
 - 자동 검색 목록은 피크가 여러 상에서 왔을 수 있어 Strong을 붙이지 않는다. significant 피크 1~2개는 모두, 3~4개는 2개, 5개 이상은 3개 이상을 설명하고 측정에 없는 강한 반사가 15% 이하일 때 Possible match로 표시한다.
@@ -521,7 +529,7 @@ Best-fit report는 자동 최저 Rwp 결과를, Report (saved choice)는 채택�
 
 - Figure (PNG): 600 dpi 피팅 그림. Figure (SVG): 같은 그림의 벡터 버전.
 - Table (CSV): 상별 wt%, 표준편차, 격자상수, 품질 지표. Results 목록의 Export table은 여러 작업을 한 표로 묶는다.
-- Download all results: 계산 산출물 전체(.lst 포함) ZIP.
+- Download all: 작업 페이지 오른쪽 위 버튼. 계산 산출물 전체(.lst 포함)를 ZIP으로 받는다.
 
 <!-- widths: 170,317 -->
 | Export for... 항목 | 내용 |
@@ -569,7 +577,7 @@ High confidence도 정답을 보증하지는 않는다. 시료 이력, 합성 �
 | BGMN refinement program failed | 이상한 CIF나 프로파일·파장 불일치가 흔한 원인이다. 의심 CIF를 빼고 장비 프로파일을 다시 본다. |
 | The parallel worker (Ray) could not start | 다른 DARA 창을 닫거나 PC를 재시작한다. 보안 프로그램이 로컬 포트를 막고 있는지도 살펴본다. |
 | 질량 균형 경고가 뜰 때 | 6장 질량 균형 점검 읽기, 8장 질량 균형 편차 해석 참고. |
-| 재정밀화가 오래 걸리거나 실패할 때 | 배경 항 수를 Auto로 되돌리거나 불필요한 상을 Remove한다. 다른 재정밀화가 도는 중에는 버튼이 꺼지므로 기다리거나 Cancel한다. 실패 알림 문구를 읽고 다시 시도한다. |
+| 재정밀화가 오래 걸리거나 실패할 때 | 재정밀화와 최종 정밀화는 CPU 코어를 여러 개 쓰므로 다른 무거운 프로그램을 닫으면 빨라진다. 배경 항 수를 Auto로 되돌리거나 불필요한 상을 Remove한다. 다른 재정밀화가 도는 중에는 버튼이 꺼지므로 기다리거나 Cancel한다. 실패 알림 문구를 읽고 다시 시도한다. |
 | 실패 작업을 다시 돌리고 싶을 때 | 6장 실패 작업 재시도 참고. |
 | 피팅이 나쁠 때 | 파장, 장비 프로파일, 원소 목록, 후보 CIF, 분석 범위 순으로 따져 본다. Rwp를 낮추려고 중요한 피크를 제외 구간으로 지우면 안 된다. |
 

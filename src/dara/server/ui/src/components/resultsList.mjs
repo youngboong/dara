@@ -37,3 +37,17 @@ export function tasksQuery({ page = 1, limit = 10, user, name, selected = [] } =
   if (selected.length) parts.push(`selected=${selected.join(',')}`);
   return parts.join('&');
 }
+
+const OPTION_LABELS = { instrument_profile: 'Instrument profile', wavelength: 'Wavelength' };
+
+/** "Instrument profile: … · Wavelength: Cu" for the saved search options (ranges are shown separately). */
+export function searchOptionsText(options) {
+  if (!options || typeof options !== 'object') return '—';
+  const parts = Object.entries(options)
+    .filter(([key, value]) => key !== 'refinement_params' && value !== null && value !== undefined && value !== '')
+    .map(([key, value]) => {
+      const label = OPTION_LABELS[key] || key.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+      return `${label}: ${typeof value === 'object' ? JSON.stringify(value) : value}`;
+    });
+  return parts.length ? parts.join(' · ') : '—';
+}
