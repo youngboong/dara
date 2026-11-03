@@ -94,6 +94,7 @@ def generate_control_file(
     eps2: float | str = "0_-0.05^0.05",
     wavelength: Literal["Cu", "Co", "Cr", "Fe", "Mo"] | float = "Cu",
     background_degree: int | None = None,
+    itmax: int | None = None,
 ) -> Path:
     """
     Generate a control file for BGMN.
@@ -114,8 +115,12 @@ def generate_control_file(
             the target material in X-ray tubes.
         background_degree: optional number of background polynomial parameters written as
             native BGMN ``RU=<n>`` (2..20). ``None`` keeps BGMN's automatic choice.
+        itmax: optional cap on the iteration steps of each BGMN refinement stage (``ITMAX``).
+            ``None`` keeps BGMN's default of ten times the parameter count.
 
     """
+    if itmax is not None and (isinstance(itmax, bool) or not isinstance(itmax, int) or itmax < 1):
+        raise ValueError("itmax must be a positive integer.")
     if background_degree is not None:
         if (
             isinstance(background_degree, bool)
@@ -189,6 +194,7 @@ def generate_control_file(
     {f"PARAM[1]=EPS1={eps1}" if isinstance(eps1, str) else f"EPS1={eps1}"}
     {f"PARAM[{'2' if isinstance(eps1, str) else '1'}]=EPS2={eps2}" if isinstance(eps2, str) else f"EPS2={eps2}"}
     NTHREADS={n_threads}
+    {f"ITMAX={itmax}" if itmax is not None else ""}
     PROTOKOLL=Y
     sum={"+".join(phase_name for phase_name in phase_names)}
     {phase_fraction_str}

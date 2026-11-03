@@ -115,3 +115,15 @@ def test_do_refinement_omits_cancel_kwarg_by_default(monkeypatch, workdir):
         refine.do_refinement(workdir / "BiFeO3.xy", [workdir / "BiFeO3.str"],
                              working_dir=workdir / "run", instrument_profile=INSTRUMENT)
     assert calls and "cancel_event" not in calls[0]
+
+
+def test_itmax_adds_exactly_one_line(workdir):
+    text = _control(workdir, itmax=25)
+    assert text.replace("ITMAX=25\n", "") == GOLDEN_DEFAULT
+    assert "NTHREADS=1\nITMAX=25\nPROTOKOLL=Y" in text
+
+
+@pytest.mark.parametrize("value", [0, -3, 2.5, True])
+def test_itmax_rejects_invalid_values(workdir, value):
+    with pytest.raises(ValueError):
+        _control(workdir, itmax=value)

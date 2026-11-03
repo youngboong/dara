@@ -188,8 +188,12 @@ def test_parity_with_refine_selected_arguments_and_str(monkeypatch, env, tmp_pat
     job = _run(main())
     assert job["status"] == "done", job
     quick, selected = captured_quick[0], captured_selected[0]
-    for key in ("phase_params", "refinement_params", "wavelength", "instrument_profile"):
+    for key in ("phase_params", "wavelength", "instrument_profile"):
         assert quick[key] == selected[key], key
+    # Same refinement settings; quick re-refinements only add the per-stage iteration cap.
+    quick_params = dict(quick["refinement_params"])
+    assert quick_params.pop("itmax") == quick_refine.QUICK_REFINE_ITMAX
+    assert quick_params == selected["refinement_params"]
     assert quick["show_progress"] is False
     assert callable(quick["observed_peaks"])
     assert isinstance(quick["cancel_event"], threading.Event)
