@@ -117,7 +117,25 @@ START.cmd 첫 실행의 4단계에서 아래 창이 한 번 뜬다.
 
 - 마지막 DARA 브라우저 창을 닫으면 약 20초 뒤 서버가 스스로 꺼진다. 대기 중이거나 실행 중인 분석이 있으면 그 분석이 끝날 때까지 서버는 켜진 채로 남는다. 바로 끄려면 START 창에서 Ctrl+C를 누른다.
 - 서버가 떠 있을 때 START.cmd를 다시 실행하면 새 브라우저 창만 열린다. 창 여러 개를 함께 써도 문제없다.
-- 선택 스위치: -Reinstall(.venv 재설치), -Offline(네트워크 미사용), -SetupOnly(설치만), -NoBrowser(브라우저 안 엶), -SkipApiKeySetup(MP 키 입력 창 생략), -SetApiKey(MP 키 입력 창 다시 열기).
+- 선택 스위치: -Reinstall(.venv 재설치), -Offline(네트워크 미사용), -SetupOnly(설치만), -NoBrowser(브라우저 안 엶), -SkipApiKeySetup(MP 키 입력 창 생략), -SetApiKey(MP 키 입력 창 다시 열기), -NoUpdateCheck(새 버전 확인 생략).
+
+### 업데이트
+
+새 버전은 바뀐 파일만 받아 적용한다. Git은 필요 없다.
+
+- START.cmd를 실행하면 GitHub에 새 버전이 있는지 먼저 확인한다. 있으면 날짜, 변경 내용 한 줄, 받을 파일 수와 크기를 보여 주고 "Update now? [Y/n]"을 묻는다. Enter나 Y를 누르면 바뀐 파일만 받은 뒤 START가 새 파일로 다시 실행된다. N을 누르면 지금 버전으로 시작한다.
+- 업데이트만 따로 하려면 DARA 폴더의 UPDATE.cmd를 더블클릭한다.
+- 받은 파일은 모두 확인(해시 대조)이 끝난 뒤에 한꺼번에 바꾼다. 중간에 인터넷이 끊기면 아무것도 바뀌지 않는다.
+- .venv, tools, MP 키, 분석 결과 DB는 건드리지 않는다. 패키지 목록이 바뀐 업데이트는 다음 START 실행 때 필요한 패키지만 추가로 설치한다.
+- 인터넷이 없거나 GitHub에 접속할 수 없으면 확인을 건너뛰고 지금 버전으로 시작한다.
+
+UPDATE.cmd가 없는 예전 설치본은 처음 한 번만 직접 받는다.
+
+1. [https://github.com/youngboong/dara](https://github.com/youngboong/dara)에서 UPDATE.cmd를 연다.
+2. 오른쪽 위 다운로드 버튼(Download raw file)으로 받는다.
+3. 받은 UPDATE.cmd를 지금 쓰는 DARA 폴더(START.cmd가 있는 곳)에 넣고 더블클릭한다.
+
+이후에는 START.cmd만 실행해도 새 버전을 확인한다.
 
 ## 04 분석 제출
 

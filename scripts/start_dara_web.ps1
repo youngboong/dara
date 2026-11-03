@@ -11,6 +11,7 @@ param(
     [switch]$Reinstall,     # recreate .venv (uv venv --clear) and reinstall; keeps tools\ and the cache
     [switch]$SetupOnly,     # run setup + BGMN check, then exit 0 without starting the server
     [switch]$Offline,       # never touch the network (UV_OFFLINE=1); fail clearly if something is missing
+    [switch]$NoUpdateCheck, # do not look for a new DARA version on GitHub before starting
     [string]$PythonExe = '' # expert override: use this interpreter as-is, skip all setup; env DARA_PYTHON does the same
 )
 
@@ -560,6 +561,20 @@ function Set-WindowsCaBundle {
     }
 }
 
+function Invoke-UpdateCheck {
+    # Ask scripts\update_dara.ps1 whether GitHub has a newer DARA; it prompts before changing files.
+    # Returns 75 when files were updated (START.cmd then runs again with them), otherwise 0.
+    param([string]$RepoRoot = $script:RepoRoot)
+    $updater = Join-Path (Join-Path $RepoRoot 'scripts') 'update_dara.ps1'
+    if (-not (Test-Path -LiteralPath $updater -PathType Leaf)) { return 0 }
+    $argumentText = ('-NoLogo -NoProfile -ExecutionPolicy Bypass -File ' + (Format-CmdArg $updater) + ' -Launcher START.cmd -FromStart -TimeoutSec 15')
+    Write-LogOnly "> powershell.exe $argumentText"
+    $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $argumentText -NoNewWindow -Wait -PassThru
+    Write-LogOnly "Update check exit code $($process.ExitCode)"
+    if ($process.ExitCode -eq 20) { return 75 }
+    return 0
+}
+
 function Invoke-BgmnCheck {
     param([string]$Python, [string]$RepoRoot = $script:RepoRoot)
     $arguments = @('-I', (Join-Path (Join-Path $RepoRoot 'scripts') 'ensure_bgmn.py'))
@@ -590,6 +605,13 @@ function Invoke-DaraStart {
                 'Your API key is saved. DARA is already running: close its server terminal and run START.cmd again to use the new key.',
                 'DARA - Restart required'
             )
+        }
+
+        if (-not $Offline -and -not $NoUpdateCheck -and [string]::IsNullOrWhiteSpace($PythonExe)) {
+            if ([int](@(Invoke-UpdateCheck -RepoRoot $repoRoot)[-1]) -eq 75) {
+                Write-Log 'Restarting START with the updated files... / 업데이트한 파일로 START를 다시 실행합니다...' 'Green'
+                return 75
+            }
         }
 
         Write-Step 1 'Checking the DARA environment' 'DARA 환경 확인'
