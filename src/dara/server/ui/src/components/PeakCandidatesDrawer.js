@@ -70,7 +70,7 @@ function usePeakCandidates(taskId, selText, peaks, enabled) {
   return { candidates, loading, pending, error };
 }
 
-function CandidateList({ search, peaks, limit, previewRef, onPreview, onAdd, busy, emptyText, strengthOf = matchStrength }) {
+function CandidateList({ search, peaks, limit, previewRef, onPreview, onAdd, busy, emptyText, strengthOf = matchStrength, list = '' }) {
   const { candidates, loading, pending, error } = search;
   if (error) return <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />;
   if (loading) {
@@ -84,13 +84,15 @@ function CandidateList({ search, peaks, limit, previewRef, onPreview, onAdd, bus
   return <>
     {pending ? <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Still searching COD…</Text> : null}
     <List dataSource={shown} rowKey={item => `${item.source}|${item.ref}`} renderItem={candidate => {
-      const previewing = previewRef === `${candidate.source}|${candidate.ref}`;
+      // The same reference can be in both lists; only the row that was clicked shows its ticks.
+      const key = `${list}|${candidate.source}|${candidate.ref}`;
+      const previewing = previewRef === key;
       const disabledReason = candidate.cif_available === false ? 'The CIF file for this reference is not available locally.'
         : busy ? 'Another re-refinement is running.' : null;
       const strength = strengthOf(candidate);
       return <List.Item key={`${candidate.source}|${candidate.ref}`} actions={[
         <Button key="preview" size="small" disabled={!candidate.sticks?.length}
-          onClick={() => onPreview(previewing ? null : { key: `${candidate.source}|${candidate.ref}`, sticks: candidate.sticks })}>
+          onClick={() => onPreview(previewing ? null : { key, sticks: candidate.sticks })}>
           {previewing ? 'Hide ticks' : 'Preview ticks'}
         </Button>,
         <Tooltip key="add" title={disabledReason}>
@@ -163,12 +165,12 @@ export default function PeakCandidatesDrawer({
         {autoPeaks.length ? `Matches for the significant unexplained peaks (${peakList(autoPeaks)})` : 'Matches for the significant unexplained peaks'}
       </Text>
       {autoPeaks.length
-        ? <CandidateList search={auto} peaks={autoPeaks} limit={AUTO_SHOWN} emptyText="No reference matched these peaks." strengthOf={autoStrength} {...listProps} />
+        ? <CandidateList list="auto" search={auto} peaks={autoPeaks} limit={AUTO_SHOWN} emptyText="No reference matched these peaks." strengthOf={autoStrength} {...listProps} />
         : <Text type="secondary">This fit has no significant unexplained peaks.</Text>}
     </div>
     <Typography.Title level={5}>{peaks?.length ? `Search by clicked peaks (${peakList(peaks)})` : 'Search by clicked peaks'}</Typography.Title>
     {peaks?.length
-      ? <CandidateList search={clicked} peaks={peaks} emptyText="No reference matched the selected peaks." {...listProps} />
+      ? <CandidateList list="clicked" search={clicked} peaks={peaks} emptyText="No reference matched the selected peaks." {...listProps} />
       : <Text type="secondary">Click unexplained peaks in the plot (Shift+click for several) to search for matching phases.</Text>}
   </Drawer>;
 }
