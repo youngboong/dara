@@ -857,3 +857,20 @@ def test_replace_retries_windows_lock_and_keeps_existing(tmp_path, monkeypatch):
 
     with pytest.raises(PermissionError):
         quick_refine._replace(source, missing)
+
+
+def test_queued_job_reports_what_it_waits_for():
+    ahead = quick_refine._new_job(1, TASK_UUID, "Baseline (current code)")
+    mine = quick_refine._new_job(1, TASK_UUID, "Added Bi4O7 (peak search)")
+    try:
+        quick_refine._update(ahead, status="running", stage="BGMN refinement")
+        snap = mine.snapshot(quick_refine.self_position(mine))
+        assert snap["ahead"] == 1
+        assert snap["ahead_label"] == "Baseline (current code)"
+        assert snap["ahead_stage"] == "BGMN refinement"
+        assert snap["ahead_elapsed_s"] >= 0
+        assert "ahead_label" not in ahead.snapshot(0)  # a running job waits for nothing
+    finally:
+        for job in (ahead, mine):
+            quick_refine._update(job, status="cancelled")
+            job.discarded = True

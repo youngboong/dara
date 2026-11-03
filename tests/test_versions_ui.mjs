@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  adoptedTag, codCodeFromStem, deltaStrip, deltaText, etaText, formatSelection, parseSelection,
+  adoptedTag, codCodeFromStem, deltaStrip, deltaText, etaText, formatSelection, progressLabel, parseSelection,
   plotQuery, refSourceForHint, removeRequest, selectionLabel, swapRequest,
   alternativeOfVerdict, formatSpacegroup, spacegroupOfPhase, swapKind,
   BASELINE_LABEL, backgroundRequest, baselineRequest, baselineVersion, comparisonBase, isMissingEndpoint, needsBaseline, selectOptionGroups, selectedPhasesRequest,
@@ -154,6 +154,12 @@ assert.equal(etaText({ status: 'queued', position: 1, ahead: 0 }), 'Starting…'
 assert.equal(etaText({ status: 'queued', position: 2 }), 'Queued (1 ahead)', 'older records: position is 1-based');
 assert.equal(etaText({ status: 'queued', position: 1 }), 'Starting…');
 assert.equal(etaText({ status: 'queued', position: 0 }), 'Starting…');
+assert.equal(etaText({ status: 'queued', ahead: 1, ahead_label: 'Baseline (current code)', ahead_elapsed_s: 95 }),
+  'Waiting for Baseline (current code), running 1 min 35 s');
+assert.equal(etaText({ status: 'queued', ahead: 2, ahead_label: 'Removed X', ahead_elapsed_s: 0 }), 'Waiting for Removed X + 1 more');
+assert.equal(progressLabel('Added Bi4O7 (peak search)'), 'Adding Bi4O7 (peak search)');
+assert.equal(progressLabel('Swapped A for B'), 'Swapping A for B');
+assert.equal(progressLabel('Baseline (current code)'), 'Baseline (current code)');
 assert.equal(etaText({ status: 'done' }), '');
 assert.equal(etaText(null), '');
 

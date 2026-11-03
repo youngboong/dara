@@ -338,13 +338,27 @@ function durationText(seconds) {
   return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`;
 }
 
+/** Version label in the progressive form while the job runs ("Added X" → "Adding X"). */
+export function progressLabel(label) {
+  const text = String(label || '');
+  for (const [done, doing] of [['Added ', 'Adding '], ['Removed ', 'Removing '], ['Swapped ', 'Swapping ']]) {
+    if (text.startsWith(done)) return doing + text.slice(done.length);
+  }
+  return text;
+}
+
 /** ETA / queue text for a quick job record. */
 export function etaText(job) {
   if (!job) return '';
   if (job.status === 'queued') {
     // `ahead` = jobs in front of this one; older records only have the 1-based `position`.
     const ahead = finite(job.ahead) ? Number(job.ahead) : Math.max(0, Number(job.position || 0) - 1);
-    return ahead > 0 ? `Queued (${ahead} ahead)` : 'Starting…';
+    if (ahead <= 0) return 'Starting…';
+    if (!job.ahead_label) return `Queued (${ahead} ahead)`;
+    // Name the job in front (often the silent baseline re-refinement) and how long it has run.
+    const ran = finite(job.ahead_elapsed_s) && Number(job.ahead_elapsed_s) > 0 ? `, running ${durationText(job.ahead_elapsed_s)}` : '';
+    const more = ahead > 1 ? ` + ${ahead - 1} more` : '';
+    return `Waiting for ${job.ahead_label}${ran}${more}`;
   }
   if (job.status !== 'running') return '';
   if (!finite(job.eta_s)) return 'estimating…';

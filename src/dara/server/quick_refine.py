@@ -244,6 +244,8 @@ class QuickJob:
             "position": position,
             "ahead": max(0, int(position) - 1) if self.status == "queued" and position else 0,
             "timings": dict(self.timings),
+            # What a queued job is waiting for, so the page does not look stuck at 0 s.
+            **(_waiting_for(self) if self.status == "queued" else {}),
         }
 
 
@@ -269,6 +271,16 @@ def self_position(job: QuickJob) -> int:
         if job.status != "queued":
             return 0
         return 1 + sum(1 for other in _JOBS.values() if other.status in _ACTIVE and other.seq < job.seq)
+
+
+def _waiting_for(job: QuickJob) -> dict:
+    """Label, stage and run time of the active job directly in front of a queued ``job``."""
+    with _LOCK:
+        ahead = [other for other in _JOBS.values() if other.status in _ACTIVE and other.seq < job.seq]
+    if not ahead:
+        return {}
+    first = min(ahead, key=lambda other: (other.status != "running", other.seq))
+    return {"ahead_label": first.label, "ahead_stage": first.stage, "ahead_elapsed_s": first.elapsed()}
 
 
 def _update(job: QuickJob, **fields) -> None:

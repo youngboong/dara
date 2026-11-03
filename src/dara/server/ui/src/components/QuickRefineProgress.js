@@ -1,6 +1,6 @@
 import React from 'react';
 import { Alert, Button, Progress, Space, message } from 'antd';
-import { etaText, isMissingEndpoint } from './versions.mjs';
+import { etaText, isMissingEndpoint, progressLabel } from './versions.mjs';
 
 export const API = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 export const NOT_AVAILABLE = 'Not available on this server version.';
@@ -125,7 +125,7 @@ export function useQuickRefine(taskId, { onVersion } = {}) {
         if (!mounted.current) return;
         setAvailable(true);
         if (active) {
-          setJob({ ...active, receivedAt: Date.now() });
+          setJob({ ...active, receivedAt: Date.now(), submittedAt: Date.parse(active.created_at) || Date.now() });
           poll(active.job_id);
         }
       })
@@ -144,14 +144,15 @@ export function useQuickRefine(taskId, { onVersion } = {}) {
 
   const start = React.useCallback(async (body, meta = {}) => {
     if (busy) return null;
-    setJob({ status: 'starting', stage: 'Starting…', label: body.label, elapsed_s: 0, receivedAt: Date.now() });
+    const submittedAt = Date.now();
+    setJob({ status: 'starting', stage: 'Starting…', label: body.label, elapsed_s: 0, receivedAt: submittedAt, submittedAt });
     try {
       const accepted = await postJson(`/task/${taskId}/quick-refine`, body);
       if (!mounted.current) return accepted;
       setAvailable(true);
       metaRef.current.set(accepted.job_id, { ...meta, request: body });
       setJob({ ...accepted, status: accepted.status || 'queued', stage: accepted.stage || 'Queued',
-        label: body.label, elapsed_s: 0, receivedAt: Date.now() });
+        label: body.label, elapsed_s: 0, receivedAt: Date.now(), submittedAt });
       poll(accepted.job_id);
       return accepted;
     } catch (error) {
@@ -198,19 +199,21 @@ export default function QuickRefineProgress({ job, onCancel, onDismiss, style })
       description={job.error || 'The server did not report a reason.'} />;
   }
   const sinceReport = job.receivedAt ? Math.max(0, (now - job.receivedAt) / 1000) : 0;
-  const elapsed = Number(job.elapsed_s || 0) + (running ? sinceReport : 0);
+  const queued = job.status === 'queued';
+  // While queued the server reports 0 s; count the wait since submission so it never looks stuck.
+  const elapsed = queued && job.submittedAt ? Math.max(0, (now - job.submittedAt) / 1000)
+    : Number(job.elapsed_s || 0) + (running ? sinceReport : 0);
   const live = { ...job, elapsed_s: elapsed };
   const etaRaw = etaText(live);
   const known = job.status === 'running' && job.eta_s != null && Number(job.eta_s) > 0;
   const percent = known ? Math.min(95, Math.round((elapsed / Number(job.eta_s)) * 100)) : undefined;
-  const queued = job.status === 'queued';
   // A queued job shows its queue position (or "Starting…") instead of the generic stage name.
   const stage = job.status === 'starting' ? 'Starting…'
     : queued && etaRaw ? etaRaw : job.stage || (queued ? 'Queued' : 'Working');
   const eta = !queued && etaRaw && etaRaw !== stage ? etaRaw : '';
   return <Alert type="info" showIcon style={{ marginBottom: 12, ...style }}
     message={<Space wrap>
-      <strong>{job.label || 'Re-refining'}</strong>
+      <strong>{progressLabel(job.label) || 'Re-refining'}</strong>
       <span>{stage}</span>
       <span>{`${Math.round(elapsed)} s`}</span>
       {eta ? <span>{eta}</span> : null}
