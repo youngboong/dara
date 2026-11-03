@@ -129,3 +129,50 @@ export function hintText(hint) {
   const symbol = hint.spacegroup_symbol ? ` (${hint.spacegroup_symbol})` : '';
   return `Trace ${hint.formula || hint.phase}${symbol}${peaks.length ? ` matches ${peaks.join(', ')}` : ''}`;
 }
+
+/**
+ * 2θ of the significant unexplained peaks of a fit (largest first, at most `max`), the peaks
+ * DARA searches candidates for automatically. Empty for payloads without classified peaks.
+ */
+export function significantPeaks(diagnostics, { max = MAX_SELECTED_PEAKS } = {}) {
+  const entries = Array.isArray(diagnostics?.missing_classified) ? diagnostics.missing_classified : [];
+  return entries
+    .filter(entry => entry?.class === 'significant' && Number.isFinite(Number(entry.two_theta)))
+    .sort((a, b) => (Number(b.rel_height) || 0) - (Number(a.rel_height) || 0))
+    .slice(0, max)
+    .map(entry => Number(entry.two_theta))
+    .sort((a, b) => a - b);
+}
+
+/** Share of a candidate's strong reflections that the data does not show (0 when unknown). */
+function contradiction(candidate) {
+  const strong = Number(candidate?.n_strong) || 0;
+  return strong > 0 ? (Number(candidate?.strong_unobserved) || 0) / strong : 0;
+}
+
+/**
+ * Plain-language strength of a candidate for the peaks the user selected. "Strong" needs a high
+ * score (1 = every selected peak) and few of its own strong reflections missing from the data.
+ */
+export function matchStrength(candidate) {
+  const value = Number(candidate?.score);
+  if (!Number.isFinite(value)) return null;
+  if (value >= 0.75 && contradiction(candidate) <= 0.15) return { label: 'Strong match', color: 'green' };
+  if (value > 0.5) return { label: 'Possible match', color: 'gold' };
+  return { label: 'Weak match', color: 'default' };
+}
+
+/**
+ * Strength of a candidate from the automatic search over all significant peaks. Those peaks
+ * may come from several missing phases, so the fraction matched says little: a candidate is a
+ * possible match when it explains several of them (all of 1–2, two of 3–4, three of 5 or more)
+ * and at most 15 % of its own strong reflections are missing from the data. Never "strong" — the peaks were not chosen by the user.
+ */
+export function autoMatchStrength(candidate, nPeaks = 0) {
+  const matched = Array.isArray(candidate?.matched) ? candidate.matched.length : 0;
+  const contradicted = Number(candidate?.n_strong) > 0 ? contradiction(candidate) : 1;
+  // all of 1–2 peaks, 2 of 3–4, 3 of 5 or more
+  const need = nPeaks <= 2 ? Math.max(1, nPeaks) : nPeaks <= 4 ? 2 : 3;
+  if (matched >= need && contradicted <= 0.15) return { label: 'Possible match', color: 'gold' };
+  return { label: 'Weak match', color: 'default' };
+}

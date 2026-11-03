@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   collectHints, hintText, hintsPending, observedPeak, peakFromClick, peakShapes, phaseGroupNames, previewTrace,
-  updatePeakSelection,
+  updatePeakSelection, significantPeaks, matchStrength, autoMatchStrength,
 } from '../src/dara/server/ui/src/components/peakSelection.mjs';
 
 const plot = {
@@ -74,3 +74,38 @@ assert.equal(hintsPending({ final_result: { peak_diagnostics: { trace_hints: [] 
 assert.equal(hintsPending({ final_result: { peak_diagnostics: { hints_pending: true } }, all_results: [] }), true);
 assert.equal(hintsPending({ final_result: {}, all_results: [{ peak_diagnostics: { hints_pending: true } }] }), true);
 assert.equal(hintsPending({ final_result: { peak_diagnostics: { hints_pending: false } }, all_results: [{}, null] }), false);
+
+{
+  const diagnostics = { missing_classified: [
+    { two_theta: 31.9, class: 'significant', rel_height: 0.028 },
+    { two_theta: 22.6, class: 'significant', rel_height: 0.30 },
+    { two_theta: 40.1, class: 'minor', rel_height: 0.01 },
+    { two_theta: 'x', class: 'significant', rel_height: 0.5 },
+    { two_theta: 26.3, class: 'significant', rel_height: 0.16 },
+  ] };
+  assert.deepEqual(significantPeaks(diagnostics), [22.6, 26.3, 31.9]);
+  // the largest peaks are kept when there are more than `max`, then shown in 2θ order
+  assert.deepEqual(significantPeaks(diagnostics, { max: 2 }), [22.6, 26.3]);
+  assert.deepEqual(significantPeaks(null), []);
+  assert.deepEqual(significantPeaks({ missing: [1, 2] }), []);
+  assert.equal(matchStrength({ score: 1, n_strong: 6, strong_unobserved: 0 }).label, 'Strong match');
+  assert.equal(matchStrength({ score: 0.75 }).label, 'Strong match');
+  // high score but 7 of 19 strong reflections not seen in the data: not strong
+  assert.equal(matchStrength({ score: 0.82, n_strong: 19, strong_unobserved: 7 }).label, 'Possible match');
+  assert.equal(matchStrength({ score: 0.6 }).label, 'Possible match');
+  assert.equal(matchStrength({ score: 0.5 }).label, 'Weak match');
+  assert.equal(matchStrength({}), null);
+}
+
+{
+  // explains 4 of 10 significant peaks with 2 of 21 strong reflections unseen: possible
+  assert.equal(autoMatchStrength({ matched: [1, 2, 3, 4], n_strong: 21, strong_unobserved: 2 }, 10).label, 'Possible match');
+  // only 2 of 10 peaks: weak; 2 of 3 peaks: enough
+  assert.equal(autoMatchStrength({ matched: [1, 2], n_strong: 6, strong_unobserved: 0 }, 10).label, 'Weak match');
+  assert.equal(autoMatchStrength({ matched: [1, 2], n_strong: 6, strong_unobserved: 0 }, 3).label, 'Possible match');
+  // the single significant peak explained with no contradiction
+  assert.equal(autoMatchStrength({ matched: [1], n_strong: 3, strong_unobserved: 0 }, 1).label, 'Possible match');
+  // many of its strong reflections missing from the data: weak
+  assert.equal(autoMatchStrength({ matched: [1, 2, 3], n_strong: 8, strong_unobserved: 2 }, 5).label, 'Weak match');
+  assert.equal(autoMatchStrength({}, 4).label, 'Weak match');
+}

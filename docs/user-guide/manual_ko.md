@@ -406,23 +406,26 @@ Versions 표는 작업 페이지의 Final refined phase parameters 표 아래에
 
 ## 06 결과 보기 · 상 추가와 교체
 
-![그림 14. Add phase 창(Task 9). 미설명 피크 두 개(33.44°, 35.89°)를 고르고 첫 후보의 반사 위치를 미리 띄워 둔 상태.](images/add-phase-drawer.png){height=380}
+![그림 14. Add phase 창(Task 9). 미설명 피크 두 개(33.44°, 35.89°)를 고르고 첫 후보의 반사 위치를 미리 띄워 둔 상태. 후보마다 일치 강도 태그가 붙는다.](images/add-phase-drawer.png){height=380}
 
 (1) 고른 피크 위치(빨간 점선). 보라색 세로선은 Preview ticks로 띄운 후보의 반사 위치다.
 (2) Selected peaks: 고른 피크 칩(×로 하나씩 해제), Show candidates, Clear.
 (3) Suggested by DARA: 미량상 힌트 목록. Add를 누르면 그 상을 넣어 재정밀화한다.
-(4) Search by clicked peaks: 고른 피크 위치로 찾은 후보 목록.
-(5) 후보 정보: 화학식, 공간군, 출처(This task, Library, COD), 점수 막대, 맞은 피크 수, 강한 반사 수, 참조 이름.
-(6) Preview ticks / Hide ticks: 후보의 반사 위치를 그래프 위에 겹쳐 본다.
-(7) Add: 이 후보를 넣고 재정밀화한다.
+(4) Matches for the significant unexplained peaks: significant 미설명 피크 전체로 자동 검색한 후보 목록. 이 작업처럼 significant 피크가 없으면 그렇다고 알려 준다.
+(5) Search by clicked peaks: 고른 피크 위치로 찾은 후보 목록.
+(6) 후보 정보: 화학식, 공간군, 출처(This task, Library, COD), 일치 강도 태그(Strong/Possible/Weak match), 점수 막대, 맞은 피크 수, 강한 반사 수, 참조 이름.
+(7) Preview ticks / Hide ticks: 후보의 반사 위치를 그래프 위에 겹쳐 본다.
+(8) Add: 이 후보를 넣고 재정밀화한다.
 
 ### Add phase 창
 
 피팅 창에서 Add phase…를 누르거나 그래프의 피크를 클릭하면 오른쪽에 열린다.
 
 - Suggested by DARA: 미량상 힌트가 줄마다 나오고 오른쪽에 Add가 붙는다. 추가한 버전의 라벨은 "Added … (hint)"다.
+- Matches for the significant unexplained peaks: 피팅 창을 열면 significant 미설명 피크 전체로 후보 검색이 자동으로 돈다. 피크를 하나씩 클릭하지 않아도 된다. 쓸 만한 후보(Possible match)가 있으면 Add phase… 버튼에 개수 배지가 붙는다. 위쪽 5개만 보이고 나머지는 개수로 알려 준다.
 - Search by clicked peaks: 미설명 피크 표시(삼각형)나 관측점을 클릭하면 그 피크로 후보를 검색한다. Shift+클릭하면 피크를 더할 수 있다(최대 10개). 첫 검색은 15초까지 걸릴 수 있다.
-- 점수가 1.0 근처면 고른 피크를 모두 설명하고 측정에 없는 강한 반사도 없다는 뜻이므로 넣어 볼 만하다. 0.5 이하는 대개 일부 피크만 우연히 겹친 경우다.
+- 일치 강도 태그로 먼저 거른다. Strong match는 고른 피크를 거의 다 설명하고(점수 0.75 이상) 그 상의 강한 반사 중 측정에 없는 것이 15% 이하인 경우다. Possible match는 점수가 0.5를 넘는 경우, Weak match는 일부 피크만 우연히 겹친 경우다.
+- 자동 검색 목록은 피크가 여러 상에서 왔을 수 있어 Strong을 붙이지 않는다. significant 피크 1~2개는 모두, 3~4개는 2개, 5개 이상은 3개 이상을 설명하고 측정에 없는 강한 반사가 15% 이하일 때 Possible match로 표시한다.
 - 점수만으로 존재를 판정하면 안 된다. Preview ticks로 다른 반사 위치까지 살펴봐야 한다. Add로 넣은 뒤 비교 창에서 Rwp가 뚜렷하게 내려가고 화학적으로도 타당할 때만 채택한다.
 - 힌트와 검색은 모두 이 PC에 받아 둔 구조만 대상으로 한다(작업 후보, 입력 CIF, 참조 라이브러리, 로컬 COD 캐시). 실제 상이 여기에 없으면 그 상의 CIF를 구해 입력 CIF나 참조 라이브러리로 추가한다.
 - 로컬 CIF가 없는 후보이거나 다른 재정밀화가 도는 중이면 Add가 꺼진다.

@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import Layout from '../components/Layout';
-import { Alert, Button, Descriptions, Divider, Dropdown, message, Modal, Spin, Tag, List, Space, Switch, Tooltip, Typography, Table, Select } from 'antd';
+import { Alert, Badge, Button, Descriptions, Divider, Dropdown, List, message, Modal, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd';
 import { DeleteOutlined, DownOutlined, DownloadOutlined, InfoCircleOutlined, TableOutlined } from '@ant-design/icons';
 import Loadable from 'react-loadable'
 import parse from 'html-react-parser';
@@ -743,6 +743,7 @@ function TaskDetail({ data, task_id }) {
     setDrawerOpen(next.length > 0);
     if (!next.length) setPreview(null);
   };
+  const [suggestionCount, setSuggestionCount] = React.useState(0);
   const clearPeaks = () => { setPeaks([]); setPreview(null); setDrawerOpen(false); };
   const addCandidate = candidate => {
     setDrawerOpen(false);
@@ -974,7 +975,11 @@ function TaskDetail({ data, task_id }) {
           <Select aria-label="Displayed candidate" style={{ width: 360 }} value={currentSel}
             onChange={value => setPlotId(value === 'best' ? null : value)} options={selectOptions} />
           {quickShown && displayedResult ? <>
-            <Button onClick={() => setDrawerOpen(true)}>Add phase…</Button>
+            <Tooltip title={suggestionCount ? `${suggestionCount} possible or strong match${suggestionCount === 1 ? '' : 'es'} for the significant unexplained peaks` : null}>
+              <Badge count={suggestionCount} size="small" offset={[-4, 2]}>
+                <Button onClick={() => setDrawerOpen(true)}>Add phase…</Button>
+              </Badge>
+            </Tooltip>
             <PhaseSelectionButton taskId={task_id} phases={displayedPhases} renderPhase={renderReference} busy={quick.busy}
               onSubmit={request => runQuick(request, { afterDone: 'compare' })} />
             <Dropdown trigger={['click']} menu={{ items: [{ key: 'background', label: 'Background…', disabled: quick.busy }],
@@ -1024,6 +1029,7 @@ function TaskDetail({ data, task_id }) {
       </Modal>
       <PeakCandidatesDrawer taskId={task_id} sel={currentSel} peaks={peaks} open={drawerOpen && plot_id !== undefined}
         diagnostics={displayedResult?.peak_diagnostics} onAddHint={(hint, target) => { setDrawerOpen(false); addHint(hint, target); }}
+        active={plot_id !== undefined} onSuggestions={setSuggestionCount}
         onClose={() => setDrawerOpen(false)} onPreview={setPreview} previewRef={preview?.key} onAdd={addCandidate} busy={quick.busy} />
       <FitCompare taskId={task_id} a={compare?.a} b={compare?.b} open={Boolean(compare)} onClose={() => setCompare(null)}
         adopting={review.saving} allResults={data.all_results} versions={store.versions} onSelect={(a, b) => setCompare({ a, b })}
