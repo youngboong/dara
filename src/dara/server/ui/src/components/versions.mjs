@@ -280,6 +280,21 @@ export function backgroundRequest({ auto, degree, ranges, baseDegree = null }) {
 
 export const BASELINE_LABEL = 'Baseline (current code)';
 
+/** True when `sel` is a fast Add-phase version (base phases fixed): a quick check, not a final fit. */
+export function isQuickCheck(versions = [], sel) {
+  const parsed = parseSelection(sel);
+  if (!parsed || typeof parsed !== 'object') return false;
+  return (versions || []).some(item => item.version === parsed.version && item.refine_mode === 'fast');
+}
+
+/** Quick-refine body that refines every phase of version `n` again (the full fit of a quick check). */
+export function refineAllRequest(n) {
+  return { base: `version:${n}`, origin: 'refine_all', label: `All phases refined (from v${n})` };
+}
+
+export const QUICK_CHECK_HINT = 'Quick check: the phases of the base fit kept their refined lattice and peak widths, '
+  + 'so Rwp and weight fractions are approximate. Refine all phases before adopting or reporting.';
+
 /** Quick-refine body that re-runs the stored automatic result (v1) with today's code. */
 export function baselineRequest() {
   return { base: 'best', controls: {}, origin: 'manual', label: BASELINE_LABEL };

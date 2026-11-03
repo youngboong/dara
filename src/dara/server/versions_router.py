@@ -93,6 +93,8 @@ def _version_entry(record: dict) -> dict:
         "elapsed_s": record.get("elapsed_s"),
         "controls": record.get("controls"),
         "background": record.get("background"),
+        "refine_mode": record.get("refine_mode") or "full",
+        "fixed_phases": record.get("fixed_phases") or [],
         "deletable": True,
     }
 
@@ -125,6 +127,8 @@ def _original_entry(task: dict, document=None) -> dict:
         "elapsed_s": None,
         "controls": None,
         "background": None,
+        "refine_mode": "full",
+        "fixed_phases": [],
         "deletable": False,
     }
 

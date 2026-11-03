@@ -4,17 +4,17 @@ import { DeleteOutlined, DownOutlined, ExportOutlined } from '@ant-design/icons'
 import { EXPORT_FORMATS } from './confidence.mjs';
 import { ReportDownloadButton } from './ResultWorkflows';
 import { API, NOT_AVAILABLE, requestJson } from './QuickRefineProgress';
-import { adoptedTag, comparisonBase } from './versions.mjs';
+import { QUICK_CHECK_HINT, adoptedTag, comparisonBase } from './versions.mjs';
 
 const { Text } = Typography;
 
 const ORIGIN_LABEL = {
   automatic: 'Automatic', add_hint: 'Hint', add_peak_search: 'Peak search', swap: 'Swap',
-  remove: 'Remove', background: 'Background', manual: 'Manual',
+  remove: 'Remove', background: 'Background', manual: 'Manual', refine_all: 'Refine all',
 };
 const ORIGIN_COLOR = {
   automatic: 'default', add_hint: 'geekblue', add_peak_search: 'purple', swap: 'orange',
-  remove: 'volcano', background: 'cyan', manual: 'blue',
+  remove: 'volcano', background: 'cyan', manual: 'blue', refine_all: 'green',
 };
 
 export const VERSIONS_POLL_MS = 15000;
@@ -86,7 +86,7 @@ function phaseSummary(phases = []) {
   return <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{phases.join('\n')}</div>}><span>{names.join(', ')}</span></Tooltip>;
 }
 
-export default function VersionsPanel({ taskId, store, review, onView, onCompare, extra }) {
+export default function VersionsPanel({ taskId, store, review, onView, onCompare, onRefineAll, refineBusy = false, extra }) {
   const { versions, available, loading, error, remove } = store;
   const [deleting, setDeleting] = React.useState(null);
   if (available === false) return null;
@@ -113,7 +113,10 @@ export default function VersionsPanel({ taskId, store, review, onView, onCompare
   const columns = [
     { title: 'Version', dataIndex: 'version', width: 90, render: n => <span>{isAdoptedRow(n) ? <Tooltip title="Adopted result"><span style={{ color: '#faad14' }}>★ </span></Tooltip> : null}{`v${n}`}</span> },
     { title: 'Label', dataIndex: 'label', render: label => label || '—' },
-    { title: 'Origin', key: 'origin', render: (_, row) => <Tag color={ORIGIN_COLOR[row.origin?.kind] || 'default'}>{ORIGIN_LABEL[row.origin?.kind] || row.origin?.kind || '—'}</Tag> },
+    { title: 'Origin', key: 'origin', render: (_, row) => <Space size={4} wrap>
+      <Tag color={ORIGIN_COLOR[row.origin?.kind] || 'default'}>{ORIGIN_LABEL[row.origin?.kind] || row.origin?.kind || '—'}</Tag>
+      {row.refine_mode === 'fast' ? <Tooltip title={QUICK_CHECK_HINT}><Tag color="gold">Quick check</Tag></Tooltip> : null}
+    </Space> },
     { title: 'Rwp (%)', dataIndex: 'rwp', render: value => fixed(value) },
     { title: 'GOF', dataIndex: 'gof', render: value => fixed(value) },
     { title: 'Phases', dataIndex: 'phases', render: phaseSummary },
@@ -125,17 +128,23 @@ export default function VersionsPanel({ taskId, store, review, onView, onCompare
       const deleteDisabled = row.deletable === false || row.version === 1 || adopted === `version:${row.version}`;
       const deleteHint = row.version === 1 ? 'The original analysis cannot be deleted.'
         : adopted === `version:${row.version}` ? 'Un-adopt first' : 'Delete this version';
+      const quickCheck = row.refine_mode === 'fast';
       const items = EXPORT_FORMATS.map(format => ({ key: format.key,
         label: <a href={`${API}/task/${taskId}/export/${format.key}?${row.version === 1 ? 'best=true' : `sel=version:${row.version}`}`}>{format.label}</a> }));
       return <Space wrap size="small">
         <Button size="small" onClick={() => onView(row.version === 1 ? null : sel)}>View</Button>
         {row.version > 1 ? <Button size="small" onClick={() => onCompare(adopted && adopted !== sel ? adopted : comparisonBase('best', versions, row.version), sel)}>Compare</Button> : null}
-        <Tooltip title="Adopt this version and save the current lab notes">
-          <Button size="small" disabled={review.loading || !!review.error || review.saving}
-            onClick={() => review.save(sel)}>{isAdopted ? 'Adopted' : 'Adopt'}</Button>
+        {quickCheck && onRefineAll ? <Tooltip title="Refine every phase again (the full fit of this quick check), then compare">
+          <Button size="small" type="primary" disabled={refineBusy} onClick={() => onRefineAll(row.version)}>Refine all phases</Button>
+        </Tooltip> : null}
+        <Tooltip title={quickCheck ? QUICK_CHECK_HINT : 'Adopt this version and save the current lab notes'}>
+          <span><Button size="small" disabled={quickCheck || review.loading || !!review.error || review.saving}
+            onClick={() => review.save(sel)}>{isAdopted ? 'Adopted' : 'Adopt'}</Button></span>
         </Tooltip>
-        <ReportDownloadButton taskId={taskId} selection={sel} size="small"
-          disabled={review.loading || review.saving || review.dirty || !!review.error}>Report</ReportDownloadButton>
+        <Tooltip title={quickCheck ? QUICK_CHECK_HINT : null}>
+          <span><ReportDownloadButton taskId={taskId} selection={sel} size="small"
+            disabled={quickCheck || review.loading || review.saving || review.dirty || !!review.error}>Report</ReportDownloadButton></span>
+        </Tooltip>
         <Dropdown menu={{ items }} trigger={['click']}>
           <Button size="small" icon={<ExportOutlined />}>Export <DownOutlined /></Button>
         </Dropdown>

@@ -85,6 +85,23 @@ async def get_review(task_id: int):
     return _review_metadata(task)
 
 
+QUICK_CHECK_MESSAGE = (
+    "This version is a quick check with the base phases fixed. "
+    "Use \"Refine all phases\" and adopt or report that version instead."
+)
+
+
+def _refuse_quick_check(task: dict, selection) -> None:
+    """409 for a fast Add-phase version: it is not a final fit (adopt or report the full one)."""
+    if not _is_version_selection(selection):
+        return
+    from dara.server import versions
+
+    record = versions.load_version(task["uuid"], versions.parse_selection(selection)[1], light=True)
+    if versions.is_quick_check(record):
+        raise HTTPException(409, QUICK_CHECK_MESSAGE)
+
+
 @router.put("/task/{task_id}/review")
 async def save_review(task_id: int, update: ReviewUpdate):
     task, document = _load_completed_task(task_id)
@@ -94,6 +111,7 @@ async def save_review(task_id: int, update: ReviewUpdate):
 
         parsed = versions.parse_selection(selection)
         selection = "best" if parsed == "best" else versions.format_selection(parsed)
+        _refuse_quick_check(task, selection)
     if selection is not None:
         _select_refinement(document, selection, task)
     review = {
@@ -302,6 +320,7 @@ async def download_report(
     task, document = _load_completed_task(task_id)
     review = _review_metadata(task)
     selection = _report_selection(idx, best, review, sel)
+    _refuse_quick_check(task, selection)
     html = _render_report(task_id, task, document, selection, review)
     suffix = _selection_suffix(selection)
     return Response(

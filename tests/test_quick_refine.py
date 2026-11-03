@@ -878,3 +878,100 @@ def test_queued_job_reports_what_it_waits_for():
         for job in (ahead, mine):
             quick_refine._update(job, status="cancelled")
             job.discarded = True
+
+
+STR_TEXT = (
+    "PHASE=Base1 // generated\n"
+    "PARAM=A=0.53900_0.52822^0.54978 PARAM=C=1.34800_1.32104^1.37496 //\n"
+    "RP=4 PARAM=k1=0_0^1 PARAM=k2=0_0^0.001 PARAM=B1=0_0^0.05 GEWICHT=SPHAR4 //\n"
+)
+LST_TEXT = (
+    "EPS2=-0.001234+-0.000010\n"
+    "Local parameters and GOALs for phase Base1\n"
+    "A=0.540030+-0.000015\nC=1.3504+-0.0002\nk1=1.00000\nk2=0\nB1=0.0123+-0.0004\nGEWICHT=0.5+-0.01\n"
+    "Atomic positions for phase Base1\n"
+)
+
+
+def test_fix_base_phases_fixes_only_refined_values_of_base_phases(tmp_path):
+    base, new = tmp_path / "Base1.str", tmp_path / "New.str"
+    base.write_text(STR_TEXT)
+    new.write_text(STR_TEXT.replace("Base1", "New"))
+    paths, fixed = quick_refine.fix_base_phases(tmp_path / "run", [base, new], ["Base1"], LST_TEXT)
+    assert fixed == ["Base1"]
+    text = paths[0].read_text()
+    assert "A=0.540030 " in text and "C=1.3504 " in text and "k1=1.00000" in text and "B1=0.0123" in text
+    assert "PARAM=" not in text.split("GEWICHT")[0]  # lattice and widths are constants now
+    assert "GEWICHT=SPHAR4" in text  # scale and preferred orientation are still refined
+    assert paths[1].read_text() == new.read_text()  # the added phase stays free
+    assert base.read_text() == STR_TEXT  # the cached .str is not modified
+    assert quick_refine.base_eps2(LST_TEXT) == pytest.approx(-0.001234)
+    # A phase missing from the .lst stays free.
+    _, none = quick_refine.fix_base_phases(tmp_path / "run2", [base], ["Base1"], "EPS2=0\n")
+    assert none == []
+
+
+def test_add_phase_is_a_fast_quick_check_and_refine_all_makes_the_full_fit(monkeypatch, env):
+    captured: list[dict] = []
+    texts: list[list[str]] = []
+    fake = _fake_refinement(captured)
+
+    def reading_fake(**kwargs):  # the run folder is removed afterwards: read the .str files now
+        texts.append([Path(p).read_text() for p in kwargs["phases"]])
+        return fake(**kwargs)
+
+    monkeypatch.setattr(quick_refine, "do_refinement", reading_fake)
+    references = env["references"]
+    base_stem = references[0].filename
+
+    def fake_base(document, selection, base_version):
+        return type("R", (), {"lst_data": type("L", (), {"raw_lst": "EPS2=-0.001234\n"})()})()
+
+    monkeypatch.setattr(quick_refine, "base_refinement", fake_base)
+    monkeypatch.setattr(quick_refine, "_lst_section", lambda raw, phase: {"A": "0.5501"})
+
+    async def main():
+        removed = await _wait((await _submit(QuickRefineRequest(remove=[references[1].filename], origin="remove")))["job_id"])
+        added = await _wait((await _submit(QuickRefineRequest(
+            base="version:2", phases=[QuickPhase(ref=references[1].filename)], origin="add_hint")))["job_id"])
+        full = await _wait((await _submit(QuickRefineRequest(base="version:3", origin="refine_all")))["job_id"])
+        return removed, added, full
+
+    removed, added, full = _run(main())
+    assert [job["status"] for job in (removed, added, full)] == ["done"] * 3
+    _, fast_run, full_run = captured
+    assert fast_run["refinement_params"]["itmax"] == quick_refine.FAST_ADD_ITMAX == 15
+    assert fast_run["refinement_params"]["eps2"] == pytest.approx(-0.001234)
+    assert [Path(p).stem for p in fast_run["phases"]] == [base_stem, references[1].filename]
+    base_text, new_text = texts[1]
+    assert "A=0.5501" in base_text and "PARAM=A=" not in base_text
+    assert "PARAM=A=" in new_text
+    assert full_run["refinement_params"]["itmax"] == quick_refine.QUICK_REFINE_ITMAX
+    assert "eps2" not in full_run["refinement_params"] or isinstance(full_run["refinement_params"]["eps2"], str)
+    assert [Path(p).stem for p in full_run["phases"]] == [base_stem, references[1].filename]
+    stored = {r["version"]: r for r in env["versions"].query({"uuid": TASK_UUID})}
+    assert stored[2]["refine_mode"] == "full" and stored[2]["fixed_phases"] == []
+    assert stored[3]["refine_mode"] == "fast" and stored[3]["fixed_phases"] == [base_stem]
+    assert stored[3]["iteration_cap"] == 15
+    assert stored[4]["refine_mode"] == "full" and stored[4]["origin"]["kind"] == "refine_all"
+    assert stored[4]["label"] == "All phases refined"
+    assert "eps2" not in (stored[3]["refinement_params"] or {})  # the fixed value is not inherited
+
+
+def test_refine_all_keeps_the_phase_set():
+    QuickRefineRequest(base="version:2", origin="refine_all")
+    with pytest.raises(ValidationError):
+        QuickRefineRequest(base="version:2", origin="refine_all", phases=[QuickPhase(ref="x")])
+
+
+def test_quick_check_versions_cannot_be_adopted_or_reported(monkeypatch):
+    from dara.server import review_router
+
+    records = {2: {"refine_mode": "fast"}, 3: {"refine_mode": "full"}, 4: {}}
+    monkeypatch.setattr(versions, "load_version", lambda uuid, n, light=False: records[n])
+    task = {"uuid": TASK_UUID}
+    with pytest.raises(HTTPException) as refused:
+        review_router._refuse_quick_check(task, "version:2")
+    assert refused.value.status_code == 409 and "Refine all phases" in refused.value.detail
+    for selection in ("version:3", "version:4", "best", 0):
+        review_router._refuse_quick_check(task, selection)  # full fits, older versions and v1 pass

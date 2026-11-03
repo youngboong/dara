@@ -74,8 +74,17 @@ COD_SOURCE_RE = re.compile(r"^cod:(\d{1,9})$")
 LIBRARY_SOURCE_RE = re.compile(r"^library:([A-Za-z0-9_-]{1,64})$")
 ANCHORS_MESSAGE = "Background anchor points are not supported yet."
 # Iteration steps per BGMN stage for quick re-refinements (BGMN default: 10x the parameter
-# count). Measured: 1.1-1.7x faster, Rwp within 0.03 and weight fractions within about 1 %.
+# count). Measured on well-converged fits: 1.1-1.7x faster, Rwp within 0.03 and weight fractions
+# within about 2 %. Unstable fits (several minima) can end in a different minimum.
 QUICK_REFINE_ITMAX = 25
+# Adding a phase keeps the phases of the base fit at their refined lattice, peak-width and
+# specimen-displacement values (their scale and preferred orientation are still refined) and
+# caps each stage at 15 steps. Measured on 9 candidates: 2.6x faster in total, the same ranking,
+# Rwp 0.0-0.3 higher and weight fractions mostly within 2 %; a cap of 10 let a non-existent phase
+# look like the best match. The result is a quick check: "Refine all phases" makes the full fit.
+FAST_ADD_ITMAX = 15
+FAST_ORIGINS = ("add_hint", "add_peak_search")
+_FIXED_KEYS = ("A", "B", "C", "ALPHA", "BETA", "GAMMA", "k1", "k2", "B1")
 
 _STAGES = ("Queued", "Preparing inputs", "BGMN refinement", "Peak diagnostics", "Storing version", "Done")
 _ACTIVE = ("queued", "running")
@@ -130,7 +139,9 @@ class QuickRefineRequest(BaseModel):
     controls: RefinementControls | None = None
     background: QuickBackground | None = None
     label: str | None = Field(default=None, max_length=120)
-    origin: Literal["add_hint", "add_peak_search", "swap", "remove", "background", "manual"] = "manual"
+    origin: Literal[
+        "add_hint", "add_peak_search", "swap", "remove", "background", "manual", "refine_all"
+    ] = "manual"
 
     @field_validator("base")
     @classmethod
@@ -143,6 +154,10 @@ class QuickRefineRequest(BaseModel):
 
     @model_validator(mode="after")
     def _non_empty(self):
+        if self.origin == "refine_all":
+            if self.phases or self.remove:
+                raise ValueError("Refine all phases keeps the phase set; do not add or remove phases.")
+            return self
         if not (self.phases or self.remove or self.controls or self.background):
             raise ValueError("Nothing to re-refine: add or remove a phase, or change a setting.")
         return self
@@ -625,6 +640,8 @@ def default_label(request: QuickRefineRequest) -> str:
         return f"Removed {removed}"
     if kind == "background":
         return "Background / excluded-range change"
+    if kind == "refine_all":
+        return "All phases refined"
     parts = []
     if added:
         parts.append(f"added {added}")
@@ -765,6 +782,66 @@ def merge_background(base_params: dict | None, background: QuickBackground | Non
     return params
 
 
+# --------------------------------------------------------------------------- fast Add phase
+def is_fast(request: QuickRefineRequest) -> bool:
+    """Adding phases runs the quick check (base phases fixed, short iteration cap)."""
+    return request.origin in FAST_ORIGINS and bool(request.phases) and not request.remove
+
+
+def base_refinement(document, selection, base_version: dict | None):
+    """``RefinementResult`` of the fit a request starts from (``None`` if it cannot be read)."""
+    try:
+        if isinstance(selection, tuple):
+            return versions.version_refinement(base_version) if base_version else None
+        if isinstance(selection, int):
+            return document.results[selection][1]
+        return document.final_result
+    except Exception:  # noqa: BLE001 - without it the run simply refines everything
+        return None
+
+
+def _lst_section(raw_lst: str, phase: str) -> dict:
+    marker = f"Local parameters and GOALs for phase {phase}\n"
+    if marker not in raw_lst:
+        return {}
+    section = raw_lst.split(marker, 1)[1].split("Atomic positions", 1)[0]
+    return dict(re.findall(r"^([A-Za-z0-9]+)=([-0-9.eE]+)", section, re.MULTILINE))
+
+
+def fix_base_phases(run_dir: Path, str_paths: list[Path], stems: list[str], raw_lst: str) -> tuple[list, list]:
+    """Copies of the ``.str`` files in ``run_dir`` with the base phases' refined values fixed.
+
+    Lattice parameters, k1, k2 and B1 of the phases named in ``stems`` become constants equal to
+    their values in the base fit's ``.lst``; every other phase (the added ones) is copied as is.
+    Returns ``(paths, fixed stems)``; a phase missing from the ``.lst`` stays free.
+    """
+    run_dir.mkdir(parents=True, exist_ok=True)
+    out, fixed = [], []
+    for path in str_paths:
+        text = Path(path).read_text()
+        if path.stem in stems:
+            phase = re.search(r"^PHASE=(\S+)", text, re.MULTILINE)
+            values = _lst_section(raw_lst, phase.group(1)) if phase else {}
+            changed = re.sub(
+                r"PARAM=([A-Za-z0-9]+)=[-0-9.eE]+_[-0-9.eE]+\^[-0-9.eE]+",
+                lambda m: f"{m.group(1)}={values[m.group(1)]}"
+                if m.group(1) in _FIXED_KEYS and m.group(1) in values else m.group(0),
+                text,
+            )
+            if changed != text:
+                text = changed
+                fixed.append(path.stem)
+        target = run_dir / Path(path).name
+        target.write_text(text)
+        out.append(target)
+    return out, fixed
+
+
+def base_eps2(raw_lst: str) -> float | None:
+    match = re.search(r"^EPS2=([-0-9.eE]+)", raw_lst or "", re.MULTILINE)
+    return float(match.group(1)) if match else None
+
+
 # --------------------------------------------------------------------------- the job body
 def _remove_run_dir(path: Path) -> None:
     shutil.rmtree(path, ignore_errors=True)
@@ -848,9 +925,20 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
         return peaks_future.result()
 
     run_dir = task_dir / "runs" / job.job_id
-    _update(job, stage="BGMN refinement")
     run_kwargs = with_single_refinement_threads(spec.refinement_kwargs)
     run_kwargs["refinement_params"]["itmax"] = QUICK_REFINE_ITMAX
+    fixed_stems: list[str] = []
+    fast = is_fast(request)
+    if fast:
+        raw_lst = getattr(getattr(base_refinement(document, selection, base_version), "lst_data", None), "raw_lst", "")
+        kept = [stem for stem in plan.stems if stem not in plan.added]
+        if raw_lst:
+            str_paths, fixed_stems = fix_base_phases(run_dir, str_paths, kept, raw_lst)
+            eps2 = base_eps2(raw_lst)
+            if eps2 is not None:
+                run_kwargs["refinement_params"]["eps2"] = eps2
+        run_kwargs["refinement_params"]["itmax"] = FAST_ADD_ITMAX
+    _update(job, stage="BGMN refinement")
     t_bgmn = time.monotonic()
     try:
         result = do_refinement(
@@ -905,7 +993,10 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
         "effective_phase_params": versions.encode_json(effective_final),
         "elapsed_s": None,
         "bgmn_s": round(bgmn_s, 3),
-        "iteration_cap": QUICK_REFINE_ITMAX,
+        "iteration_cap": run_kwargs["refinement_params"]["itmax"],
+        # "fast": the base phases were held at the base fit (see FAST_ADD_ITMAX); "full" otherwise.
+        "refine_mode": "fast" if fast else "full",
+        "fixed_phases": fixed_stems,
         "result": versions.encode_json(result),
     }
     if job.cancel.is_set():

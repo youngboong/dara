@@ -32,8 +32,14 @@ _SELECTION_MESSAGE = "Selection must be 'best', a candidate index or 'version:<n
 LIGHT_FIELDS = [
     "uuid", "index", "task_index", "version", "deleted", "created_at", "label", "origin",
     "phases", "controls", "background", "phase_params", "overrides", "refinement_params",
-    "effective_phase_params", "elapsed_s", "bgmn_s", "summary",
+    "effective_phase_params", "elapsed_s", "bgmn_s", "summary", "refine_mode", "iteration_cap",
+    "fixed_phases",
 ]
+
+
+def is_quick_check(record: dict | None) -> bool:
+    """A fast Add-phase version (base phases fixed): not to be adopted or reported as final."""
+    return bool(record) and record.get("refine_mode") == "fast"
 
 
 def parse_selection(value: Any):

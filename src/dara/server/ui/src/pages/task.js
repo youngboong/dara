@@ -27,8 +27,9 @@ import {
 } from '../components/peakSelection.mjs';
 import { searchOptionsText } from '../components/resultsList.mjs';
 import {
-  alternativeOfVerdict, baselineRequest, comparisonBase, deltaStrip, deltaText, formatSelection, needsBaseline, parseSelection,
-  plotQuery, removeRequest, selectOptionGroups, selectionLabel, swapKind, swapRequest,
+  QUICK_CHECK_HINT, alternativeOfVerdict, baselineRequest, comparisonBase, deltaStrip, deltaText, formatSelection, isQuickCheck,
+  needsBaseline, parseSelection, plotQuery, refineAllRequest, removeRequest, selectOptionGroups, selectionLabel, swapKind,
+  swapRequest,
 } from '../components/versions.mjs';
 
 const { Text } = Typography;
@@ -719,6 +720,9 @@ function TaskDetail({ data, task_id }) {
     }
     quick.start(request, { base: currentSel, afterDone: 'view', ...meta });
   };
+  // Fast Add-phase versions keep the base phases fixed; this makes the full fit and compares the two.
+  const refineAll = n => runQuick(refineAllRequest(n), { afterDone: 'compare', base: `version:${n}` });
+  const quickCheck = versionData?.refine_mode === 'fast';
   const addHint = (hint, target) => runQuick({
     phases: [target], origin: 'add_hint', label: `Added ${hint.formula || hint.phase} (hint)`,
   });
@@ -874,7 +878,7 @@ function TaskDetail({ data, task_id }) {
         <PhaseRefinementTable phases={data.final_result.phases} metadata={data.final_result.phase_metadata} details={data.final_result.phase_details} confidence={data.final_result.confidence} />
       </div>
       <VersionsPanel taskId={task_id} store={store} review={review}
-        onView={setPlotId} onCompare={(a, b) => setCompare({ a, b })}
+        onView={setPlotId} onCompare={(a, b) => setCompare({ a, b })} onRefineAll={quickShown ? refineAll : null} refineBusy={quick.busy}
         extra={quickShown ? <QuickRefineProgress job={quick.job} onCancel={quick.cancel} onDismiss={quick.dismiss} /> : null} />
       <ResultTitleContainer>
         <h3 style={{ marginTop: "16px" }}>{`Distinct candidate phase sets (${data.all_results.length} shown, up to 5)`}</h3>
@@ -1005,6 +1009,8 @@ function TaskDetail({ data, task_id }) {
         {versionError ? <Alert type="error" showIcon message={versionError} style={{ marginBottom: 12 }} /> : null}
         {versionNumber && !versionData && !versionError ? <Spin /> : null}
         {displayedResult ? <>
+          {quickCheck ? <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={QUICK_CHECK_HINT}
+            action={quickShown ? <Button size="small" type="primary" disabled={quick.busy} onClick={() => refineAll(versionNumber)}>Refine all phases</Button> : null} /> : null}
           {versionNumber ? <DeltaStrip rows={deltaRows} /> : null}
           <div style={{ marginBottom: 12 }}>
             <FitQualitySummary quality={displayedResult.fit_quality} />
@@ -1035,7 +1041,7 @@ function TaskDetail({ data, task_id }) {
             {quickShown ? <HintText diagnostics={displayedResult.peak_diagnostics} onOpen={() => setDrawerOpen(true)} /> : null}
           </div>
           <Space wrap>
-            <ReportDownloadButton taskId={task_id} selection={currentSel} disabled={review.loading || review.saving || review.dirty || !!review.error}>This fit's report</ReportDownloadButton>
+            <ReportDownloadButton taskId={task_id} selection={currentSel} disabled={quickCheck || review.loading || review.saving || review.dirty || !!review.error}>This fit's report</ReportDownloadButton>
             <FigureExportActions taskId={task_id} selection={currentSel} />
           </Space>
         </> : null}
@@ -1046,7 +1052,10 @@ function TaskDetail({ data, task_id }) {
         onClose={() => setDrawerOpen(false)} onPreview={setPreview} previewRef={preview?.key} onAdd={addCandidate} busy={quick.busy} />
       <FitCompare taskId={task_id} a={compare?.a} b={compare?.b} open={Boolean(compare)} onClose={() => setCompare(null)}
         adopting={review.saving} allResults={data.all_results} versions={store.versions} onSelect={(a, b) => setCompare({ a, b })}
-        onAdoptB={async sel => { await review.save(sel); setCompare(null); }}
+        onAdoptB={async sel => {
+          if (isQuickCheck(store.versions, sel)) { message.warning(QUICK_CHECK_HINT); return; }
+          await review.save(sel); setCompare(null);
+        }}
         onViewB={sel => { setCompare(null); setPlotId(sel); }} />
       <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
     </>

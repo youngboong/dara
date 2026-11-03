@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  adoptedTag, codCodeFromStem, deltaStrip, deltaText, etaText, formatSelection, progressLabel, parseSelection,
+  adoptedTag, codCodeFromStem, deltaStrip, deltaText, etaText, formatSelection, isQuickCheck, progressLabel, refineAllRequest, parseSelection,
   plotQuery, refSourceForHint, removeRequest, selectionLabel, swapRequest,
   alternativeOfVerdict, formatSpacegroup, spacegroupOfPhase, swapKind,
   BASELINE_LABEL, backgroundRequest, baselineRequest, baselineVersion, comparisonBase, isMissingEndpoint, needsBaseline, selectOptionGroups, selectedPhasesRequest,
@@ -245,3 +245,12 @@ assert.deepEqual(selectOptionGroups([], [{ version: 1 }]).map(g => g.label), ['B
   assert.deepEqual(onlyControls.remove, []);
   assert.equal(onlyControls.label, 'Changed refinement controls');
 }
+
+// Quick checks (fast Add phase) and the full re-refinement made from them.
+const quickRows = [{ version: 1 }, { version: 2, refine_mode: 'fast' }, { version: 3, refine_mode: 'full' }];
+assert.equal(isQuickCheck(quickRows, 'version:2'), true);
+assert.equal(isQuickCheck(quickRows, 'version:3'), false);
+assert.equal(isQuickCheck(quickRows, 'best'), false);
+assert.equal(isQuickCheck(quickRows, 0), false);
+assert.deepEqual(refineAllRequest(2), { base: 'version:2', origin: 'refine_all', label: 'All phases refined (from v2)' });
+console.log('quick check helpers ok');
