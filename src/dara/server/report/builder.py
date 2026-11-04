@@ -450,8 +450,9 @@ def _lattice_cell(details: dict) -> str:
 
 
 def _crystallite_cell(details: dict, phase_result) -> str:
-    """Refined crystallite size (nm), or a dash when the size broadening was not refined.
+    """Refined crystallite size (nm), or a short reason when no size was determined.
 
+    The reason follows ``crystallite_size_status`` from ``_phase_refinement_details``.
     BGMN prints the same start-value GrainSize for every phase whose size parameter stayed
     unrefined; such a value carries no esd and is not a result.
     """
@@ -463,9 +464,17 @@ def _crystallite_cell(details: dict, phase_result) -> str:
             continue
         if esd is not None:
             return _pm(_value_esd(value, esd, plain_decimals=1))
-        if b1_refined:
+        if b1_refined or details.get("crystallite_size_status") == "refined":
             return f"{value:.1f}"
-    return "—"
+    return _CRYSTALLITE_STATUS_TEXT.get(details.get("crystallite_size_status"), "—")
+
+
+#: Report text for a phase without a crystallite size (same wording as the task page).
+_CRYSTALLITE_STATUS_TEXT = {
+    "not_resolvable": "Not resolvable",
+    "not_refined": "Not refined",
+    "at_limit": "At refinement limit",
+}
 
 
 def _reference_cell(phase: str) -> str:
@@ -799,7 +808,9 @@ def build_report_html(
     from dara.xrd import get_xrdml_metadata
 
     refinement = review_router._select_refinement(document, selection)
-    stored_details = api_router._phase_refinement_details(refinement)
+    stored_details = api_router._phase_refinement_details(
+        refinement, api_router._b1_spec_resolver(task, document)
+    )
     phase_details = fill_weight_esd(refinement, stored_details)
     phase_metadata = api_router._refined_phase_metadata(refinement)
     quality = api_router._fit_quality(refinement)
@@ -981,7 +992,9 @@ def build_report_html(
     ))
     parts.append(
         '<p class="note">Weight percentages are normalised to the crystalline phases in the '
-        "model; ± is the least-squares esd. A dash means the quantity was not refined.</p>"
+        "model; ± is the least-squares esd. A dash means the quantity was not refined or "
+        "not determined. 'Not resolvable' means no size broadening beyond the instrument "
+        "was detected.</p>"
     )
 
     # ---- 4 assessment -------------------------------------------------------------------

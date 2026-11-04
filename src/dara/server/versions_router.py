@@ -362,8 +362,8 @@ def _side_summary(task, document, selection, meta, refinement) -> dict:
                 return entry
         # a hypothesis merged into another displayed entry (other phase order or database record)
         from dara.server.api_router import (
-            _classified_peak_diagnostics, _counts_like, _fit_quality, _phase_refinement_details,
-            _weight_percent, fit_cautions,
+            _b1_spec_resolver, _classified_peak_diagnostics, _counts_like, _fit_quality,
+            _phase_refinement_details, _weight_percent, fit_cautions,
         )
 
         # the same cautions as a displayed entry gets in summarize_document
@@ -375,7 +375,8 @@ def _side_summary(task, document, selection, meta, refinement) -> dict:
             "peak_diagnostics": diagnostics,
             "weight_percent": _weight_percent(refinement),
             "cautions": fit_cautions(
-                quality, _phase_refinement_details(refinement), diagnostics,
+                quality, _phase_refinement_details(refinement, _b1_spec_resolver(task, document)),
+                diagnostics,
                 counts_like=_counts_like(document),
             ),
         }

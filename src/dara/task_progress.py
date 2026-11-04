@@ -5,6 +5,7 @@ Ray children must not overwrite the coordinator's progress.
 """
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -36,8 +37,15 @@ def report_progress(stage, completed=None, total=None):
     data = {"stage": stage, "completed": completed, "total": total,
             "updated_at": now, "stage_started_at": started}
     temporary = directory / "progress.tmp"
-    temporary.write_text(json.dumps(data), encoding="utf-8")
-    temporary.replace(directory / "progress.json")
+    # Progress is best effort: on Windows the rename fails while the server is reading
+    # progress.json, and that must never fail the analysis itself.
+    for attempt in range(5):
+        try:
+            temporary.write_text(json.dumps(data), encoding="utf-8")
+            temporary.replace(directory / "progress.json")
+            return
+        except OSError:
+            time.sleep(0.05 * (attempt + 1))
 
 
 def checkpoint_candidate(index, refinement, working_dir):

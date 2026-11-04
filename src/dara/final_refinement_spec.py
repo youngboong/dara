@@ -42,7 +42,10 @@ SELECTED_WORKFLOW = "selected_phase_refinement"
 
 #: Tasks finished before this moment were refined by older final-refinement code.
 #: Bump when final-refinement behaviour changes.
-REFINEMENT_CODE_DATE = "2026-10-28T00:00:00+00:00"
+#: 2026-11-04: automatic final refinements before this date inherited the screening k1/B1
+#: windows (k1 <= 0.01, B1 <= 0.005) from the search tree, which pinned crystallite sizes
+#: below ~84 nm; re-refine those tasks with "Baseline (current code)".
+REFINEMENT_CODE_DATE = "2026-11-04T00:00:00+00:00"
 
 
 @dataclass(frozen=True)

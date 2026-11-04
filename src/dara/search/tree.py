@@ -1533,7 +1533,11 @@ class SearchTree(BaseSearchTree):
                 f"The initial value of eps2 is automatically set to {self.refinement_params['eps2']}."
             )
 
-        # adjust the initial value of k1 and b1 for each phase based on the refinement result
+        # adjust the initial value of k1 and b1 for each phase based on the refinement result.
+        # The warm-start values carry the *screening* bounds, so they are written to a copy of
+        # the phase: the caller's RefinementPhase objects (and any params dict they share, e.g.
+        # additional_cif_params) must stay untouched, otherwise the final refinement inherits
+        # the screening windows.
         all_phases_result_updated = {}
         for phase, result in all_phases_result.items():
             if result is not None:
@@ -1544,20 +1548,25 @@ class SearchTree(BaseSearchTree):
                     phase.params.get("k1", self.phase_params["k1"])
                 )
                 k1 = k1 or k1_initial
-                phase.params["k1"] = (
-                    f"{k1:.6f}"
-                    + (f"_{k1_lower}" if k1_lower is not None else "")
-                    + (f"^{k1_upper}" if k1_upper is not None else "")
-                )
-
                 b1_initial, b1_lower, b1_upper = parse_refinement_param(
                     phase.params.get("b1", self.phase_params["b1"])
                 )
                 b1 = b1 or b1_initial
-                phase.params["b1"] = (
-                    f"{b1:.6f}"
-                    + (f"_{b1_lower}" if b1_lower is not None else "")
-                    + (f"^{b1_upper}" if b1_upper is not None else "")
+                phase = RefinementPhase(
+                    path=phase.path,
+                    params={
+                        **phase.params,
+                        "k1": (
+                            f"{k1:.6f}"
+                            + (f"_{k1_lower}" if k1_lower is not None else "")
+                            + (f"^{k1_upper}" if k1_upper is not None else "")
+                        ),
+                        "b1": (
+                            f"{b1:.6f}"
+                            + (f"_{b1_lower}" if b1_lower is not None else "")
+                            + (f"^{b1_upper}" if b1_upper is not None else "")
+                        ),
+                    },
                 )
 
             all_phases_result_updated[phase] = result
@@ -1565,7 +1574,7 @@ class SearchTree(BaseSearchTree):
         # clean up cif paths (if no result, remove from list)
         all_phases_result = {
             phase: result
-            for phase, result in all_phases_result.items()
+            for phase, result in all_phases_result_updated.items()
             if result is not None
         }
 

@@ -10,6 +10,7 @@ import { buildRefinementView, isTraceSelected, legendKey } from '../components/r
 import { viewChangeFromRelayout } from '../components/plotNavigation.mjs';
 import { NAVIGATION_CONFIG, NAVIGATION_DRAGMODE } from '../components/usePlotView';
 import { formatParameterWithEsd, latticeParameterRows } from '../components/latticeParameters.mjs';
+import { crystalliteSizeCell } from '../components/crystalliteSize.mjs';
 import { PhaseSelectionButton, RetryActions, ReviewPanel, useTaskReview } from '../components/ResultWorkflows';
 import { TaskProgress } from '../components/PracticalControls';
 import FitCautions from '../components/FitCautionsPanel';
@@ -589,9 +590,10 @@ function PhaseRefinementTable({ phases = [], metadata = {}, details = {}, confid
         } },
       { title: 'Density', render: (_, row) => row.xray_density == null ? '—' : `${Number(row.xray_density).toFixed(3)} g/cm³` },
       { title: 'Rphase', render: (_, row) => row.rphase == null ? '—' : `${Number(row.rphase).toFixed(2)}%` },
-      { title: 'Crystallite size', render: (_, row) => row.grain_sizes?.length
-        ? row.grain_sizes.map(value => `${Number(value.value).toFixed(1)}${value.esd == null ? '' : ` ± ${Number(value.esd).toFixed(1)}`} ${value.unit}`).join('; ')
-        : 'Not refined/reported' },
+      { title: 'Crystallite size', render: (_, row) => {
+        const cell = crystalliteSizeCell(row);
+        return cell.tooltip ? <Tooltip title={cell.tooltip}><span>{cell.text}</span></Tooltip> : cell.text;
+      } },
       ...(rowActions ? [{ title: 'Actions', key: 'row-actions', width: 160, render: (_, row) => rowActions(row) }] : []),
     ]} />;
 }

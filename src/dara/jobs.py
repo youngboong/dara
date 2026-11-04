@@ -170,6 +170,38 @@ def _expanded_search_results(
     return expanded, screening_rwps, summary
 
 
+#: Peak-shape parameters the search tree writes per phase as screening warm starts
+#: (with the narrow screening bounds).  They must never reach the final refinement.
+SCREENING_ONLY_PHASE_KEYS = frozenset({"k1", "k2", "b1"})
+
+
+def final_refinement_phases(
+    result: SearchResult,
+    additional_cif_names: set[str] | frozenset[str] = frozenset(),
+    additional_cif_params: dict | None = None,
+) -> list[RefinementPhase]:
+    """Fresh phases for the final refinement of one search hypothesis.
+
+    User-supplied CIFs get their own ``additional_cif_params`` (exactly as submitted);
+    every other phase drops the screening-only peak parameters so that the global
+    ``final_refinement_params`` windows (k1/k2/b1) apply.  This mirrors
+    ``dara.final_refinement_spec.build_final_refinement_spec``.
+    """
+    phases = []
+    for phase_group in result.phases:
+        phase = RefinementPhase.make(phase_group[0])
+        if phase.path.stem in additional_cif_names:
+            params = dict(additional_cif_params or {})
+        else:
+            params = {
+                key: value
+                for key, value in phase.params.items()
+                if key not in SCREENING_ONLY_PHASE_KEYS
+            }
+        phases.append(RefinementPhase(path=phase.path, params=params))
+    return phases
+
+
 @dataclass
 class RefinementMaker(Maker):
     """Maker to create a job for performing Rietveld refinement using BGMN.
@@ -473,12 +505,12 @@ class PhaseSearchMaker(Maker):
         cif_paths = outcome.kept
         candidate_summary["prefilter"] = outcome.report
 
+        additional_cifs_name_set = {cif.name for cif in (additional_cifs or [])}
         if additional_cifs:
-            additional_cifs_name_set = {cif.name for cif in additional_cifs}
             for i in range(len(cif_paths)):
                 if cif_paths[i].stem in additional_cifs_name_set:
                     cif_paths[i] = RefinementPhase(
-                        path=cif_paths[i], params=additional_cif_params or {}
+                        path=cif_paths[i], params=dict(additional_cif_params or {})
                     )
 
         report_progress("Peak detection, reference screening and phase-combination search")
@@ -535,7 +567,9 @@ class PhaseSearchMaker(Maker):
                     shutil.rmtree(candidate_dir)
                 candidate_dir.mkdir()
                 dumpfn(final_refinement_params, candidate_dir / "phase_params.json")
-                selected_phases = [phase_group[0] for phase_group in result.phases]
+                selected_phases = final_refinement_phases(
+                    result, additional_cifs_name_set, additional_cif_params
+                )
                 from dara.structure_quality import (
                     apply_mp_lattice_window,
                     mp_window_enabled,
@@ -551,6 +585,14 @@ class PhaseSearchMaker(Maker):
                     from dara.refinement_controls import override_phase_settings
 
                     selected_phases = override_phase_settings(selected_phases, final_refinement_overrides)
+                logger.info(
+                    "Final refinement %d effective phase params: %s",
+                    candidate_index,
+                    {
+                        phase.path.stem: {**final_refinement_params, **phase.params}
+                        for phase in selected_phases
+                    },
+                )
                 try:
                     refined = do_refinement(
                         pattern_path=pattern_path,

@@ -55,6 +55,19 @@ def test_unreadable_previous_file_is_ignored(owned):
     assert _state(owned)["stage_started_at"]
 
 
+def test_locked_progress_file_never_fails_the_analysis(owned, monkeypatch):
+    calls = []
+
+    def locked(self, target):
+        calls.append(target)
+        raise PermissionError("progress.json is open in the server")
+
+    monkeypatch.setattr(task_progress.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(type(owned), "replace", locked)
+    task_progress.report_progress("Screening reference phases", 1, 10)
+    assert len(calls) == 5
+
+
 def test_signature_is_unchanged():
     import inspect
 

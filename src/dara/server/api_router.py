@@ -74,6 +74,7 @@ from dara.structure_db import CODDatabase, MaterialsProjectDatabase
 from dara.utils import (
     get_compositional_clusters,
     get_head_of_compositional_cluster,
+    parse_refinement_param,
 )
 from dara.xrd import (
     SUPPORTED_PATTERN_EXTENSIONS,
@@ -178,11 +179,113 @@ def _quantitative_phase_details(refinement) -> dict[str, dict]:
     return details
 
 
-def _phase_refinement_details(refinement) -> dict[str, dict]:
-    """Return crystallographic and profile values available in the BGMN output."""
+def _b1_window(spec) -> tuple[bool, float | None]:
+    """``(fixed, upper)`` of a ``b1`` phase-parameter spec; ``(False, None)`` when unknown."""
+    if spec is None:
+        return False, None
+    if spec == "fixed":
+        return True, None
+    try:
+        _, lower, upper = parse_refinement_param(spec)
+    except (TypeError, ValueError):
+        return False, None
+    if lower is not None and upper is not None and lower == upper:
+        return True, None
+    return False, upper
+
+
+def _close(value: float, target: float | None) -> bool:
+    return target is not None and abs(value - target) <= 1e-3 * max(abs(target), 1e-9)
+
+
+def crystallite_size_status(extra: dict, grain_sizes: list, b1_spec=None) -> str:
+    """Why a phase does or does not report a crystallite size.
+
+    ``refined`` (a size is reported), ``not_resolvable`` (B1 refined to 0 / GrainSize
+    ERROR: no size broadening beyond the instrument), ``not_refined`` (b1 held fixed,
+    instrument-only peak width), ``at_limit`` (B1 at the upper bound of the window it was
+    refined in: crystallites too small for the window), ``stale`` (B1 stuck without esd at a
+    bound that is not the window's own bound, typically the pre-fix screening window).
+    """
+    if grain_sizes:
+        return "refined"
+    fixed, upper = _b1_window(b1_spec)
+    if fixed:
+        return "not_refined"
+    if "B1" not in extra:
+        return "not_refined"
+    b1, b1_esd = _value_and_esd(extra.get("B1"))
+    sizes = [value for key, value in extra.items() if key.lower().startswith("grainsize")]
+    if b1 is None or b1 <= 0 or any(value is None for value in sizes):
+        return "not_resolvable"
+    if b1_esd is None and _close(b1, upper):
+        return "at_limit"
+    return "stale"
+
+
+def _b1_spec_resolver(job: dict | None, document):
+    """``phase name -> effective b1 spec`` of the final refinement (``None`` when unknown).
+
+    Global ``final_refinement_params``, replaced by ``additional_cif_params`` for uploaded
+    CIFs and by explicit ``final_refinement_overrides`` (the ``dara.jobs`` recipe).
+    """
+    params = getattr(document, "final_refinement_params", None) or {}
+    kwargs = ((job or {}).get("job") or {}).get("function_kwargs") or {}
+    overrides = kwargs.get("final_refinement_overrides")
+    overrides = overrides if isinstance(overrides, dict) else {}
+    uploaded_params = kwargs.get("additional_cif_params")
+    uploaded_params = uploaded_params if isinstance(uploaded_params, dict) else {}
+    uploaded: set[str] = set()
+    if "b1" in uploaded_params and "b1" not in overrides:
+        # decoding the uploaded CIFs is only worth it when they carry their own b1 window
+        try:
+            from dara.final_refinement_spec import job_parity_inputs
+
+            uploaded = job_parity_inputs(kwargs)["additional_names"]
+        except Exception:  # noqa: BLE001 - the status is cosmetic; never break the payload
+            uploaded = set()
+
+    def resolve(name: str):
+        if "b1" in overrides:
+            return overrides["b1"]
+        if str(name) in uploaded and "b1" in uploaded_params:
+            return uploaded_params["b1"]
+        return params.get("b1")
+
+    return resolve
+
+
+def _lst_fallback_section(refinement, name: str, index: int) -> dict:
+    """Parsed section of phase ``name`` re-read from the stored raw ``.lst`` text.
+
+    Matched by phase name, else by position when the listing has one section per phase.
+    """
+    raw = getattr(getattr(refinement, "lst_data", None), "raw_lst", None)
+    if not isinstance(raw, str) or not raw:
+        return {}
+    from dara.result import lst_phase_sections_by_name, parse_lst_section
+
+    try:
+        sections = lst_phase_sections_by_name(raw)
+        by_name = dict(sections)
+        if name in by_name:
+            return parse_lst_section(by_name[name])
+        if len(sections) == len(refinement.lst_data.phases_results) and index < len(sections):
+            return parse_lst_section(sections[index][1])
+    except Exception:  # noqa: BLE001
+        logger.debug("Raw .lst fallback failed", exc_info=True)
+    return {}
+
+
+def _phase_refinement_details(refinement, b1_spec=None) -> dict[str, dict]:
+    """Return crystallographic and profile values available in the BGMN output.
+
+    ``b1_spec``: optional ``phase name -> b1 spec`` callable used for the
+    ``crystallite_size_status`` of each phase (see ``crystallite_size_status``).
+    """
     quantitative = _quantitative_phase_details(refinement)
     output = {}
-    for name, phase in refinement.lst_data.phases_results.items():
+    for index, (name, phase) in enumerate(refinement.lst_data.phases_results.items()):
         bgmn_unit = str(getattr(phase, "unit", "NM"))
         lattice = {}
         for key in ("a", "b", "c", "alpha", "beta", "gamma"):
@@ -198,10 +301,17 @@ def _phase_refinement_details(refinement) -> dict[str, dict]:
             }
 
         grain_sizes = []
+        extra = dict(phase.model_extra or {})
+        if not any(key.lower().startswith("grainsize") for key in extra):
+            # documents parsed before 2026-09-08 dropped parenthesised keys such as
+            # GrainSize(1,1,1); the stored raw listing still has them
+            for key, value in _lst_fallback_section(refinement, name, index).items():
+                if key.lower().startswith("grainsize") or key in {"B1", "k1"}:
+                    extra.setdefault(key, value)
         # BGMN prints the start-value GrainSize for every phase whose size broadening stayed
         # unrefined (no esd, B1 not refined); that number is not a result.
-        b1_refined = isinstance((phase.model_extra or {}).get("B1"), (tuple, list))
-        for key, raw_value in (phase.model_extra or {}).items():
+        b1_refined = isinstance(extra.get("B1"), (tuple, list))
+        for key, raw_value in extra.items():
             if not key.lower().startswith("grainsize"):
                 continue
             value, esd = _value_and_esd(raw_value)
@@ -219,6 +329,9 @@ def _phase_refinement_details(refinement) -> dict[str, dict]:
             "xray_density": phase.xray_density,
             "rphase": phase.rphase,
             "grain_sizes": grain_sizes,
+            "crystallite_size_status": crystallite_size_status(
+                extra, grain_sizes, b1_spec(name) if b1_spec is not None else None
+            ),
         }
     try:
         # Orientation-refined phases report only a mean GEWICHT; take their weight esd from
@@ -1680,6 +1793,7 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
 
     all_results = []
     evidence_rows = []
+    b1_spec = _b1_spec_resolver(job, d)
 
     def screening_rwp(index):
         if d.screening_rwps and index < len(d.screening_rwps):
@@ -1732,7 +1846,7 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
                 )
 
         fit_quality = _fit_quality(result[1])
-        phase_details = _phase_refinement_details(result[1])
+        phase_details = _phase_refinement_details(result[1], b1_spec)
         shown = set(highlighted_phases)
         merged_results = []
         for member in group.members[1:]:
@@ -1786,7 +1900,7 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
         d, d.final_result, context=peak_context
     )
     final_fit_quality = _fit_quality(d.final_result)
-    final_phase_details = _phase_refinement_details(d.final_result)
+    final_phase_details = _phase_refinement_details(d.final_result, b1_spec)
     final_lattice_flags = _final_lattice_flags(job, d)
     final_cautions = fit_cautions(
         final_fit_quality,

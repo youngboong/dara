@@ -327,6 +327,48 @@ def get_result(control_file: Path) -> RefinementResult:
         raise ParseError(f"Error in parsing the result from {control_file}") from e
 
 
+def parse_lst_value(v_: str) -> float | tuple[float, float] | str | int | None:
+    """Parse one BGMN ``.lst`` value (``x``, ``x+-esd``, ``x%``; ERROR/UNDEF -> None)."""
+    try:
+        v_ = v_.strip("%")
+        if v_ == "ERROR" or v_ == "UNDEF":
+            return None
+        if "+-" in v_:
+            v_ = (float(v_.split("+-")[0]), float(v_.split("+-")[1]))
+        else:
+            v_ = float(v_)
+            if v_.is_integer():
+                v_ = int(v_)
+    except ValueError:
+        pass
+    return v_
+
+
+def parse_lst_section(text: str) -> dict[str, Any]:
+    """Parse the ``key=value`` lines of one ``.lst`` section."""
+    # Parenthesized profile parameters such as GrainSize(1,1,1) are valid
+    # BGMN output keys and must not be silently discarded.
+    section = dict(re.findall(r"^([^\s=]+)=(.+?)$", text, re.MULTILINE))
+    return {k: parse_lst_value(v) for k, v in section.items()}
+
+
+def lst_phase_sections(texts: str) -> list[str]:
+    """Raw "Local parameters and GOALs" sections of a ``.lst`` text, in phase order."""
+    return [body for _, body in lst_phase_sections_by_name(texts)]
+
+
+def lst_phase_sections_by_name(texts: str) -> list[tuple[str, str]]:
+    """``(phase name, raw section)`` of every "Local parameters and GOALs" block, in order."""
+    return [
+        (name.strip(), body)
+        for name, body in re.findall(
+            r"Local parameters and GOALs for phase (.+?)\n(.*?)\n(?:\n|\Z)",
+            texts,
+            re.DOTALL,
+        )
+    ]
+
+
 def parse_lst(lst_path: Path, phase_names: list[str]) -> LstResult:
     """
     Get results from the .lst file. This file mainly contains some numbers for the refinement.
@@ -398,26 +440,7 @@ def parse_lst(lst_path: Path, phase_names: list[str]) -> LstResult:
 
     """
 
-    def parse_values(v_: str) -> float | tuple[float, float] | str | int | None:
-        try:
-            v_ = v_.strip("%")
-            if v_ == "ERROR" or v_ == "UNDEF":
-                return None
-            if "+-" in v_:
-                v_ = (float(v_.split("+-")[0]), float(v_.split("+-")[1]))
-            else:
-                v_ = float(v_)
-                if v_.is_integer():
-                    v_ = int(v_)
-        except ValueError:
-            pass
-        return v_
-
-    def parse_section(text: str) -> dict[str, Any]:
-        # Parenthesized profile parameters such as GrainSize(1,1,1) are valid
-        # BGMN output keys and must not be silently discarded.
-        section = dict(re.findall(r"^([^\s=]+)=(.+?)$", text, re.MULTILINE))
-        return {k: parse_values(v) for k, v in section.items()}
+    parse_section = parse_lst_section
 
     if not lst_path.exists():
         raise FileNotFoundError(f"Cannot find the .lst file from {lst_path}")
@@ -455,11 +478,7 @@ def parse_lst(lst_path: Path, phase_names: list[str]) -> LstResult:
         global_parameters = parse_section(global_parameters_text)
         result.update(global_parameters)
 
-    phases_results = re.findall(
-        r"Local parameters and GOALs for phase .+?\n(.*?)\n(?:\n|\Z)",
-        texts,
-        re.DOTALL,
-    )
+    phases_results = lst_phase_sections(texts)
 
     result["phases_results"] = {
         phase_name: parse_section(phase_result)

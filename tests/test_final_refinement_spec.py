@@ -10,6 +10,8 @@ from monty.json import MontyEncoder
 
 from dara import selected_refinement
 from dara.final_refinement_spec import build_final_refinement_spec, job_parity_inputs
+from dara.jobs import SCREENING_ONLY_PHASE_KEYS, final_refinement_phases
+from dara.search.data_model import SearchResult
 from dara.refine import RefinementPhase, do_refinement
 from dara.refinement_controls import (
     DEFAULT_PHASE_PARAMS,
@@ -52,12 +54,21 @@ def test_plain_document_matches_selected_refinement_arguments(monkeypatch, tmp_p
     }
 
 
+def _screened(paths, uploaded=(), additional_params=None, warm_start=None):
+    """A SearchResult as the search tree returns it: every phase carries screening warm starts."""
+    warm_start = warm_start or {"k1": "0.010000_0^0.01", "b1": "0.005000_0^0.005"}
+    phases = []
+    for path in paths:
+        own = dict(additional_params or {}) if path.stem in uploaded else {}
+        phases.append((RefinementPhase(path=path, params={**own, **warm_start}),))
+    return SearchResult.model_construct(phases=tuple(phases))
+
+
 def _jobs_recipe(paths, final_params, *, mp_enabled, uploaded, additional_params, overrides):
-    """Literal copy of dara/jobs.py:476-482 and 540-553."""
-    phases = list(paths)
-    for i in range(len(phases)):
-        if phases[i].stem in uploaded:
-            phases[i] = RefinementPhase(path=phases[i], params=additional_params or {})
+    """dara/jobs.py final-refinement phase preparation, run on a screened SearchResult."""
+    phases = final_refinement_phases(
+        _screened(paths, uploaded, additional_params), set(uploaded), additional_params
+    )
     phases, applied = apply_mp_lattice_window(
         phases, final_params, enabled=mp_enabled, window=MP_LATTICE_WINDOW
     )
@@ -223,3 +234,41 @@ def test_job_parity_inputs_names_cover_name_and_filename(references):
     cif.filename = "my_upload"
     inputs = job_parity_inputs(_function_kwargs([cif]))
     assert {cif.name, "my_upload"} <= inputs["additional_names"]
+
+
+def test_final_phases_drop_screening_peak_windows(references):
+    """Screening k1/B1 warm starts (k1 <= 0.01, B1 <= 0.005) must not reach the final refinement."""
+    uploaded = references[0]
+    document = _document(references)
+    paths = [Path(f"{uploaded.name}.cif"), Path("Bi2O3_14_(cod_9012546)-0.cif")]
+    additional = {"lattice_range": 0.05, "b1": "0_0^0.02"}
+    result = _screened(paths, {uploaded.name}, additional)
+    before = [dict(group[0].params) for group in result.phases]
+
+    phases = final_refinement_phases(result, {uploaded.name}, additional)
+
+    effective = {
+        phase.path.stem: {**document.final_refinement_params, **phase.params} for phase in phases
+    }
+    library = effective["Bi2O3_14_(cod_9012546)-0"]
+    assert library == document.final_refinement_params
+    assert not SCREENING_ONLY_PHASE_KEYS & set(phases[1].params)
+    # uploaded CIFs keep exactly what the user submitted, not the screening warm start
+    assert phases[0].params == additional
+    assert effective[uploaded.name]["b1"] == "0_0^0.02"
+    assert "k1" not in phases[0].params  # the global final k1 window applies
+    # the search result itself is left alone
+    assert [dict(group[0].params) for group in result.phases] == before
+    spec = build_final_refinement_spec(
+        document, _function_kwargs([uploaded], additional_cif_params=additional), paths
+    )
+    assert spec.effective_phase_params() == effective
+
+
+def test_final_phases_cif_without_screening_params_is_unchanged():
+    result = SearchResult.model_construct(
+        phases=((RefinementPhase(path=Path("a_(cod_1)-0.cif"), params={"lattice_range": 0.1}),),)
+    )
+    phases = final_refinement_phases(result)
+    assert phases[0].params == {"lattice_range": 0.1}
+    assert phases[0] is not result.phases[0][0]

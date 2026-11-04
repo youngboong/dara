@@ -129,7 +129,7 @@ def test_baseline_stale_flag(monkeypatch, api):
 
     # The fixture task finished on 2026-09-08, before REFINEMENT_CODE_DATE.
     assert _call(versions_router.list_task_versions(7))["baseline_stale"] is True
-    api["workers"].docs[0]["end_time"] = datetime(2026, 11, 1, 0, 0, 0)
+    api["workers"].docs[0]["end_time"] = datetime(2026, 11, 5, 0, 0, 0)
     assert _call(versions_router.list_task_versions(7))["baseline_stale"] is False
     api["workers"].docs[0]["end_time"] = datetime(2026, 9, 8, 1, 0, 0)
     monkeypatch.setattr(quick_refine, "do_refinement", _sequence_fake([4.0]))
@@ -569,7 +569,7 @@ def test_merged_member_gets_the_same_cautions_as_a_displayed_entry(monkeypatch):
     quality = {"rwp": 25.0, "gof": 6.0}
     details = {"A": {"weight_percent": 0.5, "weight_esd_percent": 0.1}}
     monkeypatch.setattr(api_router, "_fit_quality", lambda refinement: quality)
-    monkeypatch.setattr(api_router, "_phase_refinement_details", lambda refinement: details)
+    monkeypatch.setattr(api_router, "_phase_refinement_details", lambda refinement, *_: details)
     monkeypatch.setattr(api_router, "_classified_peak_diagnostics", lambda *args, **kwargs: {})
     monkeypatch.setattr(api_router, "_weight_percent", lambda refinement: {"A": 0.5})
     monkeypatch.setattr(api_router, "_counts_like", lambda document: False)
