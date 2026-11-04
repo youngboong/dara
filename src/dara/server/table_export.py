@@ -42,22 +42,29 @@ def _format(value) -> str:
     return text
 
 
-def _provenance(phase_name: str) -> str:
+def provenance(phase_name: str) -> tuple[str, str | None]:
+    """``(label, url)`` of a reference structure's source (shared by the table and the report)."""
     try:
         from dara.structure_quality import reference_provenance
 
-        label = reference_provenance(phase_name).get("label")
-        if label:
-            return str(label)
+        info = reference_provenance(phase_name)
+        if info.get("label"):
+            return str(info["label"]), (str(info["url"]) if info.get("url") else None)
     except Exception:  # W1 module missing or failing: fall back to the plain parser
         pass
     cod = re.search(r"cod[_-]?(\d+)", phase_name, re.I)
     mp = re.search(r"mp[-_](\d+)", phase_name, re.I)
     if cod:
-        return f"COD {cod.group(1)}"
+        record = cod.group(1)
+        return f"COD {record}", f"https://www.crystallography.net/cod/{record}.html"
     if mp:
-        return f"MP mp-{mp.group(1)}"
-    return "user-provided"
+        record = mp.group(1)
+        return f"Materials Project mp-{record}", f"https://materialsproject.org/materials/mp-{record}"
+    return "User-provided / source not recorded", None
+
+
+def _provenance(phase_name: str) -> str:
+    return provenance(phase_name)[0]
 
 
 def _phase_label(phase_name: str) -> str:
@@ -197,11 +204,14 @@ def _rows_for_result(
     return rows
 
 
-def task_table_rows(task_id: int, task: dict, summary: dict) -> list[dict]:
-    """Rows for the final result and every displayed candidate of one task.
+def task_table_rows(
+    task_id: int, task: dict, summary: dict, adopted_version: dict | None = None
+) -> list[dict]:
+    """Rows for the final result, the adopted version and every displayed candidate of one task.
 
-    ``task`` is the stored worker record (for the review selection) and
-    ``summary`` the payload of ``GET /api/task/{id}``.
+    ``task`` is the stored worker record (for the review selection), ``summary`` the
+    payload of ``GET /api/task/{id}`` and ``adopted_version`` the stored record of an
+    adopted re-refinement (``version:<n>``), whose rows follow the final result's.
     """
     selection = ((task or {}).get("review") or {}).get("selection")
     name = summary.get("task_label") or ((task or {}).get("job") or {}).get("name") or ""
@@ -210,6 +220,12 @@ def task_table_rows(task_id: int, task: dict, summary: dict) -> list[dict]:
     if final:
         rows += _rows_for_result(
             task_id, name, "final", None, _is_adopted(selection, "final", None), final
+        )
+    if adopted_version and adopted_version.get("summary"):
+        number = adopted_version.get("version") or adopted_version.get("index")
+        rows += _rows_for_result(
+            task_id, name, f"version {number}", None,
+            selection == f"version:{number}", adopted_version["summary"],
         )
     for number, candidate in enumerate(summary.get("all_results") or [], start=1):
         source_index = candidate.get("source_index", number - 1)

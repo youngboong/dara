@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 
 from dara.cif import Cif
-from dara.server import export_router, review_router
+from dara.server import export_router, quick_refine, review_router
 from dara.xrd import load_pattern
 
 from test_report import ASGIClient
@@ -89,9 +89,10 @@ def client(monkeypatch):
 
     state = {"task": task, "a": a}
     monkeypatch.setattr(review_router, "get_worker_store", lambda: Store("worker"))
-    monkeypatch.setattr(review_router, "get_result_store", lambda: Store("result"))
+    monkeypatch.setattr(quick_refine, "get_worker_store", lambda: Store("worker"))
+    monkeypatch.setattr(quick_refine, "get_result_store", lambda: Store("result"))
     monkeypatch.setattr(
-        review_router, "MontyDecoder", lambda: SimpleNamespace(process_decoded=lambda output: output)
+        quick_refine, "MontyDecoder", lambda: SimpleNamespace(process_decoded=lambda output: output)
     )
     app = FastAPI()
     app.include_router(export_router.router)
@@ -193,7 +194,7 @@ def test_unknown_format_and_bad_index(client):
 
 def test_unfinished_task_is_409(monkeypatch, client):
     http, _ = client
-    original = review_router.get_worker_store
+    original = quick_refine.get_worker_store
 
     class Running:
         def __enter__(self):
@@ -205,9 +206,9 @@ def test_unfinished_task_is_409(monkeypatch, client):
         def query_one(self, criteria):
             return {"index": 9, "uuid": "x", "status": "RUNNING", "job": {"name": "a"}}
 
-    monkeypatch.setattr(review_router, "get_worker_store", lambda: Running())
+    monkeypatch.setattr(quick_refine, "get_worker_store", lambda: Running())
     assert http.get("/api/task/9/export/profex").status_code == 409
-    monkeypatch.setattr(review_router, "get_worker_store", original)
+    monkeypatch.setattr(quick_refine, "get_worker_store", original)
 
 
 def test_profex_bundle_without_refined_eps2_uses_default_window():

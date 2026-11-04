@@ -43,10 +43,9 @@ def _sequence_fake(rwps, grids=None):
 
 @pytest.fixture
 def api(monkeypatch, env):
-    for module in (versions_router, review_router, api_router):
-        monkeypatch.setattr(module, "get_worker_store", env["workers"])
     for module in (review_router, api_router):
-        monkeypatch.setattr(module, "get_result_store", env["results"])
+        monkeypatch.setattr(module, "get_worker_store", env["workers"])
+    monkeypatch.setattr(api_router, "get_result_store", env["results"])
     env["workers"].docs[0]["summary"] = {
         "schema": 3, "final_rwp": 5.0, "gof": 2.5, "final_phases": ["BiFeO3", "Bi2Fe4O9"],
         "phases": [
@@ -362,3 +361,138 @@ def test_version_records_survive_a_json_round_trip(monkeypatch, api):
     assert record["result"]["@class"] == "RefinementResult"
     assert np.isclose(versions.version_refinement(stored[2]).lst_data.rwp, 3.0)
     assert record["summary"]["fit_quality"]["rwp"] == 3.0
+
+
+# --------------------------------------------------------------------------- quick checks / run settings
+def _with_quick_check(monkeypatch, env):
+    """v2 removes Bi2Fe4O9, v3 re-refines both phases, v4 adds Bi2Fe4O9 back as a quick check."""
+    from dara.server.quick_refine import QuickPhase
+
+    stored = _make_versions(monkeypatch, env, rwps=(3.0, 5.04))
+    monkeypatch.setattr(quick_refine, "do_refinement", _sequence_fake([2.9]))
+    other = env["references"][1].filename
+
+    async def main():
+        job = await quick_refine.submit_quick_refine(
+            7, QuickRefineRequest(base="version:2", phases=[QuickPhase(ref=other)], origin="add_hint")
+        )
+        return await _wait(job["job_id"])
+
+    assert asyncio.run(main())["version"] == 4
+    stored = {r["version"]: r for r in env["versions"].query({"uuid": TASK_UUID})}
+    assert stored[4]["refine_mode"] == "fast"
+    return stored
+
+
+def test_listing_and_detail_carry_the_run_settings(monkeypatch, api):
+    _with_quick_check(monkeypatch, api)
+    listing = {v["version"]: v for v in _call(versions_router.list_task_versions(7))["versions"]}
+    assert (listing[2]["refine_mode"], listing[2]["iteration_cap"]) == ("full", quick_refine.QUICK_REFINE_ITMAX)
+    assert (listing[4]["refine_mode"], listing[4]["iteration_cap"]) == ("fast", quick_refine.FAST_ADD_ITMAX)
+    assert listing[1]["iteration_cap"] is None and listing[1]["fixed_phases"] == []
+    for number in (2, 4):
+        detail = _call(versions_router.get_task_version(7, number))
+        for key in ("refine_mode", "fixed_phases", "iteration_cap"):
+            assert detail[key] == listing[number][key], (number, key)
+    # v1 detail uses the cached document like the listing does (n_unexplained filled in)
+    assert quick_refine._DOCUMENTS.peek(TASK_UUID) is not None
+    assert _call(versions_router.get_task_version(7, 1))["n_unexplained"] == listing[1]["n_unexplained"]
+    assert listing[1]["n_unexplained"] is not None
+
+
+def test_fit_compare_marks_quick_checks_as_not_comparable(monkeypatch, api):
+    _with_quick_check(monkeypatch, api)
+    compared = _call(versions_router.fit_compare(7, "version:3", "version:4"))
+    assert (compared["a"]["refine_mode"], compared["b"]["refine_mode"]) == ("full", "fast")
+    assert compared["verdict"]["better"] == "similar"  # 2.9 vs 5.04 would otherwise be "b"
+    assert compared["verdict"]["note"] == review_router.QUICK_CHECK_MESSAGE
+    full = _call(versions_router.fit_compare(7, "best", "version:2"))
+    assert full["verdict"] == {"rwp_delta": -2.0, "better": "b"} and full["a"]["refine_mode"] == "full"
+
+
+def test_quick_check_named_like_the_baseline_does_not_count_as_one(api):
+    from dara.server.versions_router import BASELINE_LABEL
+
+    task = api["workers"].docs[0]
+    quick = {"label": BASELINE_LABEL, "refine_mode": "fast"}
+    assert versions_router._baseline_stale(task, [quick]) is True
+    assert versions_router._baseline_stale(task, [{**quick, "refine_mode": "full"}]) is False
+
+
+def test_export_refuses_quick_checks_and_uses_the_version_settings(monkeypatch, api):
+    from dara.export import bundles
+    from dara.server import export_router
+
+    stored = _with_quick_check(monkeypatch, api)
+    captured = {}
+
+    def fake_bundle(fmt, refinement, document, out_dir, references):
+        captured.update(rwp=refinement.lst_data.rwp, document=document)
+        (Path(out_dir) / "README.txt").write_text("x")
+
+    monkeypatch.setattr(bundles, "build_bundle", fake_bundle)
+    with pytest.raises(HTTPException) as exc:
+        _call(export_router.export_task(7, "profex", None, "version:4"))
+    assert exc.value.status_code == 409 and exc.value.detail == review_router.QUICK_CHECK_MESSAGE
+    _call(export_router.export_task(7, "profex", None, "version:2"))
+    document = captured["document"]
+    assert captured["rwp"] == 3.0 and document.final_result.lst_data.rwp == 3.0
+    assert document.search_kwargs["refinement_params"] == stored[2]["refinement_params"]
+    assert document.final_refinement_params == stored[2]["phase_params"]
+
+
+def test_export_defaults_to_the_adopted_selection(monkeypatch, api):
+    from dara.export import bundles
+    from dara.server import export_router
+
+    monkeypatch.setattr(export_router.review_router, "get_worker_store", api["workers"])
+    _with_quick_check(monkeypatch, api)
+    captured = {}
+
+    def fake_bundle(fmt, refinement, document, out_dir, references):
+        captured.update(rwp=refinement.lst_data.rwp)
+        (Path(out_dir) / "README.txt").write_text("x")
+
+    monkeypatch.setattr(bundles, "build_bundle", fake_bundle)
+    response = _call(export_router.export_task(7, "profex", None, None))
+    assert captured["rwp"] == 5.0 and "profex.zip" in response.headers["content-disposition"]
+    _call(review_router.save_review(7, review_router.ReviewUpdate(selection="version:2")))
+    response = _call(export_router.export_task(7, "profex", None, None))
+    assert captured["rwp"] == 3.0 and "profex_version_2.zip" in response.headers["content-disposition"]
+    _call(export_router.export_task(7, "profex", None, "best"))  # an explicit choice still wins
+    assert captured["rwp"] == 5.0
+    _call(review_router.save_review(7, review_router.ReviewUpdate(selection=0)))
+    response = _call(export_router.export_task(7, "profex", None, None))
+    assert "profex_candidate_1.zip" in response.headers["content-disposition"]
+    # A legacy adopted quick check is refused, like the report.
+    api["workers"].docs[0]["review"] = {"selection": "version:4"}
+    with pytest.raises(HTTPException) as exc:
+        _call(export_router.export_task(7, "profex", None, None))
+    assert exc.value.status_code == 409
+
+
+def test_version_confidence_is_judged_against_the_original_candidates(monkeypatch, api):
+    stored = _make_versions(monkeypatch, api)
+    document = api["document"]
+    view = versions.document_view(document, api["record"], stored[2])
+    assert len(view.results) == len(document.results) + 1
+    assert view.results[0][1].lst_data.rwp == 3.0 and view.final_result is view.results[0][1]
+    assert view.results[1:] == document.results  # the original comparison set follows
+    confidence = stored[2]["summary"].get("confidence")
+    assert confidence and confidence["phases"]
+    for verdict in confidence["phases"].values():
+        assert verdict["evidence"]["n_candidates"] == 2  # was 1: a pool of the version alone
+
+
+def test_table_export_lists_the_adopted_version(monkeypatch, api):
+    import csv
+    import io
+
+    _with_quick_check(monkeypatch, api)
+    _call(review_router.save_review(7, review_router.ReviewUpdate(selection="version:2")))
+    response = _call(api_router.download_task_table(7))
+    rows = list(csv.DictReader(io.StringIO(response.body.decode("utf-8-sig"))))
+    adopted = [row for row in rows if row["candidate"] == "version 2"]
+    assert adopted and all(row["adopted"] == "yes" for row in adopted)
+    assert all(row["adopted"] == "" for row in rows if row["candidate"] == "final")
+    assert not any(row["candidate"] == "version 4" for row in rows)  # quick checks never appear

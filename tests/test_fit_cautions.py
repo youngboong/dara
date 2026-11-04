@@ -133,6 +133,26 @@ def test_lattice_flag_cache_is_bounded_and_memoizes():
     fc.clear_lattice_flag_cache()
 
 
+def test_lattice_flag_cache_is_safe_across_threads():
+    # Version summaries fill the cache from worker threads while requests read it.
+    from concurrent.futures import ThreadPoolExecutor
+
+    fc.clear_lattice_flag_cache()
+
+    def churn(worker):
+        for index in range(300):
+            fc.cached_lattice_flags(f"t{(worker * 7 + index) % 50}", lambda: [])
+            if index % 50 == 0:
+                fc.clear_lattice_flag_cache(f"t{index % 50}")
+        return True
+
+    with ThreadPoolExecutor(8) as pool:
+        assert all(pool.map(churn, range(8)))
+    assert len(fc._LATTICE_FLAG_CACHE) <= fc._LATTICE_FLAG_CACHE_SIZE
+    assert isinstance(fc._LATTICE_FLAG_LOCK, type(__import__("threading").Lock()))
+    fc.clear_lattice_flag_cache()
+
+
 def test_lattice_bound_flags_never_raises():
     refinement = SimpleNamespace(lst_data=SimpleNamespace(phases_results={"X": SimpleNamespace(a=0.4)}))
     assert fc.lattice_bound_flags(refinement, [], 0.02) == []

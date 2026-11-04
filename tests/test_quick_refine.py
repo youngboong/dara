@@ -773,21 +773,38 @@ def test_discard_task_rejects_non_uuid_ids(env):
 
 
 # --------------------------------------------------------------------------- ETA vs background degree
-def _eta_store(env, *entries):
-    for number, (bgmn_s, degree, phases) in enumerate(entries, start=2):
+def _eta_store(env, *entries, threads=None):
+    threads = refine.single_refinement_threads() if threads is None else threads
+    for number, entry in enumerate(entries, start=2):
+        bgmn_s, degree, phases, mode = (*entry, "full")[:4]
         env["versions"].update([{
             "uuid": TASK_UUID, "index": number, "version": number, "deleted": False,
-            "bgmn_s": bgmn_s, "phases": phases,
+            "bgmn_s": bgmn_s, "phases": phases, "refine_mode": mode, "n_threads": threads,
             "refinement_params": {} if degree is None else {"background_degree": degree},
         }])
 
 
 def test_eta_ignores_versions_refined_with_another_background_degree(env):
-    _eta_store(env, (30.0, None, ["a", "b"]), (90.0, 12, ["a", "b"]))
-    assert quick_refine._eta(TASK_UUID, 2, None) == 30.0
-    assert quick_refine._eta(TASK_UUID, 2, 12) == 90.0
-    assert quick_refine._eta(TASK_UUID, 2, 8) is None  # nothing comparable: "estimating"
-    assert quick_refine._eta(TASK_UUID, 2) == 60.0  # legacy call without a degree
+    _eta_store(env, (30.0, None, ["a", "b"]), (40.0, None, ["c", "d"]), (90.0, 12, ["a", "b"]),
+               (80.0, 12, ["a", "b"]))
+    threads = refine.single_refinement_threads()
+    assert quick_refine._eta(TASK_UUID, 2, None, n_threads=threads) == (35.0, 2)
+    assert quick_refine._eta(TASK_UUID, 2, 12, n_threads=threads) == (85.0, 2)
+    assert quick_refine._eta(TASK_UUID, 2, 8, n_threads=threads) == (None, 0)  # nothing comparable
+    assert quick_refine._eta(TASK_UUID, 2) == (60.0, 4)  # without a degree: every 2-phase full run
+
+
+def test_eta_needs_two_runs_of_the_same_kind(env):
+    _eta_store(env, (30.0, None, ["a", "b"]), (145.0, None, ["a", "b", "c"]),
+               (12.0, None, ["a", "b", "c"], "fast"), (14.0, None, ["a", "b", "c"], "fast"))
+    threads = refine.single_refinement_threads()
+    # one comparable run is not enough, and other phase counts or modes never stand in
+    assert quick_refine._eta(TASK_UUID, 2, None, n_threads=threads) == (None, 0)
+    assert quick_refine._eta(TASK_UUID, 3, None, n_threads=threads) == (None, 0)
+    assert quick_refine._eta(TASK_UUID, 3, None, refine_mode="fast", n_threads=threads) == (13.0, 2)
+    # runs with another BGMN thread count are not comparable either
+    assert quick_refine._eta(TASK_UUID, 3, None, refine_mode="fast", n_threads=threads + 1) == (None, 0)
+    assert quick_refine._eta(TASK_UUID, None, None) == (None, 0)  # unknown resulting phase count
 
 
 def test_effective_degree_follows_the_request_and_the_base(env):
@@ -805,7 +822,8 @@ def test_effective_degree_follows_the_request_and_the_base(env):
 
 
 def test_post_eta_comes_from_comparable_versions_only(monkeypatch, env):
-    _eta_store(env, (40.0, 12, ["a"]))
+    env["workers"].docs[0]["summary"] = {"final_phases": ["a", "b"]}  # the best fit has 2 phases
+    _eta_store(env, (40.0, 12, ["a", "b"]), (50.0, 12, ["c", "d"]))
     monkeypatch.setattr(quick_refine, "do_refinement", _fake_refinement())
 
     async def main():
@@ -816,8 +834,8 @@ def test_post_eta_comes_from_comparable_versions_only(monkeypatch, env):
         return other, same
 
     other, same = _run(main())
-    assert other["eta_s"] is None  # no earlier degree-5 run
-    assert same["eta_s"] == 40.0
+    assert (other["eta_s"], other["eta_n"]) == (None, 0)  # no earlier degree-5 run
+    assert (same["eta_s"], same["eta_n"]) == (45.0, 2)
 
 
 def test_deleting_versions_of_a_task_without_versions_keeps_the_real_store_usable(monkeypatch, tmp_path):
@@ -956,6 +974,134 @@ def test_add_phase_is_a_fast_quick_check_and_refine_all_makes_the_full_fit(monke
     assert stored[4]["refine_mode"] == "full" and stored[4]["origin"]["kind"] == "refine_all"
     assert stored[4]["label"] == "All phases refined"
     assert "eps2" not in (stored[3]["refinement_params"] or {})  # the fixed value is not inherited
+    # The full fit supersedes the quick check it was made from: v3 is deleted, v4 says so.
+    assert stored[3]["deleted"] is True and stored[4]["replaces"] == 3
+    assert (full["replaces"], full["reused"]) == (3, False)
+    assert stored[4]["n_threads"] == refine.single_refinement_threads()
+
+
+def test_refine_all_only_starts_from_a_quick_check(monkeypatch, env):
+    monkeypatch.setattr(quick_refine, "do_refinement", _fake_refinement())
+    references = env["references"]
+
+    async def main():
+        await _wait((await _submit(QuickRefineRequest(remove=[references[1].filename], origin="remove")))["job_id"])
+        with pytest.raises(HTTPException) as refused:
+            await _submit(QuickRefineRequest(base="version:2", origin="refine_all"))
+        assert refused.value.status_code == 409 and "quick-check" in refused.value.detail
+        with pytest.raises(HTTPException) as refused:
+            await _submit(QuickRefineRequest(base="best", origin="refine_all"))
+        assert refused.value.status_code == 409
+
+    _run(main())
+
+
+def test_identical_re_refinement_reuses_the_stored_version(monkeypatch, env):
+    captured: list[dict] = []
+    monkeypatch.setattr(quick_refine, "do_refinement", _fake_refinement(captured))
+    references = env["references"]
+
+    def remove():
+        return QuickRefineRequest(remove=[references[1].filename], origin="remove")
+
+    async def main():
+        first = await _wait((await _submit(remove()))["job_id"])
+        again = await _wait((await _submit(remove()))["job_id"])
+        other = await _wait((await _submit(QuickRefineRequest(
+            remove=[references[1].filename], origin="remove",
+            background=QuickBackground(degree=6))))["job_id"])
+        return first, again, other
+
+    first, again, other = _run(main())
+    assert (first["version"], first["reused"]) == (2, False)
+    assert (again["status"], again["version"], again["reused"]) == ("done", 2, True)
+    assert (other["version"], other["reused"]) == (3, False)  # another background is another fit
+    assert len(captured) == 2  # BGMN did not run for the repeat
+    stored = {r["version"]: r for r in env["versions"].query({"uuid": TASK_UUID})}
+    assert set(stored) == {2, 3} and stored[2]["fit_key"] != stored[3]["fit_key"]
+
+
+def test_reuse_ignores_deleted_versions_and_records_without_a_key(monkeypatch, env):
+    captured: list[dict] = []
+    monkeypatch.setattr(quick_refine, "do_refinement", _fake_refinement(captured))
+    references = env["references"]
+
+    def remove():
+        return QuickRefineRequest(remove=[references[1].filename], origin="remove")
+
+    async def main():
+        await _wait((await _submit(remove()))["job_id"])
+        versions.tombstone_version(TASK_UUID, 2)
+        return await _wait((await _submit(remove()))["job_id"])
+
+    again = _run(main())
+    assert (again["version"], again["reused"]) == (3, False) and len(captured) == 2
+    assert quick_refine._stored_versions_by_key(TASK_UUID) == {
+        env["versions"].query({"uuid": TASK_UUID, "index": 3})[0]["fit_key"]: 3
+    }
+
+
+@pytest.mark.parametrize("worker_sees_it", [False, True])
+def test_reuse_target_deleted_while_queued_runs_bgmn(monkeypatch, env, worker_sees_it):
+    """The matched version is deleted after submission: refine and store instead of failing."""
+    captured: list[dict] = []
+    monkeypatch.setattr(quick_refine, "do_refinement", _fake_refinement(captured))
+    references = env["references"]
+    real_by_key = quick_refine._stored_versions_by_key
+
+    def remove():
+        return QuickRefineRequest(remove=[references[1].filename], origin="remove")
+
+    async def main():
+        await _wait((await _submit(remove()))["job_id"])
+        stale = real_by_key(TASK_UUID)  # what the submission saw before the deletion
+        versions.tombstone_version(TASK_UUID, 2)
+        calls = iter([stale])
+        monkeypatch.setattr(quick_refine, "_stored_versions_by_key", lambda uuid: next(calls, None) or real_by_key(uuid))
+        if worker_sees_it:  # the worker's check passes; the version goes before the finish step
+            monkeypatch.setattr(quick_refine, "_still_stored_check", lambda loop, uuid: lambda number: True)
+        return await _wait((await _submit(remove()))["job_id"])
+
+    again = _run(main())
+    assert (again["status"], again["version"], again["reused"]) == ("done", 3, False)
+    assert len(captured) == 2
+
+
+def test_fit_key_changes_with_the_refinement_code(monkeypatch):
+    arguments = dict(
+        refine_mode="full", base="best", phase_params={}, overrides={}, effective={"A": {}},
+        refinement_params={}, uploaded=[],
+    )
+    before = quick_refine.fit_key(["A"], {"A": "data_A"}, **arguments)
+    assert quick_refine.fit_key(["A"], {"A": "data_A"}, **arguments) == before
+    monkeypatch.setattr(quick_refine, "REFINEMENT_CODE_DATE", "2099-01-01T00:00:00+00:00")
+    assert quick_refine.fit_key(["A"], {"A": "data_A"}, **arguments) != before
+
+
+def test_child_versions_record_the_inherited_controls(monkeypatch, env):
+    monkeypatch.setattr(quick_refine, "do_refinement", _fake_refinement())
+
+    async def main():
+        await _wait((await _submit(QuickRefineRequest(controls=RefinementControls(orientation="isotropic"))))["job_id"])
+        await _wait((await _submit(QuickRefineRequest(
+            base="version:2", background=QuickBackground(degree=7))))["job_id"])
+
+    _run(main())
+    stored = {r["version"]: r for r in env["versions"].query({"uuid": TASK_UUID})}
+    assert stored[3]["controls"] == stored[2]["controls"] and stored[3]["controls"]["orientation"] == "isotropic"
+
+
+def test_two_phases_with_one_bgmn_name_are_refused(monkeypatch, env):
+    first = env["references"][0].filename
+    twin = first + "_twin"
+    base_version = {"phases": [first], "cifs": [{"filename": twin, "cif_text": str(env["references"][0])}]}
+    request = QuickRefineRequest(base="version:2", phases=[QuickPhase(ref=twin)], origin="manual")
+    original = quick_refine.process_phase_name
+    monkeypatch.setattr(
+        quick_refine, "process_phase_name", lambda stem: "SAME" if stem in (first, twin) else original(stem)
+    )
+    with pytest.raises(quick_refine.QuickRefineError, match="share the BGMN name SAME"):
+        quick_refine.plan_phases(env["document"], ("version", 2), base_version, request, {})
 
 
 def test_refine_all_keeps_the_phase_set():

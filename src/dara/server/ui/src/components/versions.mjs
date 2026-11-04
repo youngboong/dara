@@ -215,7 +215,6 @@ export function removeRequest(phaseName) {
 const METRICS = [
   { key: 'rwp', label: 'Rwp', digits: 2, read: s => s?.fit_quality?.rwp ?? s?.rwp },
   { key: 'gof', label: 'GOF', digits: 2, read: s => s?.fit_quality?.gof ?? s?.gof },
-  { key: 'chi_squared', label: 'χ²', digits: 2, read: s => s?.fit_quality?.chi_squared ?? s?.chi_squared },
   { key: 'n_unexplained', label: 'Unexplained', digits: 0, read: unexplainedCount },
 ];
 
@@ -292,8 +291,59 @@ export function refineAllRequest(n) {
   return { base: `version:${n}`, origin: 'refine_all', label: `All phases refined (from v${n})` };
 }
 
-export const QUICK_CHECK_HINT = 'Quick check: the phases of the base fit kept their refined lattice and peak widths, '
-  + 'so Rwp and weight fractions are approximate. Refine all phases before adopting or reporting.';
+export const QUICK_CHECK_HINT = 'Quick check — base phases kept fixed; Rwp and wt% are approximate.';
+
+/** Why an action is unavailable on a quick check (adopt, report, export, further changes). */
+export const REFINE_ALL_FIRST = 'Refine all phases first';
+
+/**
+ * Selection the full fit made from quick check `n` is compared with: the quick check's own base
+ * (the quick check itself is removed by the server once refined), mapped through `comparisonBase`.
+ */
+export function refineAllBase(versions = [], n) {
+  const row = (versions || []).find(item => item.version === n);
+  const base = formatSelection(row?.origin?.base ?? 'best') ?? 'best';
+  return comparisonBase(base, versions, null);
+}
+
+/** True when `sel` names a version that is not in the (loaded, non-empty) `versions` list. */
+export function versionGone(versions = [], sel) {
+  const parsed = parseSelection(sel);
+  if (!parsed || typeof parsed !== 'object' || !(versions || []).length) return false;
+  return !versions.some(item => item.version === parsed.version);
+}
+
+/**
+ * Where to go when version `n` disappeared: the full fit that replaced it (`replaces: n`, or a
+ * refine_all made from it), otherwise the best fit.
+ */
+export function replacementOf(versions = [], n) {
+  const found = [...(versions || [])].sort((a, b) => b.version - a.version).find(item => item.replaces === n
+    || (item.origin?.kind === 'refine_all' && formatSelection(item.origin?.base ?? null) === `version:${n}`));
+  return found ? `version:${found.version}` : 'best';
+}
+
+/**
+ * Message after a finished quick job: a duplicate request (`reused`) only opens the existing
+ * version; otherwise the new version is announced with its Rwp.
+ */
+export function versionReadyText(n, job = {}, rwp = null) {
+  if (job?.reused) return `Same fit as ${n === 1 ? 'the best fit' : `v${n}`} — opened it`;
+  return `Version v${n} ready${finite(rwp) ? ` (Rwp ${Number(rwp).toFixed(2)} %)` : ''}`;
+}
+
+/**
+ * Whether reference `ref` is already in the displayed fit (`{label: 'In this fit'}`) or was added
+ * by an existing version (`{label: 'In vN', version: N}`, newest first); `null` when it is new.
+ */
+export function existingPhase(ref, displayedPhases = [], versions = []) {
+  if (!ref) return null;
+  if ((displayedPhases || []).includes(ref)) return { label: 'In this fit', version: null };
+  const found = [...(versions || [])].filter(item => item.version > 1)
+    .sort((a, b) => b.version - a.version)
+    .find(item => (item.origin?.added || []).includes(ref));
+  return found ? { label: `In v${found.version}`, version: found.version } : null;
+}
 
 /** Quick-refine body that re-runs the stored automatic result (v1) with today's code. */
 export function baselineRequest() {
@@ -326,16 +376,22 @@ export function needsBaseline(baselineStale, versions = [], body = {}) {
 
 /**
  * Option groups for the fit selector (Best fit / Candidates / Versions); values are selections:
- * 'best', a candidate source index or 'version:n'. Used by the fit modal and the compare window.
+ * 'best', a candidate source index or 'version:n'. Used by the fit modal, the compare window and
+ * (with `adoptable`, which leaves out quick checks) the adopted-fit select. A quick check that is
+ * the `current` (legacy adopted) choice stays listed there as a readable, disabled option.
  */
-export function selectOptionGroups(allResults = [], versions = []) {
-  const shown = (versions || []).filter(item => item.version > 1);
+export function selectOptionGroups(allResults = [], versions = [], { adoptable = false, current = null } = {}) {
+  const currentSel = formatSelection(current);
+  const legacy = item => adoptable && item.refine_mode === 'fast';
+  const shown = (versions || []).filter(item => item.version > 1 && (!legacy(item) || `version:${item.version}` === currentSel));
   return [
     { label: 'Best fit', options: [{ value: 'best', label: 'Best fit' }] },
     { label: 'Candidates', options: (allResults || []).map((r, i) => ({ value: r.source_index ?? i, label: `Candidate ${i + 1} — Rwp ${r.rwp}%` })) },
     ...(shown.length ? [{ label: 'Versions',
-      options: shown.map(item => ({ value: `version:${item.version}`,
-        label: `v${item.version} — ${item.label || 'Re-refinement'}${finite(item.rwp) ? ` — Rwp ${Number(item.rwp).toFixed(2)}%` : ''}` })) }] : []),
+      options: shown.map(item => (legacy(item)
+        ? { value: `version:${item.version}`, label: `v${item.version} (quick check)`, disabled: true }
+        : { value: `version:${item.version}`,
+          label: `v${item.version} — ${item.label || 'Re-refinement'}${finite(item.rwp) ? ` — Rwp ${Number(item.rwp).toFixed(2)}%` : ''}` })) }] : []),
   ];
 }
 
@@ -347,10 +403,27 @@ export function adoptedTag(selection) {
   return `v${parsed.version} adopted`;
 }
 
-function durationText(seconds) {
-  const s = Math.max(1, Math.round(seconds));
+function durationText(seconds, min = 1) {
+  const s = Math.max(min, Math.round(Number(seconds) || 0));
   if (s < 90) return `${s} s`;
   return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`;
+}
+
+/** Rounded total for an estimate: `about 40 s` / `about 3 min`. */
+function aboutText(seconds) {
+  const s = Math.max(1, Math.round(seconds));
+  return s < 90 ? `about ${s} s` : `about ${Math.round(s / 60)} min`;
+}
+
+/** `2026-10-25 09:02, 51 min` for the run row of a task (`start` as stored, `runtime` in s). */
+export function runText(start, runtime) {
+  const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(String(start || ''));
+  const when = match ? `${match[1]} ${match[2]}` : String(start || '');
+  if (!finite(runtime)) return when || '—';
+  const s = Math.max(0, Math.round(Number(runtime)));
+  const length = s < 90 ? `${s} s` : s < 5400 ? `${Math.round(s / 60)} min`
+    : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
+  return when ? `${when}, ${length}` : length;
 }
 
 /** Version label in the progressive form while the job runs ("Added X" → "Adding X"). */
@@ -362,7 +435,11 @@ export function progressLabel(label) {
   return text;
 }
 
-/** ETA / queue text for a quick job record. */
+/**
+ * Queue text or total-time estimate of a quick job record. Queued: the job in front and how long
+ * it has run. Running: nothing without a comparable estimate (`eta_s` null), `about N s in total`
+ * while within it and `taking longer than usual` once `elapsed_s` exceeds it. Never a countdown.
+ */
 export function etaText(job) {
   if (!job) return '';
   if (job.status === 'queued') {
@@ -371,12 +448,33 @@ export function etaText(job) {
     if (ahead <= 0) return 'Starting…';
     if (!job.ahead_label) return `Queued (${ahead} ahead)`;
     // Name the job in front (often the silent baseline re-refinement) and how long it has run.
-    const ran = finite(job.ahead_elapsed_s) && Number(job.ahead_elapsed_s) > 0 ? `, running ${durationText(job.ahead_elapsed_s)}` : '';
+    const ran = finite(job.ahead_elapsed_s) && Number(job.ahead_elapsed_s) > 0 ? ` (running ${durationText(job.ahead_elapsed_s)})` : '';
     const more = ahead > 1 ? ` + ${ahead - 1} more` : '';
     return `Waiting for ${job.ahead_label}${ran}${more}`;
   }
-  if (job.status !== 'running') return '';
-  if (!finite(job.eta_s)) return 'estimating…';
-  const left = Number(job.eta_s) - (finite(job.elapsed_s) ? Number(job.elapsed_s) : 0);
-  return `≈ ${durationText(Math.max(1, left))} left`;
+  if (job.status !== 'running' || !finite(job.eta_s) || Number(job.eta_s) <= 0) return '';
+  const elapsed = finite(job.elapsed_s) ? Number(job.elapsed_s) : 0;
+  if (elapsed > Number(job.eta_s)) return 'taking longer than usual';
+  return `${aboutText(job.eta_s)} in total`;
+}
+
+/**
+ * What the progress strip shows for a quick job, with exactly one time value per state.
+ * `elapsed` is the live running time in seconds. Returns `{stage, time, note, percent, basis}`:
+ * `time` is empty while queued (the queue text carries the only time), `percent` is `null` for
+ * the indeterminate bar (no estimate, or past it) and `basis` explains the estimate.
+ */
+export function progressView(job, elapsed = 0) {
+  if (!job) return null;
+  if (job.status === 'starting') return { stage: 'Starting…', time: '', note: '', percent: null, basis: null };
+  if (job.status === 'queued') return { stage: etaText(job) || 'Queued', time: '', note: '', percent: null, basis: null };
+  const eta = finite(job.eta_s) && Number(job.eta_s) > 0 ? Number(job.eta_s) : null;
+  const n = finite(job.eta_n) ? Number(job.eta_n) : 0;
+  return {
+    stage: job.stage || 'Working',
+    time: durationText(elapsed, 0),
+    note: etaText({ ...job, elapsed_s: elapsed }),
+    percent: eta !== null && elapsed <= eta ? Math.round((elapsed / eta) * 100) : null,
+    basis: eta !== null && n > 0 ? `Estimate from ${n} similar earlier run${n === 1 ? '' : 's'}` : null,
+  };
 }

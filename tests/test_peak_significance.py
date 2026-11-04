@@ -648,3 +648,52 @@ def test_candidate_references_are_simulated_by_the_background_worker(monkeypatch
     assert sync["trace_hints"][0]["formula"] == "Fe2O3"
     assert threads[-1] == threading.current_thread().name
     api_router._REFERENCE_MEMO.clear()
+
+
+def test_other_background_jobs_do_not_keep_hints_pending(monkeypatch):
+    import threading
+
+    from dara.cif import Cif
+    from dara.search import prefilter
+    from dara.server import api_router
+
+    monkeypatch.setattr(Cif, "to_structure", lambda self: SimpleNamespace(volume=100.0))
+    monkeypatch.setattr(
+        prefilter, "simulate_structure_reflections",
+        lambda *a: (np.array([40.0]), np.array([100.0]), np.array([3.0])),
+    )
+    api_router._REFERENCE_MEMO.clear()
+    refinement = _refinement(injected=[(40.0, 400.0)])
+    document = _hint_document(refinement, Cif({}, filename="Fe2O3_167_(cod_1)-0.cif"))
+    context = api_router._peak_context(document, "background", job_key="job-a9")
+    api_router._classified_peak_diagnostics(document, refinement, hint_mode="sync", context=context)
+
+    gate = threading.Event()
+    ps.submit_background("another task", lambda: gate.wait(10))
+    try:
+        assert ps.has_pending() and ps.has_pending("another task")
+        done = api_router._classified_peak_diagnostics(
+            document, refinement, hint_mode="background", context=context
+        )
+        assert done["trace_hints"] and "hints_pending" not in done  # nothing left for this task
+        assert not ps.cod_pool_pending(["Fe", "O"], [], 1.54, (10.0, 80.0))
+    finally:
+        gate.set()
+        assert ps.wait_idle(10)
+        api_router._REFERENCE_MEMO.clear()
+
+
+def test_cod_pool_pending_tracks_only_its_own_inputs(fake_cod):
+    import threading
+
+    gate = threading.Event()
+    ps.submit_background("blocker", lambda: gate.wait(10))
+    try:
+        args = (["Fe", "O"], ["Fe2O3"], 1.540598, (10.0, 80.0))
+        assert ps.cod_reference_patterns(*args, mode="background") is None
+        assert ps.cod_pool_pending(*args)  # queued behind the blocker
+        assert not ps.cod_pool_pending(["Ti", "O"], [], 1.540598, (10.0, 80.0))
+    finally:
+        gate.set()
+        _wait_for_background()
+    assert not ps.cod_pool_pending(*args)

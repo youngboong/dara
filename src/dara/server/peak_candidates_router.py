@@ -21,14 +21,8 @@ import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from dara.server import api_router, peak_significance, selected_refinement_router
+from dara.server import api_router, peak_significance, selected_refinement_router, versions
 from dara.server import confidence as confidence_module
-
-try:  # WS-A: version-aware selections; absent -> "best"/index only
-    from dara.server.versions import parse_selection, resolve_refinement
-except Exception:  # pragma: no cover - depends on the installed server version
-    parse_selection = None
-    resolve_refinement = None
 
 logger = logging.getLogger("dara.server.peak_candidates")
 
@@ -52,19 +46,21 @@ class PeakCandidatesRequest(BaseModel):
     limit: int = Field(default=20, ge=1, le=50)
 
 
-def _load(task_id):
-    return selected_refinement_router._load(task_id)
+async def _load(task_id):
+    return await selected_refinement_router._load(task_id)
 
 
 def _resolve_refinement(document, record, sel):
-    if parse_selection is not None and resolve_refinement is not None:
-        refinement, _ = resolve_refinement(document, record, parse_selection(sel))
-        return refinement
-    if isinstance(sel, str) and sel != "best":
-        raise HTTPException(422, "Versions are not available on this server.")
-    from dara.server import review_router
+    """``(refinement, document)`` for a selection; a version gets its own document view.
 
-    return review_router._select_refinement(document, sel)
+    The view carries the version's analysis range and its references, so the measured
+    window and the task pool match the fit the peaks were picked on.
+    """
+    refinement, meta = versions.resolve_refinement(document, record, versions.parse_selection(sel))
+    if meta["kind"] == "version":
+        document = versions.document_view(document, record, meta["record"])
+        refinement = document.final_result
+    return refinement, document
 
 
 # ---------------------------------------------------------------------------
@@ -267,8 +263,9 @@ def _compute(document, refinement, request: PeakCandidatesRequest, ctx, window) 
 @router.post("/task/{task_id}/peak-candidates")
 async def peak_candidates(task_id: int, request: PeakCandidatesRequest):
     started = time.perf_counter()
-    record, document = _load(task_id)  # store access: event-loop thread only
-    refinement = _resolve_refinement(document, record, request.sel)
+    record, document = await _load(task_id)  # store access: event-loop thread only
+    selection = versions.parse_selection(request.sel)
+    refinement, document = _resolve_refinement(document, record, selection)
     ctx = api_router._peak_context(document, job_key=record.get("uuid"))
     window = ctx.measured_range(refinement)
     if ctx.wavelength is None or window is None:
@@ -286,7 +283,7 @@ async def peak_candidates(task_id: int, request: PeakCandidatesRequest):
     )
     return {
         "task_id": task_id,
-        "sel": request.sel,
+        "sel": versions.format_selection(selection),
         "two_theta": list(request.two_theta),
         "tolerance_deg": request.tolerance_deg,
         "pools_used": result["pools_used"],

@@ -7,7 +7,7 @@ export const SHORTCUT_HELP = [
   { keys: '1–9', action: 'Toggle phase n in the legend' },
   { keys: 'R', action: 'Reset zoom' },
   { keys: 'F', action: 'Fit intensity to view' },
-  { keys: 'Esc', action: 'Clear peak selection, then close' },
+  { keys: 'Esc', action: 'Close Add phase, clear peaks, then close' },
   { keys: '?', action: 'Show shortcuts' },
 ];
 
@@ -33,7 +33,7 @@ function sameSelection(a, b) {
 
 /**
  * `context` = `{options: [selection...], current: selection, phaseGroups: [name...],
- * peakSelectionCount: int, helpOpen: bool}`. Returns `null` or an action object.
+ * peakSelectionCount: int, helpOpen: bool, drawerOpen: bool}`. Returns `null` or an action object.
  */
 export function actionForKey(event, context = {}) {
   if (!event || event.ctrlKey || event.metaKey || event.altKey) return null;
@@ -41,6 +41,7 @@ export function actionForKey(event, context = {}) {
   const key = event.key;
   if (key === 'Escape') {
     if (context.helpOpen) return { type: 'close-help' };
+    if (context.drawerOpen) return { type: 'close-drawer' };
     if (context.peakSelectionCount > 0) return { type: 'clear-peaks' };
     return { type: 'close' };
   }

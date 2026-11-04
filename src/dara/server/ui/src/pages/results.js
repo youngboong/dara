@@ -6,6 +6,7 @@ import { DeleteOutlined, DownloadOutlined, LineChartOutlined, TableOutlined } fr
 import { parseComparisonTaskIds } from '../components/patternComparison.mjs';
 import { runAfterSuccess } from '../components/submitHelpers.mjs';
 import { retryTask } from '../components/ResultWorkflows';
+import { API as URL } from '../components/QuickRefineProgress';
 import { adoptedLabel, formatFixed, phasesLabel, phasesTooltip, tasksQuery } from '../components/resultsList.mjs';
 import { overallColor, overallLabel } from '../components/confidence.mjs';
 
@@ -15,13 +16,11 @@ function ConfidenceStatus({ tag, level }) {
   if (!label) return tag;
   return <Space size={4} wrap>
     {tag}
-    <Tooltip title="Overall confidence of the automatic result. Open the task for the reasons.">
+    <Tooltip title="Open the task for the reasons.">
       <Tag color={overallColor(level)}>{label}</Tag>
     </Tooltip>
   </Space>;
 }
-
-const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 
 const Container = styled.div`
 `
@@ -86,7 +85,7 @@ function ResultsPage({ location }) {
 
   const columns = [
     {
-      title: 'ID #',
+      title: 'ID',
       dataIndex: 'fw_id',
       key: 'fw_id',
     },
@@ -125,7 +124,7 @@ function ResultsPage({ location }) {
             cancelText="Cancel"
             onConfirm={() => retryTask(entry.fw_id, true)}
           ><Button type="link" size="small" style={{ padding: 0 }}>Retry with fix</Button></Popconfirm> : null}
-          <Button type="link" size="small" style={{ padding: 0 }} href={`/?clone_task=${entry.fw_id}`}>Copy conditions &amp; rerun</Button>
+          <Button type="link" size="small" style={{ padding: 0 }} href={`/?clone_task=${entry.fw_id}`}>Rerun</Button>
         </Space> : <ConfidenceStatus tag={shown} level={text === 'COMPLETED' ? entry.summary?.confidence_overall : null} />
       }
     },
@@ -135,7 +134,7 @@ function ResultsPage({ location }) {
       render: (_, entry) => formatFixed(entry.summary?.best_rwp),
     },
     {
-      title: <Tooltip title="Goodness of fit = Rwp / Rexp of the final refinement">GOF</Tooltip>,
+      title: 'GOF',
       key: 'gof',
       render: (_, entry) => formatFixed(entry.summary?.gof),
     },
@@ -176,13 +175,14 @@ function ResultsPage({ location }) {
       key: 'actions',
       render: (_, entry) => (
         <Space>
-          <Button
-            icon={<DownloadOutlined />}
-            href={`${URL}/task/${entry.fw_id}/download`}
-            disabled={entry.state !== 'COMPLETED'}
-          >
-            Download
-          </Button>
+          <Tooltip title="Download (ZIP)">
+            <Button
+              icon={<DownloadOutlined />}
+              aria-label={`Download task ${entry.fw_id}`}
+              href={`${URL}/task/${entry.fw_id}/download`}
+              disabled={entry.state !== 'COMPLETED'}
+            />
+          </Tooltip>
           <Popconfirm
             title={`Delete task ${entry.fw_id}?`}
             description="This permanently removes the stored result."
@@ -195,10 +195,9 @@ function ResultsPage({ location }) {
             <Button
               danger
               icon={<DeleteOutlined />}
+              aria-label={`Delete task ${entry.fw_id}`}
               disabled={['READY','RUNNING','CANCELLING'].includes(entry.state)}
-            >
-              Delete
-            </Button>
+            />
           </Popconfirm>
         </Space>
       ),
@@ -216,7 +215,7 @@ function ResultsPage({ location }) {
             size="middle"
             onSearch={onSearch}
             defaultValue={user}
-            style={{ width: 400, marginBottom: "24px" }}
+            style={{ width: 'min(400px, 45vw)', minWidth: 200, marginBottom: "24px" }}
           />
           <Search
             placeholder="Filter file name"
@@ -225,7 +224,7 @@ function ResultsPage({ location }) {
             size="middle"
             onSearch={onNameSearch}
             defaultValue={name}
-            style={{ width: 400, marginBottom: "24px" }}
+            style={{ width: 'min(400px, 45vw)', minWidth: 200, marginBottom: "24px" }}
           />
         </div>
         <Space wrap style={{ marginBottom: 16 }}>
@@ -239,7 +238,7 @@ function ResultsPage({ location }) {
             disabled={!selectedTaskIds.length}
             href={selectedTaskIds.length ? `${URL}/tasks/table.csv?ids=${selectedTaskIds.join(',')}` : undefined}
           >Export table ({selectedTaskIds.length})</Button>
-          <span>Select completed tasks to overlay patterns (2–20) or export their final results as CSV.</span>
+          <span>Select 2–20 completed tasks to compare or export.</span>
           {selectedTaskIds.length > 0 && <Button type="link" onClick={() => setSelectedTaskIds([])}>Clear selection</Button>}
         </Space>
         {

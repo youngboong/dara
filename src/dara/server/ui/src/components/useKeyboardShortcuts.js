@@ -12,6 +12,12 @@ export function foreignModalHasFocus(doc = document) {
   return !wrap.classList.contains(FIT_MODAL_CLASS) && !wrap.classList.contains(HELP_MODAL_CLASS);
 }
 
+/** True when another antd modal (Background, Select phases, a confirm) is open over the fit view. */
+export function foreignModalOpen(doc = document) {
+  return [...doc.querySelectorAll('.ant-modal-wrap')].some(wrap => wrap.style.display !== 'none'
+    && !wrap.classList.contains(FIT_MODAL_CLASS) && !wrap.classList.contains(HELP_MODAL_CLASS));
+}
+
 /**
  * One window `keydown` listener while `enabled`. `contextRef.current` is the context of
  * `actionForKey`; `handlers` maps action types to functions (always the latest closures).
@@ -24,7 +30,7 @@ export default function useKeyboardShortcuts(enabled, contextRef, handlers) {
     if (!enabled) return undefined;
     const onKeyDown = event => {
       if (event.defaultPrevented) return;
-      if (foreignModalHasFocus()) return;
+      if (foreignModalHasFocus() || foreignModalOpen()) return;
       // Esc during a right-drag zoom box only cancels the box (RefinementPlotly handles it).
       if (event.key === 'Escape' && document.querySelector('.js-plotly-plot [style*="dashed"]')) return;
       const action = actionForKey(event, contextRef.current || {});

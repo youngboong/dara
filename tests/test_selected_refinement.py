@@ -19,7 +19,7 @@ from dara import selected_refinement
 from dara.cif import Cif
 from dara.result import DiaResult, LstResult, PhaseResult, RefinementMetrics, RefinementResult
 from dara.schema import PhaseSearchDocument
-from dara.server import api_router, selected_refinement_router
+from dara.server import api_router, quick_refine, selected_refinement_router
 from dara.server.selected_refinement_router import SelectedRefinementRequest
 from dara.xrd import XRDData
 from dara.refine import single_refinement_threads
@@ -79,7 +79,10 @@ def _record():
 
 
 def _patch_load(monkeypatch, document):
-    monkeypatch.setattr(selected_refinement_router, "_load", lambda task_id: (_record(), document))
+    async def load(task_id):
+        return _record(), document
+
+    monkeypatch.setattr(selected_refinement_router, "_load", load)
 
 
 def test_queue_only_exact_selected_references_and_keep_parent_unchanged(monkeypatch, references):
@@ -230,10 +233,10 @@ def test_load_rejects_missing_and_incomplete_tasks(monkeypatch, state, missing_r
             return self.value
 
     record = None if state is None else {**_record(), "status": state}
-    monkeypatch.setattr(selected_refinement_router, "get_worker_store", lambda: Store(record))
-    monkeypatch.setattr(selected_refinement_router, "get_result_store", lambda: Store(None if missing_result else {}))
+    monkeypatch.setattr(quick_refine, "get_worker_store", lambda: Store(record))
+    monkeypatch.setattr(quick_refine, "get_result_store", lambda: Store(None if missing_result else {}))
     with pytest.raises(HTTPException) as exc:
-        selected_refinement_router._load(7)
+        asyncio.run(selected_refinement_router._load(7))
     assert exc.value.status_code == code
 
 

@@ -1,12 +1,11 @@
 import React from 'react';
 import { Alert, Button, Input, message, Modal, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
-import { EditOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons';
+import { EditOutlined, InfoCircleOutlined, SaveOutlined } from '@ant-design/icons';
 import { runAfterSuccess } from './submitHelpers.mjs';
-import { NOT_AVAILABLE, postJson, requestJson } from './QuickRefineProgress';
+import { API, NOT_AVAILABLE, postJson, requestJson } from './QuickRefineProgress';
 import { DEFAULT_CONTROLS, RefinementControlsEditor } from './PracticalControls';
-import { selectedPhasesRequest } from './versions.mjs';
-
-const API = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
+import { selectionQuery } from './confidence.mjs';
+import { selectOptionGroups, selectionLabel, selectedPhasesRequest } from './versions.mjs';
 
 async function responseJson(response) {
   const body = await response.json();
@@ -41,73 +40,58 @@ export function useTaskReview(taskId) {
       // Already saved on the server; UI follow-up problems must not look like a failed save.
       runAfterSuccess([
         () => setSaved(body), () => setSelection(body.selection), () => setError(''),
-        () => message.success('Adopted result and notes saved. The minimum-Rwp result is unchanged.'),
+        () => message.success('Review saved.'),
       ]);
-    } catch (e) { message.error(e.message); }
+      return true;
+    } catch (e) { message.error(e.message); return false; }
     finally { setSaving(false); }
   };
   return { saved, selection, setSelection, notes, setNotes, loading, saving, error, save,
     dirty: selection !== saved.selection || notes !== saved.notes };
 }
 
-export function ReportDownloadButton({ taskId, selection, children = 'Download report', ...props }) {
-  const [loading, setLoading] = React.useState(false);
-  const download = async () => {
-    setLoading(true);
-    try {
-      const query = selection === 'best' ? '?best=true' : Number.isInteger(selection) ? `?idx=${selection}`
-        : typeof selection === 'string' && /^version:[1-9]\d{0,5}$/.test(selection) ? `?sel=${selection}` : '';
-      const response = await fetch(`${API}/task/${taskId}/report${query}`);
-      if (!response.ok) await responseJson(response);
-      const blob = await response.blob();
-      const objectUrl = window.URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = objectUrl;
-      anchor.download = `dara_task_${taskId}_${String(selection ?? 'adopted').replace(':', '_')}_report.html`;
-      document.body.appendChild(anchor); anchor.click(); anchor.remove();
-      setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
-      message.success('Report downloaded. Open it in a browser to print or save as PDF.');
-    } catch (e) { message.error(e.message || 'Report download failed.'); }
-    finally { setLoading(false); }
-  };
-  return <Button icon={<FileTextOutlined />} {...props} loading={loading} onClick={download}>{children}</Button>;
+/** Download the printable HTML report of `selection` (undefined = the saved adopted choice). */
+export async function downloadReport(taskId, selection) {
+  const hide = message.loading('Preparing the report…', 0);
+  try {
+    const response = await fetch(`${API}/task/${taskId}/report${selection === undefined ? '' : selectionQuery(selection)}`);
+    if (!response.ok) await responseJson(response);
+    const blob = await response.blob();
+    const objectUrl = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = `dara_task_${taskId}_${String(selection ?? 'adopted').replace(':', '_')}_report.html`;
+    document.body.appendChild(anchor); anchor.click(); anchor.remove();
+    setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
+    hide();
+    message.success('Report downloaded. Open it in a browser to print or save as PDF.');
+  } catch (e) { hide(); message.error(e.message || 'Report download failed.'); }
 }
 
-export function ReviewPanel({ taskId, data, review, versions = [] }) {
-  const candidates = [
-    ...data.all_results.map((candidate, index) => ({
-      value: candidate.source_index ?? index,
-      label: `Candidate ${index + 1} — Rwp ${candidate.rwp}%`,
-    })),
-    ...versions.filter(item => item.version > 1).map(item => ({
-      value: `version:${item.version}`,
-      label: `v${item.version} — ${item.label || 'Re-refinement'}${item.rwp != null ? ` — Rwp ${Number(item.rwp).toFixed(2)}%` : ''}`,
-    })),
-  ];
-  const savedLabel = review.saved.selection === 'best' ? 'Minimum-Rwp best fit'
-    : candidates.find(item => item.value === review.saved.selection)?.label
-      || (typeof review.saved.selection === 'string' ? review.saved.selection.replace('version:', 'Version ') : 'Not adopted yet');
+export function ReviewPanel({ data, review, versions = [] }) {
+  // Quick checks are approximate fits: they are never offered for adoption.
+  const groups = selectOptionGroups(data.all_results, versions, { adoptable: true, current: review.selection });
+  const saved = review.saved.selection;
+  const savedLabel = saved == null ? 'Not adopted yet' : selectionLabel(saved, { all_results: data.all_results, versions }) || String(saved);
   return <section aria-label="Result review" style={{ marginBottom: 20, padding: 16, border: '1px solid #d9d9d9', borderRadius: 6 }}>
-    <h3>Adopted result &amp; lab notes</h3>
+    <h3>Adopted fit &amp; notes</h3>
     {review.error ? <Alert type="error" showIcon message={review.error} /> : null}
-    <p><Tag color={review.saved.selection == null ? 'default' : 'blue'}>{savedLabel}</Tag>
-      {typeof review.saved.selection === 'number' ? <Typography.Text strong style={{ marginRight: 8 }}>{`★ ${(candidates.find(item => item.value === review.saved.selection)?.label || `Candidate ${review.saved.selection + 1}`).split(' — ')[0]} adopted`}</Typography.Text> : null}
-      <Typography.Text type="secondary">Your scientific choice is saved separately from the automatic best fit. Adopt a fit from the versions table or the comparison window.</Typography.Text></p>
     <Space wrap style={{ marginBottom: 12 }}>
-      <Select aria-label="Adopted candidate" style={{ width: 330, maxWidth: '100%' }}
+      <Tag color={saved == null ? 'default' : 'blue'}>{savedLabel}</Tag>
+      <Select aria-label="Adopted fit" style={{ minWidth: 330, maxWidth: '100%' }}
         disabled={review.loading || !!review.error || review.saving}
         value={review.selection ?? 'unselected'}
         onChange={value => review.setSelection(value === 'unselected' ? null : value)}
-        options={[{ value: 'unselected', label: 'No adopted result' }, { value: 'best', label: `Minimum-Rwp best fit — ${data.best_rwp}%` }, ...candidates]} />
-      <ReportDownloadButton taskId={taskId} disabled={review.loading || !!review.error || review.dirty || review.saving}>Report (saved choice)</ReportDownloadButton>
+        options={[{ value: 'unselected', label: 'No adopted result' }, ...groups]} />
     </Space>
     <Input.TextArea aria-label="Lab notes" value={review.notes} maxLength={10000} showCount rows={3}
       disabled={review.loading || !!review.error || review.saving} onChange={event => review.setNotes(event.target.value)}
-      placeholder="Sample treatment, interpretation, reasons for choosing a candidate, remaining unexplained peaks…" />
+      placeholder="Sample treatment, interpretation, reasons for choosing a fit, remaining unexplained peaks…" />
     <Space wrap style={{ marginTop: 18 }}>
-      <Button type="primary" icon={<SaveOutlined />} loading={review.saving} disabled={review.loading || !!review.error || !review.dirty} onClick={() => review.save()}>Save review</Button>
-      {review.dirty ? <Typography.Text type="warning">Unsaved changes — save before exporting the report.</Typography.Text> : null}
-      <Typography.Text type="secondary">Report: printable, offline HTML with fit, phase fractions, lattice parameters and references.</Typography.Text>
+      <Tooltip title="The report and downloads use the saved choice">
+        <Button type="primary" icon={<SaveOutlined />} loading={review.saving} disabled={review.loading || !!review.error || !review.dirty} onClick={() => review.save()}>Save review</Button>
+      </Tooltip>
+      {review.dirty ? <Typography.Text type="warning">Unsaved changes</Typography.Text> : null}
     </Space>
   </section>;
 }
@@ -116,7 +100,7 @@ export function ReviewPanel({ taskId, data, review, versions = [] }) {
  * "Select phases…" button and checklist modal. The checked phases are submitted through the quick
  * re-refinement path (`onSubmit(request)`), which stores a new version of the same task.
  */
-export function PhaseSelectionButton({ taskId, phases = [], renderPhase, busy = false, onSubmit, ...props }) {
+export function PhaseSelectionButton({ taskId, phases = [], renderPhase, busy = false, onSubmit, disabledReason = null, ...props }) {
   const [visible, setVisible] = React.useState(false);
   const [available, setAvailable] = React.useState([]);
   const [selected, setSelected] = React.useState([]);
@@ -141,18 +125,21 @@ export function PhaseSelectionButton({ taskId, phases = [], renderPhase, busy = 
     onSubmit(request);
   };
   return <>
-    <Tooltip title="Check the stored reference phases to include, then refine again as a new version">
-      <Button {...props} icon={<EditOutlined />} disabled={busy || props.disabled} onClick={open}>Select phases…</Button>
+    <Tooltip title={disabledReason || 'Choose the phases to refine as a new version'}>
+      <span><Button {...props} icon={<EditOutlined />} disabled={busy || props.disabled || Boolean(disabledReason)} onClick={open}>Select phases…</Button></span>
     </Tooltip>
     <Modal title="Select phases" open={visible} width={850}
       onCancel={() => setVisible(false)} onOk={submit} okText="Re-refine and compare"
       okButtonProps={{ disabled: loading || !request || selected.length > 20 }}>
-      <Alert type="info" showIcon style={{ marginBottom: 16 }}
-        message="Only the checked phases will be refined together."
-        description="The fit is refined again with the stored references of this task and saved as a new version; the original result is kept. Select just one reference per intended phase; equivalent CIFs are not extra components." />
+      <Typography.Paragraph type="secondary">
+        Checked phases are refined together as a new version.{' '}
+        <Tooltip title="Uses the stored references of this task; the original result is kept. Check one reference per phase: equivalent CIFs are not extra components.">
+          <InfoCircleOutlined />
+        </Tooltip>
+      </Typography.Paragraph>
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
       <Input.Search aria-label="Filter phase references" placeholder="Filter formula or COD / MP reference" value={filter} onChange={e => setFilter(e.target.value)} />
-      <p style={{ marginTop: 8 }}>{selected.length} selected (maximum 20)</p>
+      <p style={{ marginTop: 8 }}>{`${selected.length} / 20`}</p>
       <Table size="small" loading={loading} rowKey="reference" pagination={{ pageSize: 8 }}
         rowSelection={{ selectedRowKeys: selected, preserveSelectedRowKeys: true, onChange: values => { setSelected(values); setError(''); } }}
         dataSource={available.filter(name => name.toLowerCase().includes(filter.toLowerCase())).map(reference => ({ reference }))}
@@ -187,7 +174,7 @@ export function RetryActions({ taskId, errorSummary }) {
     try {
       const plan = await requestJson(`/task/${taskId}/retry-plan`);
       if (plan.supported === false || !plan.changes) {
-        message.info(plan.reason || 'No automatic fix applies to this failure. Use “Copy conditions & rerun”.');
+        message.info(plan.reason || 'No automatic fix applies to this failure. Use “Rerun”.');
         return;
       }
       Modal.confirm({
@@ -209,6 +196,6 @@ export function RetryActions({ taskId, errorSummary }) {
   };
   return <Space wrap style={{ marginBottom: 12 }}>
     {remedy?.label ? <Button type="primary" loading={busy} onClick={retryWithFix}>{`Retry with suggested fix (${remedy.label})`}</Button> : null}
-    <Button type={remedy?.label ? 'default' : 'primary'} href={`/?clone_task=${taskId}`}>Copy conditions &amp; rerun</Button>
+    <Button type={remedy?.label ? 'default' : 'primary'} href={`/?clone_task=${taskId}`}>Rerun</Button>
   </Space>;
 }

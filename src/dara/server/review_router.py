@@ -16,10 +16,10 @@ from typing import Annotated, Literal
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
-from monty.json import MontyDecoder
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints
 
-from dara.server.utils import get_result_store, get_worker_store
+from dara.server import quick_refine, versions
+from dara.server.utils import get_worker_store
 
 router = APIRouter(prefix="/api")
 
@@ -36,18 +36,9 @@ class ReviewUpdate(BaseModel):
     notes: str = Field(default="", max_length=10000)
 
 
-def _load_completed_task(task_id: int):
-    with get_worker_store() as store:
-        task = store.query_one({"index": task_id})
-    if task is None:
-        raise HTTPException(404, "Task not found")
-    if task["status"] != "COMPLETED":
-        raise HTTPException(409, "Only completed tasks can be reviewed or reported")
-    with get_result_store() as store:
-        stored = store.query_one({"uuid": task["uuid"]})
-    if stored is None:
-        raise HTTPException(404, "Task result not found")
-    return task, MontyDecoder().process_decoded(stored["output"])
+async def _load_completed_task(task_id: int):
+    """``(task, document)`` of a COMPLETED task; the decoded document is cached."""
+    return await quick_refine.load_completed(task_id)
 
 
 def _review_metadata(task: dict) -> dict:
@@ -60,29 +51,23 @@ def _review_metadata(task: dict) -> dict:
 
 
 def _select_refinement(document, selection, task=None):
-    if isinstance(selection, str) and selection.startswith("version:"):
-        from dara.server import versions
+    return _resolve(document, selection, task)[0]
 
-        parsed = versions.parse_selection(selection)
-        if parsed != "best":
-            return versions.resolve_refinement(document, task, parsed)[0]
-        selection = "best"
-    if selection is None or selection == "best":
-        refinement = document.final_result
-        if refinement is None:
-            raise HTTPException(404, "Final refinement not found")
-        return refinement
-    if isinstance(selection, bool) or not isinstance(selection, int):
+
+def _resolve(document, selection, task=None):
+    """``versions.resolve_refinement`` with the legacy 422 for non-selection values."""
+    if selection is not None and (
+        isinstance(selection, bool) or not isinstance(selection, (int, str))
+    ):
         raise HTTPException(422, "Selection must be 'best' or a candidate source index")
-    if selection < 0 or selection >= len(document.results or []):
+    if isinstance(selection, int) and selection < 0:
         raise HTTPException(404, "Search result index out of range")
-    return document.results[selection][1]
+    return versions.resolve_refinement(document, task, selection)
 
 
 @router.get("/task/{task_id}/review")
 async def get_review(task_id: int):
-    task, _ = _load_completed_task(task_id)
-    return _review_metadata(task)
+    return _review_metadata(quick_refine.completed_task(task_id))
 
 
 QUICK_CHECK_MESSAGE = (
@@ -95,8 +80,6 @@ def _refuse_quick_check(task: dict, selection) -> None:
     """409 for a fast Add-phase version: it is not a final fit (adopt or report the full one)."""
     if not _is_version_selection(selection):
         return
-    from dara.server import versions
-
     record = versions.load_version(task["uuid"], versions.parse_selection(selection)[1], light=True)
     if versions.is_quick_check(record):
         raise HTTPException(409, QUICK_CHECK_MESSAGE)
@@ -104,11 +87,9 @@ def _refuse_quick_check(task: dict, selection) -> None:
 
 @router.put("/task/{task_id}/review")
 async def save_review(task_id: int, update: ReviewUpdate):
-    task, document = _load_completed_task(task_id)
+    task, document = await _load_completed_task(task_id)
     selection = update.selection
     if isinstance(selection, str) and selection.startswith("version:"):
-        from dara.server import versions
-
         parsed = versions.parse_selection(selection)
         selection = "best" if parsed == "best" else versions.format_selection(parsed)
         _refuse_quick_check(task, selection)
@@ -159,27 +140,12 @@ def _table(headers: list[str], rows: list[list[str]]) -> str:
 
 
 def _provenance(phase_name: str) -> str:
-    try:
-        from dara.structure_quality import reference_provenance
+    from dara.server.table_export import provenance
 
-        info = reference_provenance(phase_name)
-        label = info.get("label")
-        if label:
-            url = info.get("url")
-            if url:
-                return f'<a href="{escape(str(url), quote=True)}">{escape(str(label))}</a>'
-            return escape(str(label))
-    except Exception:  # structure_quality unavailable: use the plain name parser
-        pass
-    cod = re.search(r"cod[_-]?(\d+)", phase_name, re.I)
-    mp = re.search(r"mp[-_](\d+)", phase_name, re.I)
-    if cod:
-        record = cod.group(1)
-        return f'<a href="https://www.crystallography.net/cod/{record}.html">COD {record}</a>'
-    if mp:
-        record = mp.group(1)
-        return f'<a href="https://materialsproject.org/materials/mp-{record}">Materials Project mp-{record}</a>'
-    return "User-provided / source not recorded"
+    label, url = provenance(phase_name)
+    if url:
+        return f'<a href="{escape(url, quote=True)}">{escape(label)}</a>'
+    return escape(label)
 
 
 def _fit_svg(refinement, excluded_ranges=None) -> str:
@@ -268,8 +234,6 @@ def _render_report(task_id: int, task: dict, document, selection, review: dict) 
     from dara.server.report.builder import build_report_html
 
     if _is_version_selection(selection):
-        from dara.server import versions
-
         number = versions.parse_selection(selection)[1]
         record = versions.load_version(task["uuid"], number)
         view = versions.document_view(document, task, record)
@@ -292,8 +256,6 @@ def _report_selection(idx, best: bool, review: dict, sel: str | None = None):
     if best:
         return "best"
     if sel is not None:
-        from dara.server import versions
-
         return versions.format_selection(versions.parse_selection(sel))
     return review["selection"] if review["selection"] is not None else "best"
 
@@ -317,7 +279,7 @@ async def download_report(
 ):
     if idx is not None and best:
         raise HTTPException(422, "Choose either idx or best, not both")
-    task, document = _load_completed_task(task_id)
+    task, document = await _load_completed_task(task_id)
     review = _review_metadata(task)
     selection = _report_selection(idx, best, review, sel)
     _refuse_quick_check(task, selection)
@@ -352,20 +314,14 @@ async def download_figure(
         raise HTTPException(404, "Unsupported figure format; use png or svg")
     if idx is not None and best:
         raise HTTPException(422, "Choose either idx or best, not both")
-    task, document = _load_completed_task(task_id)
+    task, document = await _load_completed_task(task_id)
     review = _review_metadata(task)
     selection = _report_selection(idx, best, review, sel)
-    refinement = _select_refinement(document, selection, task)
+    refinement, meta = _resolve(document, selection, task)
     from dara.server.api_router import _counts_like
     from dara.server.report.figures import fit_figure
 
-    search_settings = getattr(document, "search_kwargs", None) or {}
-    excluded = (search_settings.get("refinement_params") or {}).get("excluded_ranges")
-    if _is_version_selection(selection):
-        from dara.server import versions
-
-        _, meta = versions.resolve_refinement(document, task, selection)
-        excluded = (meta.get("refinement_params") or {}).get("excluded_ranges")
+    excluded = (meta.get("refinement_params") or {}).get("excluded_ranges")
     try:
         content = fit_figure(
             refinement, fmt=fmt, dpi=dpi, width_mm=width_mm, excluded_ranges=excluded,

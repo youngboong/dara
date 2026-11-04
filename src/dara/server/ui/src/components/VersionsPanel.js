@@ -1,10 +1,10 @@
 import React from 'react';
 import { Alert, Button, Dropdown, Modal, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
-import { DeleteOutlined, DownOutlined, ExportOutlined } from '@ant-design/icons';
-import { EXPORT_FORMATS } from './confidence.mjs';
-import { ReportDownloadButton } from './ResultWorkflows';
+import { EllipsisOutlined } from '@ant-design/icons';
+import { EXPORT_FORMATS, exportHref } from './confidence.mjs';
+import { downloadReport } from './ResultWorkflows';
 import { API, NOT_AVAILABLE, requestJson } from './QuickRefineProgress';
-import { QUICK_CHECK_HINT, adoptedTag, comparisonBase } from './versions.mjs';
+import { BASELINE_LABEL, QUICK_CHECK_HINT, REFINE_ALL_FIRST, comparisonBase, formulaOfPhase } from './versions.mjs';
 
 const { Text } = Typography;
 
@@ -75,15 +75,20 @@ export function useVersions(taskId) {
 const fixed = (value, digits = 2) => (value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toFixed(digits));
 
 function createdText(value) {
-  if (!value) return '—';
+  if (!value) return null;
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('en-US');
+  return Number.isNaN(date.getTime()) ? String(value) : `Created ${date.toLocaleString('en-US')}`;
 }
 
 function phaseSummary(phases = []) {
   if (!phases.length) return '—';
-  const names = phases.map(name => String(name).replace(/_\d+_\(.*$/, ''));
-  return <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{phases.join('\n')}</div>}><span>{names.join(', ')}</span></Tooltip>;
+  return <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{phases.join('\n')}</div>}><span>{phases.map(formulaOfPhase).join(', ')}</span></Tooltip>;
+}
+
+function originTag(row) {
+  if (row.label === BASELINE_LABEL) return <Tag>Baseline</Tag>;
+  const kind = row.origin?.kind;
+  return <Tag color={ORIGIN_COLOR[kind] || 'default'}>{ORIGIN_LABEL[kind] || kind || '—'}</Tag>;
 }
 
 export default function VersionsPanel({ taskId, store, review, onView, onCompare, onRefineAll, refineBusy = false, extra }) {
@@ -91,10 +96,9 @@ export default function VersionsPanel({ taskId, store, review, onView, onCompare
   const [deleting, setDeleting] = React.useState(null);
   if (available === false) return null;
   const adopted = review?.saved?.selection;
-  const tag = adoptedTag(adopted);
   const confirmDelete = row => Modal.confirm({
     title: `Delete version ${row.version}?`,
-    content: 'The stored refinement of this version is removed. The version number is not reused.',
+    content: "Removes this version's refinement.",
     okText: 'Delete', okButtonProps: { danger: true }, cancelText: 'Cancel',
     async onOk() {
       setDeleting(row.version);
@@ -111,61 +115,60 @@ export default function VersionsPanel({ taskId, store, review, onView, onCompare
   const isAdoptedRow = n => adopted === `version:${n}` || (n === 1 && adopted === 'best');
   const rows = versions.map(item => ({ ...item, key: item.version }));
   const columns = [
-    { title: 'Version', dataIndex: 'version', width: 90, render: n => <span>{isAdoptedRow(n) ? <Tooltip title="Adopted result"><span style={{ color: '#faad14' }}>★ </span></Tooltip> : null}{`v${n}`}</span> },
-    { title: 'Label', dataIndex: 'label', render: label => label || '—' },
+    { title: 'Version', dataIndex: 'version', width: 90, render: (n, row) => <Tooltip title={createdText(row.created_at)}>
+      <span>{isAdoptedRow(n) ? <span style={{ color: '#faad14' }} aria-label="Adopted">★ </span> : null}{`v${n}`}</span>
+    </Tooltip> },
+    { title: 'Label', dataIndex: 'label', render: (label, row) => (row.version === 1 ? 'Best fit' : label || '—') },
     { title: 'Origin', key: 'origin', render: (_, row) => <Space size={4} wrap>
-      <Tag color={ORIGIN_COLOR[row.origin?.kind] || 'default'}>{ORIGIN_LABEL[row.origin?.kind] || row.origin?.kind || '—'}</Tag>
+      {originTag(row)}
       {row.refine_mode === 'fast' ? <Tooltip title={QUICK_CHECK_HINT}><Tag color="gold">Quick check</Tag></Tooltip> : null}
     </Space> },
     { title: 'Rwp (%)', dataIndex: 'rwp', render: value => fixed(value) },
-    { title: 'GOF', dataIndex: 'gof', render: value => fixed(value) },
     { title: 'Phases', dataIndex: 'phases', render: phaseSummary },
     { title: 'Unexplained', dataIndex: 'n_unexplained', render: value => (value == null ? '—' : value) },
-    { title: 'Created', dataIndex: 'created_at', render: createdText },
     { title: 'Actions', key: 'actions', render: (_, row) => {
       const sel = row.version === 1 ? 'best' : `version:${row.version}`;
       const isAdopted = adopted === sel;
-      const deleteDisabled = row.deletable === false || row.version === 1 || adopted === `version:${row.version}`;
-      const deleteHint = row.version === 1 ? 'The original analysis cannot be deleted.'
-        : adopted === `version:${row.version}` ? 'Un-adopt first' : 'Delete this version';
       const quickCheck = row.refine_mode === 'fast';
-      const items = EXPORT_FORMATS.map(format => ({ key: format.key,
-        label: <a href={`${API}/task/${taskId}/export/${format.key}?${row.version === 1 ? 'best=true' : `sel=version:${row.version}`}`}>{format.label}</a> }));
-      return <Space wrap size="small">
+      const deleteBlocked = row.version === 1 || row.deletable === false ? 'the best fit is kept'
+        : adopted === sel ? 'un-adopt first' : null;
+      const reportBlocked = quickCheck ? REFINE_ALL_FIRST.toLowerCase() : review.dirty ? 'save the review first' : null;
+      const exportSel = row.version === 1 ? 'best' : sel;
+      const items = [
+        { key: 'report', disabled: Boolean(reportBlocked), label: reportBlocked ? `Report (${reportBlocked})` : 'Report (HTML)' },
+        { key: 'export', label: 'Export for…', disabled: quickCheck, children: EXPORT_FORMATS.map(format => ({
+          key: `export:${format.key}`, label: <a href={exportHref(API, taskId, format.key, exportSel)}>{format.label}</a> })) },
+        { type: 'divider' },
+        { key: 'delete', danger: true, disabled: Boolean(deleteBlocked), label: deleteBlocked ? `Delete (${deleteBlocked})` : 'Delete…' },
+      ];
+      const onMenu = ({ key }) => {
+        if (key === 'report') downloadReport(taskId, exportSel);
+        if (key === 'delete') confirmDelete(row);
+      };
+      return <Space size="small">
         <Button size="small" onClick={() => onView(row.version === 1 ? null : sel)}>View</Button>
-        {row.version > 1 ? <Button size="small" onClick={() => onCompare(adopted && adopted !== sel ? adopted : comparisonBase('best', versions, row.version), sel)}>Compare</Button> : null}
-        {quickCheck && onRefineAll ? <Tooltip title="Refine every phase again (the full fit of this quick check), then compare">
-          <Button size="small" type="primary" disabled={refineBusy} onClick={() => onRefineAll(row.version)}>Refine all phases</Button>
-        </Tooltip> : null}
-        <Tooltip title={quickCheck ? QUICK_CHECK_HINT : 'Adopt this version and save the current lab notes'}>
-          <span><Button size="small" disabled={quickCheck || review.loading || !!review.error || review.saving}
-            onClick={() => review.save(sel)}>{isAdopted ? 'Adopted' : 'Adopt'}</Button></span>
-        </Tooltip>
-        <Tooltip title={quickCheck ? QUICK_CHECK_HINT : null}>
-          <span><ReportDownloadButton taskId={taskId} selection={sel} size="small"
-            disabled={quickCheck || review.loading || review.saving || review.dirty || !!review.error}>Report</ReportDownloadButton></span>
-        </Tooltip>
-        <Dropdown menu={{ items }} trigger={['click']}>
-          <Button size="small" icon={<ExportOutlined />}>Export <DownOutlined /></Button>
+        {row.version > 1 ? <Button size="small" onClick={() => onCompare(adopted != null && adopted !== sel ? adopted : comparisonBase('best', versions, row.version), sel)}>Compare</Button> : null}
+        {quickCheck
+          ? (onRefineAll ? <Tooltip title="Refine all phases, then compare">
+            <Button size="small" type="primary" disabled={refineBusy} onClick={() => onRefineAll(row.version)}>Refine all phases</Button>
+          </Tooltip> : null)
+          : <Tooltip title="Adopt (saves notes too)">
+            <span><Button size="small" disabled={review.loading || !!review.error || review.saving}
+              onClick={() => review.save(sel)}>{isAdopted ? 'Adopted' : 'Adopt'}</Button></span>
+          </Tooltip>}
+        <Dropdown menu={{ items, onClick: onMenu }} trigger={['click']}>
+          <Button size="small" icon={<EllipsisOutlined />} loading={deleting === row.version} aria-label={`More actions for version ${row.version}`} />
         </Dropdown>
-        <Tooltip title={deleteHint}>
-          <Button size="small" danger icon={<DeleteOutlined />} aria-label={`Delete version ${row.version}`}
-            disabled={deleteDisabled} loading={deleting === row.version} onClick={() => confirmDelete(row)} />
-        </Tooltip>
       </Space>;
     } },
   ];
   return <section aria-label="Result versions" style={{ marginTop: 20, marginBottom: 20 }}>
-    <Space wrap align="baseline" style={{ marginBottom: 8 }}>
-      <h3 style={{ margin: 0 }}>Versions</h3>
-      {tag ? <Tag color="blue">{tag}</Tag> : null}
-      <Text type="secondary">Re-refinements made from this result. The original analysis stays unchanged.</Text>
-    </Space>
+    <h3 style={{ marginBottom: 8 }}>Versions</h3>
     {extra}
     {error ? <Alert type="error" showIcon style={{ marginBottom: 8 }} message={error} /> : null}
-    <Table size="small" pagination={false} loading={loading} rowKey="version" dataSource={rows} scroll={{ x: 1000 }}
-      columns={columns} />
+    <Table size="small" pagination={false} loading={loading} rowKey="version" dataSource={rows} tableLayout="auto"
+      scroll={{ x: 'max-content' }} columns={columns} />
     {!loading && versions.length <= 1 ? <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-      No re-refinements yet. Open a fit and use “Add phase…”, “Select phases…”, Swap or Remove to make one.</Text> : null}
+      No versions yet — use Add phase… in the fit view.</Text> : null}
   </section>;
 }

@@ -148,7 +148,10 @@ def test_candidate_comparison_grid_exclusions_and_identity(monkeypatch, referenc
     right.plot_data.y_calc = [2, 2, 2]
     document.results = [([], left), ([], right)]
     document.search_kwargs = {'refinement_params': {'excluded_ranges': [[19,21]]}}
-    monkeypatch.setattr(comparison, '_load', lambda _: ({}, document))
+    async def load(_):
+        return {}, document
+
+    monkeypatch.setattr(comparison, '_load', load)
     response = asyncio.run(comparison.compare_candidates(1, 0, 1))
     assert response['observed'][1] is None
     assert len(response['left_only']) == 1 and not response['right_only']

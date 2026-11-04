@@ -16,9 +16,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from dara.analysis_range import analysis_mask
 from dara.server import quick_refine, versions
-from dara.server.utils import convert_to_local_tz, get_worker_store
 
 logger = logging.getLogger("dara.server.versions")
 
@@ -31,13 +29,7 @@ _CACHE_HEADERS = {"Cache-Control": "private, max-age=3600"}
 
 # --------------------------------------------------------------------------- helpers
 def _completed_task(task_id: int) -> dict:
-    with get_worker_store() as store:
-        task = store.query_one({"index": task_id})
-    if task is None:
-        raise HTTPException(404, "Task not found")
-    if task.get("status") != "COMPLETED":
-        raise HTTPException(409, "Only completed tasks have versions")
-    return task
+    return quick_refine.completed_task(task_id)
 
 
 def _iso(value) -> str | None:
@@ -95,6 +87,8 @@ def _version_entry(record: dict) -> dict:
         "background": record.get("background"),
         "refine_mode": record.get("refine_mode") or "full",
         "fixed_phases": record.get("fixed_phases") or [],
+        "iteration_cap": record.get("iteration_cap"),
+        "replaces": record.get("replaces"),
         "deletable": True,
     }
 
@@ -129,6 +123,8 @@ def _original_entry(task: dict, document=None) -> dict:
         "background": None,
         "refine_mode": "full",
         "fixed_phases": [],
+        "iteration_cap": None,
+        "replaces": None,
         "deletable": False,
     }
 
@@ -137,7 +133,10 @@ def _baseline_stale(task: dict, records: list[dict]) -> bool:
     """True when the stored result predates the current refinement code and has no baseline yet."""
     from dara.final_refinement_spec import REFINEMENT_CODE_DATE
 
-    if any(record.get("label") == BASELINE_LABEL for record in records):
+    if any(
+        record.get("label") == BASELINE_LABEL and not versions.is_quick_check(record)
+        for record in records
+    ):
         return False
     finished = task.get("end_time")
     if isinstance(finished, str):
@@ -173,7 +172,7 @@ async def get_task_version(task_id: int, number: int):
     if number < 1:
         raise HTTPException(404, "Version not found")
     if number == 1:
-        entry = _original_entry(task)
+        entry = _original_entry(task, quick_refine._DOCUMENTS.peek(task["uuid"]))
         return {**entry, "effective_phase_params": None, "final_result": None, "use_task_payload": True}
     record = versions.load_version(task["uuid"], number, light=True)
     return {
@@ -273,6 +272,7 @@ def _lite(selection, meta: dict, summary: dict) -> dict:
     return {
         "sel": versions.format_selection(selection),
         "label": meta.get("label"),
+        "refine_mode": (meta.get("record") or {}).get("refine_mode") or "full",
         "rwp": _finite(summary.get("rwp", quality.get("rwp"))),
         "gof": _finite(quality.get("gof")),
         "chi_squared": _finite(quality.get("chi_squared")),
@@ -305,15 +305,6 @@ def _side_summary(task, document, selection, meta, refinement) -> dict:
     return record.get("summary") or {}
 
 
-def _valid_mask(x: np.ndarray, *param_sets) -> np.ndarray:
-    keep = np.isfinite(x)
-    for params in param_sets:
-        keep &= analysis_mask(
-            x, **{k: params[k] for k in ("wmin", "wmax", "excluded_ranges") if params.get(k) is not None}
-        )
-    return keep
-
-
 @router.get("/task/{task_id}/fit-compare")
 async def fit_compare(task_id: int, a: str = Query("best"), b: str = Query(...)):
     sel_a, sel_b = versions.parse_selection(a), versions.parse_selection(b)
@@ -324,62 +315,40 @@ async def fit_compare(task_id: int, a: str = Query("best"), b: str = Query(...))
     ref_a, meta_a = versions.resolve_refinement(document, task, sel_a)
     ref_b, meta_b = versions.resolve_refinement(document, task, sel_b)
 
-    x = np.asarray(ref_a.plot_data.x, dtype=float)
-    other = np.asarray(ref_b.plot_data.x, dtype=float)
-    if x.shape != other.shape or not np.allclose(x, other, rtol=0, atol=1e-7):
-        raise HTTPException(
-            409, "These fits use different angular grids; direct pointwise comparison is unavailable."
-        )
-    observed = np.asarray(ref_a.plot_data.y_obs, dtype=float)
-    if not np.allclose(observed, ref_b.plot_data.y_obs, rtol=1e-7, atol=1e-7):
-        raise HTTPException(409, "These fits use different observed intensities.")
-    calc_a = np.asarray(ref_a.plot_data.y_calc, dtype=float)
-    calc_b = np.asarray(ref_b.plot_data.y_calc, dtype=float)
-    valid = _valid_mask(x, meta_a.get("refinement_params") or {}, meta_b.get("refinement_params") or {})
-    valid &= np.isfinite(observed) & np.isfinite(calc_a) & np.isfinite(calc_b)
+    from dara.server.candidate_comparison_router import compare_fits, masked
 
-    regions: list[dict] = []
-    difference = np.where(valid, np.abs(calc_a - calc_b), -1)
-    for index in np.argsort(difference)[::-1]:
-        if not valid[index] or difference[index] <= 0:
-            continue
-        if all(abs(float(x[index]) - item["two_theta"]) >= 0.5 for item in regions):
-            regions.append(
-                {"two_theta": float(x[index]), "calculated_difference": float(difference[index])}
-            )
-        if len(regions) == 5:
-            break
-
-    from dara.server.api_router import _search_result_key
-
-    def identities(result):
-        return {_search_result_key([name]): name for name in result.lst_data.phases_results}
-
-    ids_a, ids_b = identities(ref_a), identities(ref_b)
-
-    def masked(array):
-        return [float(v) if keep else None for v, keep in zip(array, valid)]
+    fits = compare_fits(ref_a, ref_b, meta_a.get("refinement_params"), meta_b.get("refinement_params"))
+    valid, observed = fits["valid"], fits["observed"]
+    calc_a, calc_b = fits["a_calculated"], fits["b_calculated"]
 
     loop = asyncio.get_running_loop()
-    summary_a = await loop.run_in_executor(None, _side_summary, task, document, sel_a, meta_a, ref_a)
-    summary_b = await loop.run_in_executor(None, _side_summary, task, document, sel_b, meta_b, ref_b)
+    summary_a, summary_b = await asyncio.gather(
+        loop.run_in_executor(None, _side_summary, task, document, sel_a, meta_a, ref_a),
+        loop.run_in_executor(None, _side_summary, task, document, sel_b, meta_b, ref_b),
+    )
     rwp_a, rwp_b = float(ref_a.lst_data.rwp), float(ref_b.lst_data.rwp)
     delta = rwp_b - rwp_a
     better = "similar" if abs(delta) < SIMILAR_RWP_POINTS else ("a" if delta > 0 else "b")
+    verdict = {"rwp_delta": round(delta, 6), "better": better}
+    if any(versions.is_quick_check(meta.get("record")) for meta in (meta_a, meta_b)):
+        # A quick check holds the base phases fixed: its Rwp is not comparable with a full fit.
+        from dara.server.review_router import QUICK_CHECK_MESSAGE
+
+        verdict.update(better="similar", note=QUICK_CHECK_MESSAGE)
     return {
         "task_id": task_id,
         "a": _lite(sel_a, meta_a, {**summary_a, "rwp": rwp_a}),
         "b": _lite(sel_b, meta_b, {**summary_b, "rwp": rwp_b}),
-        "x": x.tolist(),
-        "observed": masked(observed),
-        "a_calculated": masked(calc_a),
-        "b_calculated": masked(calc_b),
-        "a_residual": masked(observed - calc_a),
-        "b_residual": masked(observed - calc_b),
-        "a_only": [ids_a[key] for key in ids_a.keys() - ids_b.keys()],
-        "b_only": [ids_b[key] for key in ids_b.keys() - ids_a.keys()],
-        "common": [ids_a[key] for key in ids_a.keys() & ids_b.keys()],
-        "regions": regions,
-        "verdict": {"rwp_delta": round(delta, 6), "better": better},
+        "x": fits["x"].tolist(),
+        "observed": masked(observed, valid),
+        "a_calculated": masked(calc_a, valid),
+        "b_calculated": masked(calc_b, valid),
+        "a_residual": masked(observed - calc_a, valid),
+        "b_residual": masked(observed - calc_b, valid),
+        "a_only": fits["a_only"],
+        "b_only": fits["b_only"],
+        "common": fits["common"],
+        "regions": fits["regions"],
+        "verdict": verdict,
         "wavelength_angstrom": _wavelength(document),
     }

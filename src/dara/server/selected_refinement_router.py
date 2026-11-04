@@ -3,30 +3,20 @@
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
-from monty.json import MontyDecoder
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from dara.cif import Cif
 from dara.refinement_controls import RefinementControls, apply_controls
 from dara.selected_refinement import SelectedPhaseRefinementMaker, valid_reference_filename
-from dara.server.utils import get_result_store, get_worker_store
+from dara.server import quick_refine
 from dara.server.worker import add_job_to_queue
 
 router = APIRouter(prefix="/api")
 
 
-def _load(task_id):
-    with get_worker_store() as store:
-        record = store.query_one({"index": task_id})
-    if record is None:
-        raise HTTPException(404, "Task not found")
-    if record["status"] != "COMPLETED":
-        raise HTTPException(409, "Wait for the task to complete before re-refining.")
-    with get_result_store() as store:
-        stored = store.query_one({"uuid": record["uuid"]})
-    if not stored:
-        raise HTTPException(404, "Task result not found")
-    return record, MontyDecoder().process_decoded(stored["output"])
+async def _load(task_id):
+    """``(record, document)`` of a COMPLETED task; the decoded document is cached."""
+    return await quick_refine.load_completed(task_id)
 
 
 def _references(document):
@@ -55,7 +45,7 @@ class SelectedRefinementRequest(BaseModel):
 
 @router.get("/task/{task_id}/phase-options")
 async def phase_options(task_id: int):
-    _, document = _load(task_id)
+    _, document = await _load(task_id)
     references = _references(document)
     return {"phases": list(references), "max_phases": 20,
             "final_refinement_params": document.final_refinement_params}
@@ -63,7 +53,7 @@ async def phase_options(task_id: int):
 
 @router.post("/task/{task_id}/refine-selected")
 async def refine_selected(task_id: int, request: SelectedRefinementRequest):
-    record, document = _load(task_id)
+    record, document = await _load(task_id)
     if isinstance(request.selection, int) and not 0 <= request.selection < len(document.results or []):
         raise HTTPException(400, "Unknown candidate index")
     if len(set(request.phases)) != len(request.phases):

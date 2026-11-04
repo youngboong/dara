@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
-from dara.server import review_router
+from dara.server import review_router, versions
 
 logger = logging.getLogger("dara.server.export")
 
@@ -34,32 +34,39 @@ async def export_task(
     idx: int | None = Query(None, ge=0),
     sel: str | None = Query(None),
 ):
-    """ZIP archive with the final result (default), candidate ``idx`` or ``sel`` (e.g. ``version:2``)."""
+    """ZIP archive of candidate ``idx``, ``sel`` (e.g. ``version:2``) or, by default, the adopted fit."""
     if fmt not in EXPORT_FORMATS:
         raise HTTPException(404, f"Unsupported export format: {fmt}")
     sel = sel if isinstance(sel, str) else None  # direct calls leave the Query default object
     if idx is not None and sel is not None:
         raise HTTPException(422, "Choose either idx or sel, not both")
-    task, document = review_router._load_completed_task(task_id)
+    task, document = await review_router._load_completed_task(task_id)
+    if idx is None and sel is None:
+        # Same default as the report and figure: the adopted review selection.
+        adopted = review_router._review_metadata(task)["selection"]
+        if isinstance(adopted, int) and not isinstance(adopted, bool):
+            idx = adopted
+        elif isinstance(adopted, str) and adopted != "best":
+            sel = adopted
     version_number = None
     version_cifs = None
     if sel is not None:
-        from dara.server import versions
-
         parsed = versions.parse_selection(sel)
         if isinstance(parsed, int):
             idx = parsed
         elif parsed != "best":
             version_number = parsed[1]
+            # Same rule as the report: a quick check is not a fit to hand on.
+            review_router._refuse_quick_check(task, versions.format_selection(parsed))
             refinement, meta = versions.resolve_refinement(document, task, parsed)
             version_cifs = meta["cifs"]
-    if version_number is not None:
-        pass
-    elif idx is None:
+            # The bundle reads ranges and phase parameters from the document: use the version's.
+            document = versions.document_view(document, task, meta["record"])
+    if version_number is None and idx is None:
         refinement = document.final_result
         if refinement is None:
             raise HTTPException(404, "Final refinement not found")
-    else:
+    elif version_number is None:
         if idx >= len(document.results or []):
             raise HTTPException(404, "Search result index out of range")
         refinement = document.results[idx][1]

@@ -1,25 +1,23 @@
 import React from 'react';
 import { runAfterSuccess } from './submitHelpers.mjs';
-import { Alert, Button, Checkbox, Form, Input, InputNumber, message, Modal, Progress, Select, Space, Tag } from 'antd';
-
-const API = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
+import { Alert, Button, Checkbox, Form, Input, InputNumber, message, Modal, Progress, Select, Space, Tag, Tooltip } from 'antd';
+import { InfoCircleOutlined } from '@ant-design/icons';
+import { API } from './QuickRefineProgress';
 export const DEFAULT_CONTROLS = { lattice: 'inherit', lattice_percent: 2, orientation: 'inherit', peak_width: 'inherit' };
 
 export function RefinementControlsEditor({ value = DEFAULT_CONTROLS, onChange }) {
   const update = patch => onChange({ ...value, ...patch });
   return <section aria-label="Final refinement controls" style={{ padding: 12, border: '1px solid #ddd', marginBottom: 16 }}>
     <h4>Final refinement controls</h4>
-    <p>Applies to every final candidate. “Keep saved/default” preserves the original settings. Fast candidate screening is unchanged.</p>
     <Space wrap align="start">
       <label>Lattice parameters<br /><Select aria-label="Lattice refinement" value={value.lattice} style={{ width: 200 }} onChange={lattice => update({ lattice })}
         options={[{value:'inherit',label:'Keep saved/default'}, {value:'fixed',label:'Fixed to reference CIF'}, {value:'refine',label:'Refine within bounds'}]} /></label>
       {value.lattice === 'refine' ? <label>Allowed lattice change (±%)<br /><InputNumber aria-label="Lattice bound percent" min={0.01} max={10} step={0.5} value={value.lattice_percent} onChange={lattice_percent => update({ lattice_percent })} /></label> : null}
-      <label>Preferred orientation<br /><Select aria-label="Preferred orientation" value={value.orientation} style={{ width: 220 }} onChange={orientation => update({ orientation })}
+      <label>Preferred orientation <Tooltip title="More flexible models can lower Rwp without proving the phase assignment."><InfoCircleOutlined /></Tooltip><br /><Select aria-label="Preferred orientation" value={value.orientation} style={{ width: 220 }} onChange={orientation => update({ orientation })}
         options={[{value:'inherit',label:'Keep saved/default'}, {value:'isotropic',label:'None (random powder)'}, {value:'SPHAR2',label:'Spherical harmonics: order 2'}, {value:'SPHAR4',label:'Spherical harmonics: order 4'}]} /></label>
-      <label>Sample peak broadening<br /><Select aria-label="Peak broadening" value={value.peak_width} style={{ width: 220 }} onChange={peak_width => update({ peak_width })}
+      <label>Sample peak broadening <Tooltip title="Instrument-only broadening is appropriate only when sample broadening is negligible."><InfoCircleOutlined /></Tooltip><br /><Select aria-label="Peak broadening" value={value.peak_width} style={{ width: 220 }} onChange={peak_width => update({ peak_width })}
         options={[{value:'inherit',label:'Keep saved/default'}, {value:'refine',label:'Refine K1, K2 and B1'}, {value:'instrument_only',label:'Fixed K1 = K2 = B1 = 0'}]} /></label>
     </Space>
-    <p style={{ marginTop: 12, marginBottom: 0, color: '#666' }}>More flexible models can lower Rwp without proving the phase assignment. Instrument-only broadening is appropriate only when sample broadening is negligible.</p>
   </section>;
 }
 

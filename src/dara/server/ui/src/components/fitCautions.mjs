@@ -29,3 +29,12 @@ export function cautionTagColor(cautions) {
 export function cautionTooltip(cautions) {
   return sortCautions(cautions).map(item => item.message).join('\n');
 }
+
+// Unexplained peaks and instrument lines are already listed by the confidence banner.
+const BANNER_CODES = new Set(['missing_peaks_remain', 'minor_unexplained_peaks', 'instrument_lines']);
+
+/** Cautions to list next to a confidence banner: the ones the banner does not already state. */
+export function cautionsBesideBanner(cautions, hasBanner = true) {
+  const items = sortCautions(cautions);
+  return hasBanner ? items.filter(item => !BANNER_CODES.has(item.code)) : items;
+}

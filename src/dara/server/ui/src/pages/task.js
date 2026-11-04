@@ -1,42 +1,42 @@
 import React from 'react';
 import styled from 'styled-components';
 import Layout from '../components/Layout';
-import { Alert, Badge, Button, Descriptions, Divider, Dropdown, List, message, Modal, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd';
-import { DeleteOutlined, DownOutlined, DownloadOutlined, InfoCircleOutlined, LineChartOutlined, SearchOutlined, TableOutlined } from '@ant-design/icons';
+import { Alert, Badge, Button, Descriptions, Divider, Grid, List, message, Modal, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd';
+import { DeleteOutlined, DownloadOutlined, InfoCircleOutlined, LineChartOutlined, SearchOutlined } from '@ant-design/icons';
 import Loadable from 'react-loadable'
 import parse from 'html-react-parser';
 import {STATE_COLOR} from './results';
 import { buildRefinementView, isTraceSelected, legendKey } from '../components/refinementPlotState.mjs';
 import { viewChangeFromRelayout } from '../components/plotNavigation.mjs';
 import { formatParameterWithEsd, latticeParameterRows } from '../components/latticeParameters.mjs';
-import { PhaseSelectionButton, ReportDownloadButton, RetryActions, ReviewPanel, useTaskReview } from '../components/ResultWorkflows';
+import { PhaseSelectionButton, RetryActions, ReviewPanel, useTaskReview } from '../components/ResultWorkflows';
 import { TaskProgress } from '../components/PracticalControls';
 import FitCautions from '../components/FitCautionsPanel';
 import { cautionSortValue, cautionTagColor, cautionTooltip, countCautions } from '../components/fitCautions.mjs';
 import { levelRank, missingCell, unexplainedSummary, unexplainedTooltipLines } from '../components/confidence.mjs';
-import { ConfidenceBanner, DisplacementTag, FigureExportActions, OverallTag, ScreeningTags, VerdictTag } from '../components/ConfidenceViews';
+import { ConfidenceBanner, DisplacementTag, DownloadMenu, OverallTag, ScreeningTags, VerdictTag } from '../components/ConfidenceViews';
 import VersionsPanel, { useVersions } from '../components/VersionsPanel';
-import QuickRefineProgress, { NOT_AVAILABLE, postJson, requestJson, useQuickRefine } from '../components/QuickRefineProgress';
-import PeakCandidatesDrawer from '../components/PeakCandidatesDrawer';
+import QuickRefineProgress, { API, NOT_AVAILABLE, postJson, requestJson, useQuickRefine } from '../components/QuickRefineProgress';
+import PeakCandidatesDrawer, { DRAWER_WIDTH } from '../components/PeakCandidatesDrawer';
 import FitCompare from '../components/FitCompare';
 import BackgroundEditor from '../components/BackgroundEditor';
 import useKeyboardShortcuts, { FIT_MODAL_CLASS, HELP_MODAL_CLASS } from '../components/useKeyboardShortcuts';
 import { SHORTCUT_HELP } from '../components/keyboardShortcuts.mjs';
 import {
-  collectHints, hintText, hintsPending, observedPeak, peakFromClick, peakShapes, phaseGroupNames, previewTrace, significantPeaks, updatePeakSelection,
+  collectHints, hintsPending, observedPeak, peakFromClick, peakShapes, phaseGroupNames, previewTrace, significantPeaks, updatePeakSelection,
 } from '../components/peakSelection.mjs';
 import { searchOptionsText } from '../components/resultsList.mjs';
 import {
-  QUICK_CHECK_HINT, alternativeOfVerdict, baselineRequest, comparisonBase, deltaStrip, deltaText, formatSelection, isQuickCheck,
-  needsBaseline, parseSelection, plotQuery, refineAllRequest, removeRequest, selectOptionGroups, selectionLabel, swapKind,
-  swapRequest,
+  BASELINE_LABEL, QUICK_CHECK_HINT, REFINE_ALL_FIRST, alternativeOfVerdict, baselineRequest, comparisonBase, deltaStrip, deltaText,
+  formulaOfPhase, isQuickCheck, needsBaseline, parseSelection, plotQuery, refineAllBase, refineAllRequest, removeRequest,
+  replacementOf, runText, selectOptionGroups, selectionLabel, swapKind, swapRequest, versionGone, versionReadyText,
 } from '../components/versions.mjs';
 
 const { Text } = Typography;
 const HINT_POLL_MS = 3000;
 const HINT_POLL_MAX = 20; // 60 s
 
-const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
+const URL = API;
 
 async function downloadResultArchive(taskId, resultIndex) {
   const query = resultIndex === undefined ? '' : `?idx=${resultIndex}`;
@@ -300,18 +300,19 @@ const RefinementPlot = React.forwardRef(function RefinementPlot({
     : view.data;
   return <>
     <Space wrap style={{ marginBottom: 8 }}>
-      <Text>Intensity scale</Text>
-      <Select value={scale} onChange={value => { setScale(value); setYRange(null); }} style={{ width: 100 }}
+      <Text>Scale</Text>
+      <Select value={scale} onChange={value => { setScale(value); setYRange(null); }} style={{ width: 90 }}
         options={[{ value: 'linear', label: 'Linear' }, { value: 'log', label: 'Log' }]} />
-      <Text>Phase profiles</Text><Switch checked={showPhaseProfiles} onChange={setShowPhaseProfiles} />
-      <Text>Bragg positions</Text><Switch checked={showReflections} onChange={value => { setShowReflections(value); setYRange(null); }} />
-      <Text>Diagnostics</Text><Switch checked={showDiagnostics} onChange={setShowDiagnostics} />
-      <Text>Fit intensity to view</Text><Switch checked={fitY} onChange={value => { setFitY(value); setYRange(null); }} />
+      <Tooltip title="Phase profiles"><Text>Profiles</Text></Tooltip><Switch checked={showPhaseProfiles} onChange={setShowPhaseProfiles} />
+      <Tooltip title="Bragg positions"><Text>Bragg</Text></Tooltip><Switch checked={showReflections} onChange={value => { setShowReflections(value); setYRange(null); }} />
+      <Tooltip title="Unexplained-peak and diagnostic markers"><Text>Markers</Text></Tooltip><Switch checked={showDiagnostics} onChange={setShowDiagnostics} />
+      <Tooltip title="Fit the intensity axis to the visible 2θ range (F)"><Text>Auto-Y</Text></Tooltip><Switch checked={fitY} onChange={value => { setFitY(value); setYRange(null); }} />
       <Button onClick={resetView}>Reset zoom</Button>
+      <Tooltip title={`Left-drag to pan, right-drag to zoom into a box, mouse wheel to zoom 2θ, double-click or Reset zoom to show the whole pattern. Click a phase in the legend to show its profile and Bragg positions; hover for 2θ, d-spacing and hkl. The lower panel shows observed − calculated.${onPeakClick ? ' Click a missing-peak marker or an observed point to search references for that peak (Shift+click to select several).' : ''}`}>
+        <InfoCircleOutlined aria-label="Plot navigation help" style={{ color: '#888' }} />
+      </Tooltip>
+      <Text type="secondary">Press ? for shortcuts</Text>
     </Space>
-    <div style={{ marginBottom: 8 }}>
-      <Text type="secondary">Left-drag to pan, right-drag to zoom into a box, mouse wheel to zoom 2θ, double-click or Reset zoom to show the whole pattern. Click a phase in the legend to show its profile and Bragg positions; hover for 2θ, d-spacing and hkl. The lower panel shows observed − calculated.{onPeakClick ? ' Click a missing-peak marker or an observed point to search references for that peak (Shift+click to select several).' : ''} Press ? for shortcuts.</Text>
-    </div>
     <Plotly key={`${task_id}-${plot_id}`} data={data}
       layout={{ ...view.layout, autosize: true,
         shapes: [...(view.layout.shapes || []), ...excludedRanges.flatMap(([x0, x1]) => [
@@ -334,7 +335,7 @@ const RefinementPlot = React.forwardRef(function RefinementPlot({
         // restore the state they were last given, so Reset zoom replaces them.
         modeBarButtonsToRemove: ['zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d'],
         toImageButtonOptions: { format: 'svg', filename: `dara_${task_id}_${String(plot_id ?? 'best').replace(':', '_')}`, width: 1600, height: 900 } }}
-      useResizeHandler style={{ height: '760px', width: '100%' }} />
+      useResizeHandler style={{ height: 'clamp(520px, calc(100vh - 330px), 1200px)', width: '100%' }} />
   </>;
 });
 
@@ -440,12 +441,7 @@ function PhaseList({ phases, highlighted_phases, grouped_phases, show_alternativ
             </Space>}
             description={
               <div className='phases-container'>
-                <div>
-                  <Text type="secondary">Selected reference: </Text>
-                  <Tooltip title="Name format: formula_space group_(database_ID)-energy above hull. 'None' means that energy metadata is unavailable.">
-                    <code className="highlight">{selectedPhase}</code>
-                  </Tooltip>
-                </div>
+                <div><Text type="secondary" style={{ fontSize: '0.86em', overflowWrap: 'anywhere' }}>{selectedPhase}</Text></div>
                 {alternatives.length ? (
                   show_alternatives ? (
                     <div>
@@ -454,7 +450,7 @@ function PhaseList({ phases, highlighted_phases, grouped_phases, show_alternativ
                         <span key={phase}>{alternativeIndex ? " | " : ""}<code className="no-highlight">{phase}</code></span>
                       ))}
                     </div>
-                  ) : <Text type="secondary">+ {alternatives.length} alternative matching CIF reference{alternatives.length === 1 ? "" : "s"} hidden</Text>
+                  ) : <Text type="secondary">{`+ ${alternatives.length} alternative CIF${alternatives.length === 1 ? "" : "s"}`}</Text>
                 ) : null}
               </div>
             }
@@ -486,21 +482,21 @@ function PeakDiagnosticTags({ diagnostics }) {
 
 function formatMetric(value, digits = 2) {
   return value === null || value === undefined || Number.isNaN(Number(value))
-    ? 'Unavailable' : Number(value).toFixed(digits);
+    ? '—' : Number(value).toFixed(digits);
 }
 
+/** Rwp, GOF and DW; the other statistics are in the Rwp tooltip. */
 function FitQualitySummary({ quality }) {
   if (!quality) return <Text type="secondary">Fit statistics unavailable</Text>;
+  const details = [
+    `Rp ${formatMetric(quality.rp)}%`, `Rexp ${formatMetric(quality.rexp)}%`, `χ² ${formatMetric(quality.chi_squared)}`,
+    `2θ ${formatMetric(quality.two_theta_min)}–${formatMetric(quality.two_theta_max)}°`,
+    `${quality.data_points ?? '—'} points, ${quality.iterations ?? '—'} iterations`,
+  ];
   return <Space size="small" wrap>
-    <Tooltip title="Weighted profile residual"><Tag color="green">Rwp {formatMetric(quality.rwp)}%</Tag></Tooltip>
-    <Tooltip title="Profile residual"><Tag>Rp {formatMetric(quality.rp)}%</Tag></Tooltip>
-    <Tooltip title="Statistically expected Rwp"><Tag>Rexp {formatMetric(quality.rexp)}%</Tag></Tooltip>
-    <Tooltip title="Goodness of fit = Rwp / Rexp; values near 1 are ideal only when the statistical model is appropriate."><Tag color={quality.gof > 2 ? 'orange' : 'blue'}>GOF {formatMetric(quality.gof)}</Tag></Tooltip>
-    <Tooltip title="χ² = (Rwp / Rexp)²"><Tag>χ² {formatMetric(quality.chi_squared)}</Tag></Tooltip>
+    <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{details.join('\n')}</div>}><Tag color="green">Rwp {formatMetric(quality.rwp)}%</Tag></Tooltip>
+    <Tooltip title="Goodness of fit = Rwp / Rexp"><Tag color={quality.gof > 2 ? 'orange' : 'blue'}>GOF {formatMetric(quality.gof)}</Tag></Tooltip>
     <Tooltip title="Durbin–Watson statistic for residual correlation"><Tag>DW {formatMetric(quality.durbin_watson)}</Tag></Tooltip>
-    <Tag>{`2θ ${formatMetric(quality.two_theta_min)}–${formatMetric(quality.two_theta_max)}°`}</Tag>
-    <Tag>{`${quality.data_points ?? '—'} points`}</Tag>
-    <Tag>{`${quality.iterations ?? '—'} iterations`}</Tag>
   </Space>;
 }
 
@@ -532,13 +528,13 @@ function PhaseRefinementTable({ phases = [], metadata = {}, details = {}, confid
     key: 'verdict', width: 150,
     sorter: (a, b) => levelRank(confidence.phases[a.phase]?.level) - levelRank(confidence.phases[b.phase]?.level),
     render: (_, row) => <VerdictTag verdict={confidence.phases[row.phase]} /> }] : [];
-  return <Table size="small" pagination={false} rowKey="phase" scroll={{ x: 1000 }} dataSource={dataSource}
+  return <Table size="small" pagination={false} rowKey="phase" scroll={{ x: 'max-content' }} tableLayout="auto" dataSource={dataSource}
     columns={[
       { title: 'Phase', dataIndex: 'phase', width: 260,
         render: phase => <PhaseIdentity reference={phase} metadata={metadata?.[phase]} /> },
       ...verdictColumn,
-      { title: <Tooltip title="Normalized over modeled crystalline phases; amorphous and unidentified material are excluded."><span>Quantity</span></Tooltip>,
-        render: (_, row) => row.weight_percent == null ? 'Unavailable' : <span>{Number(row.weight_percent).toFixed(2)} wt%{row.weight_esd_percent == null ? '' : ` ± ${Number(row.weight_esd_percent).toFixed(2)}`}</span> },
+      { title: <Tooltip title="Normalized over modeled crystalline phases; amorphous and unidentified material are excluded. ± is the BGMN estimated standard deviation, propagated after normalization."><span>Quantity</span></Tooltip>,
+        render: (_, row) => row.weight_percent == null ? '—' : <span>{Number(row.weight_percent).toFixed(2)} wt%{row.weight_esd_percent == null ? '' : ` ± ${Number(row.weight_esd_percent).toFixed(2)}`}</span> },
       { title: <Tooltip title="± values are BGMN estimated standard deviations. Equalities and fixed angles are imposed by the reported space group, not independently refined."><span>Lattice parameters</span></Tooltip>, width: 420,
         render: (_, row) => {
           const spaceGroup = metadata?.[row.phase]?.spacegroup_number;
@@ -552,10 +548,10 @@ function PhaseRefinementTable({ phases = [], metadata = {}, details = {}, confid
                 <Tag style={{ marginLeft: 6 }} color="default">constrained</Tag>
               </Tooltip> : null}
             </span>)}
-          </Space> : 'Unavailable';
+          </Space> : '—';
         } },
-      { title: 'Density', render: (_, row) => row.xray_density == null ? 'Unavailable' : `${Number(row.xray_density).toFixed(3)} g/cm³` },
-      { title: 'Rphase', render: (_, row) => row.rphase == null ? 'Unavailable' : `${Number(row.rphase).toFixed(2)}%` },
+      { title: 'Density', render: (_, row) => row.xray_density == null ? '—' : `${Number(row.xray_density).toFixed(3)} g/cm³` },
+      { title: 'Rphase', render: (_, row) => row.rphase == null ? '—' : `${Number(row.rphase).toFixed(2)}%` },
       { title: 'Crystallite size', render: (_, row) => row.grain_sizes?.length
         ? row.grain_sizes.map(value => `${Number(value.value).toFixed(1)}${value.esd == null ? '' : ` ± ${Number(value.esd).toFixed(1)}`} ${value.unit}`).join('; ')
         : 'Not refined/reported' },
@@ -578,20 +574,11 @@ function DeltaStrip({ rows }) {
   if (!shown.length) return null;
   return <div style={{ marginBottom: 8 }}>
     <Space wrap size={[4, 4]}>
-      <Text type="secondary">Change from the base fit:</Text>
+      <Text type="secondary">vs base:</Text>
       {shown.map(row => <Tag key={row.key} color={row.delta === null || row.key.startsWith('wt:') ? 'default' : row.better ? 'green' : row.delta > 0 ? 'orange' : 'default'}>
         {`${row.label} ${deltaText(row)}`}
       </Tag>)}
     </Space>
-  </div>;
-}
-
-function HintText({ diagnostics, onOpen }) {
-  const hints = collectHints(diagnostics);
-  if (!hints.length) return null;
-  return <div style={{ marginTop: 8 }} aria-label="Trace phase hints">
-    <Text type="secondary">{`${hints.length} trace-phase hint${hints.length === 1 ? '' : 's'} for the unexplained peaks. `}</Text>
-    <a onClick={onOpen}>Review in Add phase…</a>
   </div>;
 }
 
@@ -603,12 +590,50 @@ function ShortcutHelp({ open, onClose }) {
   </Modal>;
 }
 
+const ANALYSIS_MODE = {
+  known_mixture: 'Known-phase refinement',
+  elemental: 'Phase identification',
+  reaction: 'Reaction check',
+  selected_phases: 'User-selected phase refinement',
+};
+
+const DESCRIPTION_COLUMNS = { xs: 1, sm: 1, md: 1, lg: 2, xl: 2, xxl: 3 };
+const BREAKPOINTS = ['xxl', 'xl', 'lg', 'md', 'sm', 'xs'];
+
+/** Column count for the current screen (antd's rule); a full-row span must match it. */
+function useDescriptionColumns() {
+  const screens = Grid.useBreakpoint();
+  const hit = BREAKPOINTS.find(key => screens[key]);
+  return hit ? DESCRIPTION_COLUMNS[hit] : DESCRIPTION_COLUMNS.xxl;
+}
+
+function InstrumentText({ details }) {
+  if (!details) return null;
+  const extra = [details.geometry, details.radiation, details.notes].filter(Boolean).join(' · ');
+  return <Tooltip title={extra || null}>
+    <span>{details.label} <Tag color={details.verified ? 'green' : 'orange'}>{details.verified ? 'operator-verified' : 'unverified'}</Tag></span>
+  </Tooltip>;
+}
+
 function TaskDetail({ data, task_id }) {
   const [plot_id, setPlotIdRaw] = React.useState(undefined);
   const setPlotId = React.useCallback(value => setPlotIdRaw(normalizePlotId(value)), []);
   const [showAlternatives, setShowAlternatives] = React.useState(false);
-  const review = useTaskReview(task_id);
   const store = useVersions(task_id);
+  const columns = useDescriptionColumns();
+  const savedReview = useTaskReview(task_id);
+  // Quick checks are approximate fits: every adoption path (review select, versions table,
+  // compare window) goes through this one guard.
+  const review = {
+    ...savedReview,
+    save: async (choice = savedReview.selection) => {
+      if (isQuickCheck(store.versions, choice)) {
+        message.warning(`${QUICK_CHECK_HINT} ${REFINE_ALL_FIRST}.`);
+        return false;
+      }
+      return savedReview.save(choice);
+    },
+  };
   const [versionDetails, setVersionDetails] = React.useState({});
   const [versionError, setVersionError] = React.useState('');
   const [compare, setCompare] = React.useState(null);
@@ -627,19 +652,41 @@ function TaskDetail({ data, task_id }) {
   const handleVersion = React.useCallback(async (n, job, meta = {}) => {
     const list = await refreshVersions();
     const item = list.find(entry => entry.version === n);
-    const rwpText = item?.rwp != null && Number.isFinite(Number(item.rwp)) ? ` (Rwp ${Number(item.rwp).toFixed(2)} %)` : '';
+    const text = versionReadyText(n, job, item?.rwp);
+    const sel = n === 1 ? null : `version:${n}`;
     if (meta.afterDone === 'compare') {
-      message.success(`Version v${n} ready${rwpText}`);
-      setCompare({ a: comparisonBase(meta.base ?? 'best', list, n), b: `version:${n}` });
+      // A duplicate request compares the existing version it matched.
+      if (job?.reused) message.info(text);
+      else message.success(text);
+      setCompare({ a: comparisonBase(meta.base ?? 'best', list, n), b: sel ?? 'best' });
+    } else if (job?.reused) {
+      // A duplicate request: nothing new was refined, the existing version is opened instead.
+      message.info(text);
+      setPlotId(sel);
     } else if (plotIdRef.current !== undefined) {
-      message.success(`Version v${n} ready${rwpText}`);
-      setPlotId(`version:${n}`);
+      message.success(text);
+      setPlotId(sel);
     } else {
-      message.success(<span>{`Version v${n} ready${rwpText} `}<a onClick={() => setPlotId(`version:${n}`)}>View</a></span>);
+      message.success(<span>{`${text} `}<a onClick={() => setPlotId(sel)}>View</a></span>);
     }
   }, [refreshVersions, setPlotId]);
   const quick = useQuickRefine(task_id, { onVersion: handleVersion });
   const quickShown = quick.available !== false && store.available !== false;
+
+  // A version can disappear (deleted, or a quick check replaced by its full fit): move the fit
+  // view and the compare window to its replacement instead of showing a missing version.
+  React.useEffect(() => {
+    if (store.loading) return;
+    if (versionGone(store.versions, plot_id)) {
+      setPlotId(replacementOf(store.versions, parseSelection(plot_id).version));
+    }
+    setCompare(previous => {
+      if (!previous) return previous;
+      const fix = sel => (versionGone(store.versions, sel) ? replacementOf(store.versions, parseSelection(sel).version) : sel);
+      const next = { a: fix(previous.a), b: fix(previous.b) };
+      return next.a === previous.a && next.b === previous.b ? previous : next;
+    });
+  }, [store.versions, store.loading, plot_id, setPlotId]);
 
   const firstPlotId = data.all_results[0]?.source_index ?? (data.all_results.length ? 0 : null);
   React.useEffect(() => {
@@ -677,9 +724,10 @@ function TaskDetail({ data, task_id }) {
   // "Find phases for the unexplained peaks" opens the fit and the drawer together.
   const openDrawerWithFit = React.useRef(false);
   React.useEffect(() => {
-    // A different fit has different peaks: drop the selection and any tick preview.
+    // A different fit has different peaks: drop the selection, any tick preview and an old error.
     setPeaks([]);
     setPreview(null);
+    setVersionError('');
     setDrawerOpen(openDrawerWithFit.current && plot_id !== undefined);
     openDrawerWithFit.current = false;
   }, [plot_id]);
@@ -701,27 +749,40 @@ function TaskDetail({ data, task_id }) {
   const baseDegree = versionNumber ? (versionData?.background?.degree ?? null)
     : (data.final_refinement_params?.background_degree ?? null);
 
-  const baselineQueued = React.useRef(false);
+  // Set only while the baseline check below is in flight, so a failed baseline is retried later.
+  const baselineChecking = React.useRef(false);
   const runQuick = async (body, meta = {}) => {
-    if (quick.busy) {
+    if (quick.busy || baselineChecking.current) {
       message.info('A re-refinement is already running for this task.');
       return;
     }
     const request = { base: currentSel, ...body };
-    if (!baselineQueued.current && needsBaseline(store.baselineStale, store.versions, request)) {
+    if (store.baselineStale && parseSelection(request.base) === 'best') {
       // The stored result predates the current refinement code: queue a baseline with today's code
-      // first (silently; the server runs jobs in order) so comparisons use the same code.
-      baselineQueued.current = true;
+      // first (silently; the server runs jobs in order) so comparisons use the same code. The
+      // current versions and queue decide, so a baseline that failed is queued again.
+      baselineChecking.current = true;
       try {
-        await postJson(`/task/${task_id}/quick-refine`, baselineRequest());
+        const [list, jobs] = await Promise.all([
+          refreshVersions({ silent: true }),
+          requestJson(`/task/${task_id}/quick-jobs`).catch(() => null),
+        ]);
+        const queue = Array.isArray(jobs) ? jobs : (jobs?.jobs || jobs?.active || []);
+        const baselineQueued = queue.some(job => ['queued', 'running'].includes(job.status) && job.label === BASELINE_LABEL);
+        if (!baselineQueued && needsBaseline(true, list.length ? list : store.versions, request)) {
+          await postJson(`/task/${task_id}/quick-refine`, baselineRequest());
+        }
       } catch (_) {
-        baselineQueued.current = false; // not queued; the user's own job still runs
+        // Not queued; the user's own job still runs and the next one tries again.
+      } finally {
+        baselineChecking.current = false;
       }
     }
     quick.start(request, { base: currentSel, afterDone: 'view', ...meta });
   };
-  // Fast Add-phase versions keep the base phases fixed; this makes the full fit and compares the two.
-  const refineAll = n => runQuick(refineAllRequest(n), { afterDone: 'compare', base: `version:${n}` });
+  // Fast Add-phase versions keep the base phases fixed; this makes the full fit (which replaces the
+  // quick check) and compares it with the quick check's own base.
+  const refineAll = n => runQuick(refineAllRequest(n), { afterDone: 'compare', base: refineAllBase(store.versions, n) });
   const quickCheck = versionData?.refine_mode === 'fast';
   const addHint = (hint, target) => runQuick({
     phases: [target], origin: 'add_hint', label: `Added ${hint.formula || hint.phase} (hint)`,
@@ -733,13 +794,13 @@ function TaskDetail({ data, task_id }) {
     const swap = alternative ? swapRequest({ phase: row.phase }, alternative, data.all_results, displayedPhases, displayedResult?.phase_metadata) : null;
     const otherSet = alternative && swapKind(alternative) === 'phase_set' && alternative.source_index != null ? alternative : null;
     return <Space size="small" wrap>
-      {swap ? <Tooltip title={`Replace this phase with the other structure model of the same compound from candidate ${alternative.candidate_number ?? ''}, refine again, then compare`}>
+      {swap ? <Tooltip title="Swap structure model, refine, compare">
         <Button size="small" disabled={quick.busy} onClick={() => runQuick(swap, { afterDone: 'compare' })}>Swap</Button>
       </Tooltip> : null}
-      {otherSet ? <Tooltip title="A candidate phase set explains this region with other phases; this shows its stored fit without refining again">
+      {otherSet ? <Tooltip title={`Show candidate ${otherSet.candidate_number ?? otherSet.source_index + 1}`}>
         <Button size="small" onClick={() => setPlotId(otherSet.source_index)}>{`View candidate ${otherSet.candidate_number ?? otherSet.source_index + 1}`}</Button>
       </Tooltip> : null}
-      {displayedPhases.length >= 2 ? <Tooltip title="Refine again without this phase, then compare">
+      {displayedPhases.length >= 2 ? <Tooltip title="Remove, refine, compare">
         <Button size="small" disabled={quick.busy} onClick={() => runQuick(removeRequest(row.phase), { afterDone: 'compare' })}>Remove</Button>
       </Tooltip> : null}
     </Space>;
@@ -758,9 +819,11 @@ function TaskDetail({ data, task_id }) {
     setPreview(null);
     runQuick({
       phases: [{ ref: candidate.ref, source: candidate.source }], origin: 'add_peak_search',
-      label: `Added ${candidate.formula || String(candidate.ref).replace(/_\d+_\(.*$/, '')} (peak search)`,
+      label: `Added ${candidate.formula || formulaOfPhase(candidate.ref)} (peak search)`,
     });
   };
+  // A quick check is changed only through "Refine all phases"; the drawer stays closed on it.
+  const drawerShown = drawerOpen && plot_id !== undefined && !quickCheck;
 
   const options = [
     'best',
@@ -768,7 +831,7 @@ function TaskDetail({ data, task_id }) {
     ...store.versions.filter(item => item.version > 1).map(item => `version:${item.version}`),
   ];
   const keyContext = React.useRef({});
-  keyContext.current = { options, current: currentSel, phaseGroups, peakSelectionCount: peaks.length, helpOpen };
+  keyContext.current = { options, current: currentSel, phaseGroups, peakSelectionCount: peaks.length, helpOpen, drawerOpen: drawerShown };
   useKeyboardShortcuts(plot_id !== undefined && !compare, keyContext, {
     select: action => setPlotId(action.value === 'best' ? null : action.value),
     'toggle-phase': action => plotRef.current?.togglePhase(action.name),
@@ -776,17 +839,27 @@ function TaskDetail({ data, task_id }) {
     'fit-y': () => plotRef.current?.toggleFitY(),
     help: () => setHelpOpen(true),
     'close-help': () => setHelpOpen(false),
+    'close-drawer': () => setDrawerOpen(false),
     'clear-peaks': clearPeaks,
     close: () => setPlotId(undefined),
   });
   const modalTitle = plot_id === undefined ? 'Fit'
     : plot_id === null ? 'Best fit'
       : versionNumber ? selectionLabel(plot_id, { versions: store.versions })
-        : `Candidate ${(data.all_results.findIndex((r, i) => (r.source_index ?? i) === plot_id)) + 1} — refinement`;
+        : `Candidate ${(data.all_results.findIndex((r, i) => (r.source_index ?? i) === plot_id)) + 1}`;
   const selectOptions = selectOptionGroups(data.all_results, store.versions);
   const [backgroundOpen, setBackgroundOpen] = React.useState(false);
   const firstOtherCandidate = data.all_results.length
     ? (data.all_results[1] ?? data.all_results[0]).source_index ?? (data.all_results.length > 1 ? 1 : 0) : null;
+  const reportBlocked = review.loading || review.error ? 'unavailable' : review.dirty ? 'save the review first' : null;
+  const downloadZip = () => downloadResultArchive(task_id)
+    .then(() => message.success('Result ZIP downloaded.'))
+    .catch(error => message.error(error.message || 'Could not download the result.'));
+  const searchSummary = data.search_summary || {};
+  const excludedRanges = data.additional_search_options?.refinement_params?.excluded_ranges || [];
+  const hasBanner = Boolean(data.final_result?.confidence?.overall?.level);
+  const addPhaseTip = quickCheck ? REFINE_ALL_FIRST
+    : suggestionCount ? `${suggestionCount} possible or strong match${suggestionCount === 1 ? '' : 'es'} for the significant unexplained peaks` : null;
 
   return (
     <>
@@ -796,110 +869,79 @@ function TaskDetail({ data, task_id }) {
           <Button type="primary" icon={<LineChartOutlined />} onMouseEnter={() => preloadPlot(task_id, null)}
             onFocus={() => preloadPlot(task_id, null)} onClick={() => setPlotId(null)}>View fit</Button>
         </Space>
-        <Space wrap>
-          <Button icon={<TableOutlined />} href={`${URL}/task/${task_id}/table.csv`}>Table (CSV)</Button>
-          <FigureExportActions taskId={task_id} />
-        </Space>
+        <Tooltip title="Downloads use the adopted fit (or the best fit)" placement="left">
+          <span><DownloadMenu taskId={task_id} reportBlocked={reportBlocked} extraItems={[
+            { key: 'csv', label: <a href={`${URL}/task/${task_id}/table.csv`}>Table (CSV)</a> },
+            { key: 'zip', label: 'All results (ZIP)', onClick: downloadZip },
+          ]} /></span>
+        </Tooltip>
       </TitleContriner>
       <Divider />
-      <ConfidenceBanner confidence={data.final_result?.confidence} action={significantPeaks(data.final_result?.peak_diagnostics).length
-        ? <Button type="primary" size="small" icon={<SearchOutlined />} onClick={() => { openDrawerWithFit.current = true; setPlotId(null); }}>
+      <ConfidenceBanner confidence={data.final_result?.confidence} omitPeakReasons action={significantPeaks(data.final_result?.peak_diagnostics).length
+        ? <Button size="small" icon={<SearchOutlined />} onClick={() => { openDrawerWithFit.current = true; setPlotId(null); }}>
           Find phases for the unexplained peaks
         </Button> : null} />
-      <ReviewPanel taskId={task_id} data={data} review={review} versions={store.versions} />
-      <Descriptions bordered column={2} size='small'>
-        <Descriptions.Item label="Pattern file name" span={2}>{data.task_label}</Descriptions.Item>
-        <Descriptions.Item label="Best Rwp" span={2}><Tag color="green">{data.best_rwp} %</Tag></Descriptions.Item>
-        <Descriptions.Item label="Analysis mode" span={2}>{({
-          known_mixture: 'Known-phase refinement',
-          elemental: 'Phase identification',
-          reaction: 'Reaction check',
-          selected_phases: 'User-selected phase refinement',
-        })[data.analysis_mode] || data.analysis_mode || (data.use_rxn_predictor ? "Reaction check" : "Phase identification")}</Descriptions.Item>
-        <Descriptions.Item label="Temperature" span={2}>{data.temperature || "None"}</Descriptions.Item>
-        <Descriptions.Item label="Use reaction network?" span={2}>{data.use_rxn_predictor ? "Yes" : "No"}</Descriptions.Item>
-        <Descriptions.Item label="Included elements" span={2}>{(data.elements || []).join(', ') || "None"}</Descriptions.Item>
-        <Descriptions.Item label="Reference databases" span={2}>{(data.candidate_sources || []).map(source => source.toUpperCase()).join(' + ') || "Uploaded CIFs"}</Descriptions.Item>
-        <Descriptions.Item label="Candidate CIFs" span={2}>{data.candidate_summary?.after ?? "Unknown"} retained ({data.candidate_summary?.removed_duplicates ?? 0} duplicates removed)
-          <ScreeningTags candidateSummary={data.candidate_summary} />
+      <ReviewPanel data={data} review={review} versions={store.versions} />
+      <Descriptions bordered column={columns} size='small'>
+        <Descriptions.Item label="Pattern file">{data.task_label}</Descriptions.Item>
+        <Descriptions.Item label="Analysis mode">{ANALYSIS_MODE[data.analysis_mode] || data.analysis_mode || (data.use_rxn_predictor ? "Reaction check" : "Phase identification")}</Descriptions.Item>
+        <Descriptions.Item label="Run">
+          {runText(data.start_time, data.runtime)}
+          {searchSummary.stopped_early ? <Tag color="red" style={{ marginLeft: 8 }}>{`Stopped at time limit (${STOP_STAGE_LABEL[searchSummary.stopped_at_stage] || 'search'})`}</Tag> : null}
         </Descriptions.Item>
-        <Descriptions.Item label="Hypothesis search" span={2}><SearchSummary summary={data.search_summary} /></Descriptions.Item>
-        <Descriptions.Item label="Additional search options" span={2}>{searchOptionsText(data.additional_search_options)}</Descriptions.Item>
-        {data.additional_search_options?.refinement_params?.excluded_ranges?.length ? <Descriptions.Item label="Excluded 2θ intervals" span={2}>
-          {data.additional_search_options.refinement_params.excluded_ranges.map(([lo, hi]) => `${lo}–${hi}°`).join(', ')} (shaded in the fit plot; omitted from fitting)
-        </Descriptions.Item> : null}
-        {data.search_summary?.parent_task_id ? <Descriptions.Item label="Derived from" span={2}>
-          <a href={`/task/?id=${data.search_summary.parent_task_id}`}>Task {data.search_summary.parent_task_id}</a> — selected-phase refinement; original result retained
-        </Descriptions.Item> : null}
-        <Descriptions.Item label="Precursor / expected formulas" span={2}>{(data.precursors || []).join(', ') || "None"}</Descriptions.Item>
-        <Descriptions.Item label="Final phases" span={2}>
-          <Space size="large" wrap>
-            {data.final_result.phases.map(item => <PhaseIdentity key={item} reference={item} metadata={data.final_result.phase_metadata?.[item]} />)}
+        <Descriptions.Item label="Fit quality">
+          <Space size="small" wrap>
+            <FitQualitySummary quality={data.final_result.fit_quality} />
+            <DisplacementTag confidence={data.final_result.confidence} />
           </Space>
         </Descriptions.Item>
-        <Descriptions.Item label="Fit diagnostics" span={2}>
+        <Descriptions.Item label="Peak diagnostics">
           <PeakDiagnosticTags diagnostics={data.final_result.peak_diagnostics} />
         </Descriptions.Item>
-        <Descriptions.Item label="Refinement quality" span={2}>
-          <FitQualitySummary quality={data.final_result.fit_quality} />
-          <div style={{ marginTop: 4 }}><DisplacementTag confidence={data.final_result.confidence} /></div>
-          <FitCautions cautions={data.final_result.cautions} />
-        </Descriptions.Item>
-        <Descriptions.Item label={<span>
-          Quantitative phase analysis
-          <Tooltip title="Rietveld weight fractions normalized to 100% across the identified crystalline phases. Amorphous or unidentified material is not included.">
-            <InfoCircleOutlined style={{marginLeft: "4px"}} />
-          </Tooltip>
-        </span>} span={2}>
-          {Object.keys(data.final_result.weight_percent || {}).length ? (
-            Object.entries(data.final_result.weight_percent).map(([phase, weight]) => (
-              <div key={phase} style={{ marginBottom: "8px" }}>
-                <Space>
-                  <PhaseIdentity reference={phase} metadata={data.final_result.phase_metadata?.[phase]} />
-                  <Tag color="blue">{Number(weight).toFixed(2)} wt%
-                    {data.final_result.phase_details?.[phase]?.weight_esd_percent == null
-                      ? '' : ` ± ${Number(data.final_result.phase_details[phase].weight_esd_percent).toFixed(2)}`}
-                  </Tag>
-                </Space>
-              </div>
-            ))
-          ) : "Unavailable"}
-        </Descriptions.Item>
-        <Descriptions.Item label="Start time" span={1}>{data.start_time}</Descriptions.Item>
-        <Descriptions.Item label="End time" span={1}>{data.end_time}</Descriptions.Item>
-        <Descriptions.Item label="Duration" span={2}><Tag color="cyan">{data.runtime.toFixed(2)} s</Tag></Descriptions.Item>
       </Descriptions>
-      <h3 style={{ marginTop: 20 }}>Final refined phase parameters</h3>
-      <Space wrap style={{ marginBottom: 12 }}>
-        <ReportDownloadButton taskId={task_id} selection="best" disabled={review.loading || review.saving || review.dirty || !!review.error}>Best-fit report</ReportDownloadButton>
-      </Space>
-      <Text type="secondary">Uncertainties are BGMN estimated standard deviations where reported. Weight uncertainty is propagated after normalization and is omitted when unavailable.</Text>
-      <div style={{ marginTop: 10 }}>
-        <PhaseRefinementTable phases={data.final_result.phases} metadata={data.final_result.phase_metadata} details={data.final_result.phase_details} confidence={data.final_result.confidence} />
-      </div>
+      <FitCautions cautions={data.final_result.cautions} besideBanner={hasBanner} />
+      <details style={{ marginTop: 12 }}>
+        <summary>Analysis settings</summary>
+        <Descriptions bordered column={columns} size='small' style={{ marginTop: 8 }}>
+          <Descriptions.Item label="Temperature">{data.temperature || "None"}</Descriptions.Item>
+          <Descriptions.Item label="Reaction network">{data.use_rxn_predictor ? "Yes" : "No"}</Descriptions.Item>
+          <Descriptions.Item label="Included elements">{(data.elements || []).join(', ') || "None"}</Descriptions.Item>
+          <Descriptions.Item label="Reference databases">{(data.candidate_sources || []).map(source => source.toUpperCase()).join(' + ') || "Uploaded CIFs"}</Descriptions.Item>
+          <Descriptions.Item label="Candidate CIFs">{data.candidate_summary?.after ?? "Unknown"} retained ({data.candidate_summary?.removed_duplicates ?? 0} duplicates removed)
+            <ScreeningTags candidateSummary={data.candidate_summary} />
+          </Descriptions.Item>
+          <Descriptions.Item label="Precursors">{(data.precursors || []).join(', ') || "None"}</Descriptions.Item>
+          <Descriptions.Item label="Search options">{searchOptionsText(data.additional_search_options)}</Descriptions.Item>
+          {excludedRanges.length ? <Descriptions.Item label="Excluded 2θ">
+            <Tooltip title="Shaded in the fit plot; omitted from fitting">
+              <span>{excludedRanges.map(([lo, hi]) => `${lo}–${hi}°`).join(', ')}</span>
+            </Tooltip>
+          </Descriptions.Item> : null}
+          {data.instrument_profile_details ? <Descriptions.Item label="Instrument">
+            <InstrumentText details={data.instrument_profile_details} />
+          </Descriptions.Item> : null}
+          {searchSummary.parent_task_id ? <Descriptions.Item label="Derived from">
+            <a href={`/task/?id=${searchSummary.parent_task_id}`}>Task {searchSummary.parent_task_id}</a>
+          </Descriptions.Item> : null}
+          <Descriptions.Item label="Hypothesis search" span={columns}><SearchSummary summary={searchSummary} /></Descriptions.Item>
+        </Descriptions>
+      </details>
+      <h3 style={{ marginTop: 20 }}>Phases (best fit)</h3>
+      <PhaseRefinementTable phases={data.final_result.phases} metadata={data.final_result.phase_metadata} details={data.final_result.phase_details} confidence={data.final_result.confidence} />
       <VersionsPanel taskId={task_id} store={store} review={review}
         onView={setPlotId} onCompare={(a, b) => setCompare({ a, b })} onRefineAll={quickShown ? refineAll : null} refineBusy={quick.busy}
         extra={quickShown ? <QuickRefineProgress job={quick.job} onCancel={quick.cancel} onDismiss={quick.dismiss} /> : null} />
       <ResultTitleContainer>
-        <h3 style={{ marginTop: "16px" }}>{`Distinct candidate phase sets (${data.all_results.length} shown, up to 5)`}</h3>
-        <div>
-          Show alternative CIF references
-          <Tooltip title="The selected CIF is shown by default. Enable this to inspect other database records that DARA grouped as matching references for the same phase slot.">
-            <InfoCircleOutlined style={{marginLeft: "4px"}}/>
-          </Tooltip> : 
-          <Switch checked={showAlternatives} onChange={setShowAlternatives} style={{marginLeft: "4px"}}/>
-        </div>
+        <Space wrap align="baseline">
+          <h3 style={{ marginTop: 16 }}>{`Candidates (${data.all_results.length})`}</h3>
+          {data.duplicate_results_removed > 0 ? <Tooltip title="DARA can reach the same phase set in different phase-addition orders. Only one copy is shown; different compositions or space groups remain separate.">
+            <Text type="secondary">{`${data.duplicate_results_removed} equivalent search path${data.duplicate_results_removed === 1 ? '' : 's'} merged`}</Text>
+          </Tooltip> : null}
+        </Space>
+        <Button disabled={firstOtherCandidate === null}
+          onClick={() => setCompare({ a: 'best', b: firstOtherCandidate })}>Compare fits</Button>
       </ResultTitleContainer>
-      <Divider />
-      <h3>Candidate comparison</h3>
-      {data.instrument_profile_details ? <Alert type={data.instrument_profile_details.verified ? 'info' : 'warning'} showIcon style={{marginBottom:12}}
-        message={`Instrument: ${data.instrument_profile_details.label} — ${data.instrument_profile_details.verified ? 'operator-verified' : 'unverified'}`}
-        description={<>{data.instrument_profile_details.geometry} · {data.instrument_profile_details.radiation}<br />{data.instrument_profile_details.notes}</>} /> : null}
-      <Button disabled={firstOtherCandidate === null} style={{ marginBottom: 8 }}
-        onClick={() => setCompare({ a: 'best', b: firstOtherCandidate })}>Compare fits</Button>
-      {data.final_refinement_params ? <details style={{marginBottom:12}}><summary>Final-refinement settings used</summary><pre>{JSON.stringify(data.final_refinement_params, null, 2)}</pre></details> : null}
-      <Text type="secondary">Sort columns to compare candidates. Candidate numbers and downloads keep their original identity. Fractions are normalized over modeled crystalline phases; diagnostic counts are review flags, not confidence scores.</Text>
-      <Table size="small" pagination={false} scroll={{ x: 900 }} style={{ marginTop: 12, marginBottom: 24 }}
+      <Table size="small" pagination={false} scroll={{ x: 'max-content' }} tableLayout="auto" style={{ marginTop: 8, marginBottom: 24 }}
         rowKey="source_index"
         dataSource={data.all_results.map((item, index) => ({ ...item, candidate_number: index + 1, source_index: item.source_index ?? index }))}
         columns={[
@@ -907,13 +949,9 @@ function TaskDetail({ data, task_id }) {
           { title: 'Phases / wt%', render: (_, row) => <Space direction="vertical">{row.highlighted_phases.map(phase => <span key={phase}><PhaseIdentity reference={phase} compact /> {row.weight_percent?.[phase] != null ? `${Number(row.weight_percent[phase]).toFixed(2)} wt%` : ''}</span>)}</Space> },
           { title: 'Rwp (%)', dataIndex: 'rwp', sorter: (a,b) => a.rwp-b.rwp, defaultSortOrder: 'ascend', render: (value,row) => <>{value} <Text type="secondary">{row.is_final_refined ? 'Final' : 'Screening'}</Text></> },
           { title: 'GOF', sorter: (a,b) => (a.fit_quality?.gof ?? Infinity)-(b.fit_quality?.gof ?? Infinity), render: (_,row) => formatMetric(row.fit_quality?.gof) },
-          { title: 'Missing', sorter: (a,b) => missingCell(a.peak_diagnostics).sortValue-missingCell(b.peak_diagnostics).sortValue, render: (_,row) => {
-            const text = missingCell(row.peak_diagnostics).text;
-            const hints = quickShown ? collectHints(row.peak_diagnostics) : [];
-            return hints.length ? <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{[...hints.map(hintText), '(open the fit view to add)'].join('\n')}</div>}><span>{text}</span></Tooltip> : text;
-          } },
+          { title: 'Missing', sorter: (a,b) => missingCell(a.peak_diagnostics).sortValue-missingCell(b.peak_diagnostics).sortValue, render: (_,row) => missingCell(row.peak_diagnostics).text },
           ...[['extra','Extra'],['intensity_mismatch','Intensity mismatch']].map(([key,title]) => ({ title, sorter: (a,b) => (a.peak_diagnostics?.counts?.[key] ?? Infinity)-(b.peak_diagnostics?.counts?.[key] ?? Infinity), render: (_,row) => row.peak_diagnostics?.counts?.[key] ?? '—' })),
-          { title: <Tooltip title="Automated review flags for this candidate; hover a count to read them. These are not a verdict.">Cautions</Tooltip>,
+          { title: <Tooltip title="Automated review flags; hover a count to read them.">Cautions</Tooltip>,
             sorter: (a,b) => cautionSortValue(a.cautions)-cautionSortValue(b.cautions),
             render: (_,row) => {
               const counts = countCautions(row.cautions);
@@ -922,88 +960,67 @@ function TaskDetail({ data, task_id }) {
                 <Tag color={cautionTagColor(row.cautions)}>{counts.total}</Tag>
               </Tooltip>;
             } },
-          { title: <Tooltip title="Overall evidence assessment for this candidate. Hover for the reasons.">Confidence</Tooltip>,
+          { title: <Tooltip title="Hover for the reasons.">Confidence</Tooltip>,
             sorter: (a,b) => levelRank(a.confidence?.overall?.level)-levelRank(b.confidence?.overall?.level),
             render: (_,row) => <OverallTag confidence={row.confidence} /> },
           { title: 'No. of phases', sorter: (a,b) => a.highlighted_phases.length-b.highlighted_phases.length, render: (_,row) => row.highlighted_phases.length },
-          { title: 'Actions', render: (_,row) => <Space wrap><Button size="small" onMouseEnter={() => preloadPlot(task_id, row.source_index)} onFocus={() => preloadPlot(task_id, row.source_index)} onClick={() => setPlotId(row.source_index)}>View fit</Button><DownloadButton taskId={task_id} resultIndex={row.source_index} size="small" icon={<DownloadOutlined />} aria-label={`Download candidate ${row.candidate_number}`} /></Space> },
+          { title: 'Actions', render: (_,row) => <Space><Button size="small" onMouseEnter={() => preloadPlot(task_id, row.source_index)} onFocus={() => preloadPlot(task_id, row.source_index)} onClick={() => setPlotId(row.source_index)}>View fit</Button><Tooltip title="Download (ZIP)"><DownloadButton taskId={task_id} resultIndex={row.source_index} size="small" icon={<DownloadOutlined />} aria-label={`Download candidate ${row.candidate_number}`} /></Tooltip></Space> },
         ]} />
-      {data.duplicate_results_removed > 0 ? (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: "12px" }}
-          message={`${data.duplicate_results_removed} equivalent duplicate search path${data.duplicate_results_removed === 1 ? "" : "s"} merged`}
-          description="DARA can reach the same phase set in different phase-addition orders. Only one copy is shown; different compositions or space groups remain separate."
-        />
-      ) : null}
-      <Descriptions bordered column={2} size='small'>
+      <div style={{ marginBottom: 8 }}>
+        Show alternative CIFs
+        <Tooltip title="Other database records DARA grouped as matching references for the same phase slot. Name format: formula_space group_(database ID)-energy above hull ('None': no energy metadata).">
+          <InfoCircleOutlined style={{ marginLeft: 4 }} />
+        </Tooltip>
+        <Switch checked={showAlternatives} onChange={setShowAlternatives} size="small" style={{ marginLeft: 8 }} />
+      </div>
+      <Descriptions bordered column={{ xs: 1, sm: 1, md: 1, lg: 1, xl: 2, xxl: 2 }} size='small'>
         {
           data.all_results.map((result, index) => {
             return (
-              <Descriptions.Item key={index} labelStyle={{ width: "25%" }} label={<>
-                <Space size="small" wrap>
-                  <span>{`Candidate ${index + 1}`}</span>
-                  <Tag color={index === 0 ? "green" : "blue"}>
-                    {`${result.is_final_refined ? "Final " : ""}Rwp ${result.rwp} %`}
-                  </Tag>
-                  {result.is_final_refined && Number(result.screening_rwp) !== Number(result.rwp) ? (
-                    <Tooltip title="Fast restricted refinement used to generate and rank candidate phase sets before full final refinement.">
-                      <Tag>{`Screening Rwp ${result.screening_rwp} %`}</Tag>
-                    </Tooltip>
-                  ) : null}
-                  {index === 0 && result.is_final_refined ? <Tag color="gold">Best</Tag> : null}
-                  <PeakDiagnosticTags diagnostics={result.peak_diagnostics} />
-                </Space><br />
-                <Space size="small">
-                  <a onMouseEnter={() => preloadPlot(task_id, result.source_index ?? index)}
-                    onFocus={() => preloadPlot(task_id, result.source_index ?? index)}
-                    onClick={() => setPlotId(result.source_index ?? index)}>Visualize result</a>
-                  <Tooltip title={`Download search result ${index + 1}`}>
-                    <DownloadButton
-                      taskId={task_id}
-                      resultIndex={result.source_index ?? index}
-                      type="text"
-                      size="small"
-                      shape="circle"
-                      aria-label={`Download search result ${index + 1}`}
-                      icon={<DownloadOutlined />}
-                    />
+              <Descriptions.Item key={index} labelStyle={{ width: "16%" }} label={<Space size="small" wrap>
+                <span>{`Candidate ${index + 1}`}</span>
+                <Tag color={index === 0 ? "green" : "blue"}>{`Rwp ${result.rwp} %`}</Tag>
+                {result.is_final_refined && Number(result.screening_rwp) !== Number(result.rwp) ? (
+                  <Tooltip title="Fast restricted refinement used to rank candidate phase sets before the final refinement.">
+                    <Tag>{`Screening ${result.screening_rwp} %`}</Tag>
                   </Tooltip>
-                </Space>
-              </>} span={2}>
-                {/* {result.phases.map((item, index) => (<>{index !== 0 ? <br /> : <></>}<strong>Phase {index + 1}: </strong>{item.map((i, idx) => (<span>{idx !== 0 ? " | " : ""}<code>{i}</code></span>))}</>))} */}
+                ) : null}
+              </Space>}>
                 {result.equivalent_result_count > 1 ? <Tag color="default">{result.equivalent_result_count} equivalent paths combined</Tag> : null}
                 <PhaseList phases={result.phases} highlighted_phases={result.highlighted_phases} grouped_phases={result.grouped_phases} show_alternatives={showAlternatives} weight_percent={result.weight_percent} phase_metadata={result.phase_metadata} />
               </Descriptions.Item>
             );
-          }
-          )
+          })
         }
       </Descriptions>
-      <Modal title={modalTitle} open={plot_id !== undefined} onCancel={() => setPlotId(undefined)} footer={[]} width={"95vw"}
+      {/* The Add phase drawer sits beside the fit instead of covering the plot. */}
+      <Modal title={modalTitle} open={plot_id !== undefined} onCancel={() => setPlotId(undefined)} footer={null}
+        width={drawerShown ? `calc(100vw - ${DRAWER_WIDTH} - 48px)` : 'calc(100vw - 32px)'}
+        style={{ top: 16, ...(drawerShown ? { marginRight: `calc(${DRAWER_WIDTH} + 16px)`, marginLeft: 'auto' } : {}) }}
+        bodyStyle={{ padding: '12px 16px' }}
         keyboard={false} wrapClassName={FIT_MODAL_CLASS}>
         <Space wrap style={{ marginBottom: 12 }}>
-          <Select aria-label="Displayed candidate" style={{ width: 360 }} value={currentSel}
+          <Select aria-label="Displayed fit" style={{ minWidth: 360, maxWidth: '40vw' }} value={currentSel}
             onChange={value => setPlotId(value === 'best' ? null : value)} options={selectOptions} />
           {quickShown && displayedResult ? <>
-            <Tooltip title={suggestionCount ? `${suggestionCount} possible or strong match${suggestionCount === 1 ? '' : 'es'} for the significant unexplained peaks` : null}>
-              <Badge count={suggestionCount} size="small" offset={[-4, 2]}>
-                <Button type={suggestionCount || collectHints(displayedResult?.peak_diagnostics).length ? 'primary' : 'default'}
-                  onClick={() => setDrawerOpen(true)}>Add phase…</Button>
+            <Tooltip title={addPhaseTip}>
+              <Badge count={quickCheck ? 0 : suggestionCount} size="small" offset={[-4, 2]}>
+                <span><Button type={!quickCheck && (suggestionCount || collectHints(displayedResult?.peak_diagnostics).length) ? 'primary' : 'default'}
+                  disabled={quickCheck} onClick={() => setDrawerOpen(true)}>Add phase…</Button></span>
               </Badge>
             </Tooltip>
             <PhaseSelectionButton taskId={task_id} phases={displayedPhases} renderPhase={renderReference} busy={quick.busy}
+              disabledReason={quickCheck ? REFINE_ALL_FIRST : null}
               onSubmit={request => runQuick(request, { afterDone: 'compare' })} />
-            <Dropdown trigger={['click']} menu={{ items: [{ key: 'background', label: 'Background…', disabled: quick.busy }],
-              onClick: ({ key }) => { if (key === 'background') setBackgroundOpen(true); } }}>
-              <Button>Advanced <DownOutlined /></Button>
-            </Dropdown>
+            <Tooltip title={quickCheck ? REFINE_ALL_FIRST : 'Background polynomial and excluded 2θ intervals'}>
+              <span><Button disabled={quick.busy || quickCheck} onClick={() => setBackgroundOpen(true)}>Background…</Button></span>
+            </Tooltip>
             <BackgroundEditor open={backgroundOpen} onOpenChange={setBackgroundOpen} busy={quick.busy} disabled={quick.busy} baseDegree={baseDegree}
               getView={() => plotRef.current?.getViewRange?.() || null}
               onSubmit={(background, label) => runQuick({ phases: [], background, origin: 'background', label })} />
           </> : null}
-          <Tooltip title="Left and right arrow keys step through the fits; press ? for all shortcuts"><Text type="secondary">← / → to switch fits</Text></Tooltip>
+          {displayedResult ? <DownloadMenu taskId={task_id} selection={currentSel} label="Download this fit"
+            blocked={quickCheck ? REFINE_ALL_FIRST : null} reportBlocked={reportBlocked} /> : null}
         </Space>
         {quickShown ? <QuickRefineProgress job={quick.job} onCancel={quick.cancel} onDismiss={quick.dismiss} /> : null}
         {versionError ? <Alert type="error" showIcon message={versionError} style={{ marginBottom: 12 }} /> : null}
@@ -1012,13 +1029,11 @@ function TaskDetail({ data, task_id }) {
           {quickCheck ? <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={QUICK_CHECK_HINT}
             action={quickShown ? <Button size="small" type="primary" disabled={quick.busy} onClick={() => refineAll(versionNumber)}>Refine all phases</Button> : null} /> : null}
           {versionNumber ? <DeltaStrip rows={deltaRows} /> : null}
-          <div style={{ marginBottom: 12 }}>
+          <Space size="small" wrap style={{ marginBottom: 12 }}>
             <FitQualitySummary quality={displayedResult.fit_quality} />
-            <div style={{ marginTop: 4 }}>
-              <OverallTag confidence={displayedResult.confidence} />
-              <DisplacementTag confidence={displayedResult.confidence} />
-            </div>
-          </div>
+            <OverallTag confidence={displayedResult.confidence} />
+            <DisplacementTag confidence={displayedResult.confidence} />
+          </Space>
         </> : null}
         {peaks.length ? <Space wrap style={{ marginBottom: 8 }}>
           <Text type="secondary">Selected peaks:</Text>
@@ -1028,34 +1043,25 @@ function TaskDetail({ data, task_id }) {
           <Button size="small" onClick={clearPeaks}>Clear</Button>
         </Space> : null}
         <RefinementPlot ref={plotRef} task_id={task_id} plot_id={plot_id}
-          excludedRanges={[...(data.additional_search_options?.refinement_params?.excluded_ranges || []), ...(versionData?.background?.excluded_ranges || [])]}
+          excludedRanges={[...excludedRanges, ...(versionData?.background?.excluded_ranges || [])]}
           peaks={peaks} previewSticks={preview?.sticks || null} onGroups={setPhaseGroups}
-          onPeakClick={quickShown ? onPeakClick : undefined} />
+          onPeakClick={quickShown && !quickCheck ? onPeakClick : undefined} />
         {displayedResult ? <>
           <Divider />
           <PhaseRefinementTable phases={displayedPhases}
             metadata={displayedResult.phase_metadata} details={displayedResult.phase_details} confidence={displayedResult.confidence}
-            rowActions={quickShown ? rowActions : null} />
-          <div style={{ margin: '12px 0' }}>
-            <FitCautions cautions={displayedResult.cautions} />
-            {quickShown ? <HintText diagnostics={displayedResult.peak_diagnostics} onOpen={() => setDrawerOpen(true)} /> : null}
-          </div>
-          <Space wrap>
-            <ReportDownloadButton taskId={task_id} selection={currentSel} disabled={quickCheck || review.loading || review.saving || review.dirty || !!review.error}>This fit's report</ReportDownloadButton>
-            <FigureExportActions taskId={task_id} selection={currentSel} />
-          </Space>
+            rowActions={quickShown && !quickCheck ? rowActions : null} />
+          <FitCautions cautions={displayedResult.cautions} style={{ margin: '12px 0' }} />
         </> : null}
       </Modal>
-      <PeakCandidatesDrawer taskId={task_id} sel={currentSel} peaks={peaks} open={drawerOpen && plot_id !== undefined}
+      <PeakCandidatesDrawer taskId={task_id} sel={currentSel} peaks={peaks} open={drawerShown}
         diagnostics={displayedResult?.peak_diagnostics} onAddHint={(hint, target) => { setDrawerOpen(false); addHint(hint, target); }}
-        active={plot_id !== undefined} onSuggestions={setSuggestionCount}
+        active={plot_id !== undefined && !quickCheck} onSuggestions={setSuggestionCount}
+        displayedPhases={displayedPhases} versions={store.versions} onOpenVersion={n => setPlotId(n === 1 ? null : `version:${n}`)}
         onClose={() => setDrawerOpen(false)} onPreview={setPreview} previewRef={preview?.key} onAdd={addCandidate} busy={quick.busy} />
       <FitCompare taskId={task_id} a={compare?.a} b={compare?.b} open={Boolean(compare)} onClose={() => setCompare(null)}
         adopting={review.saving} allResults={data.all_results} versions={store.versions} onSelect={(a, b) => setCompare({ a, b })}
-        onAdoptB={async sel => {
-          if (isQuickCheck(store.versions, sel)) { message.warning(QUICK_CHECK_HINT); return; }
-          await review.save(sel); setCompare(null);
-        }}
+        onAdoptB={async sel => { if (await review.save(sel)) setCompare(null); }}
         onViewB={sel => { setCompare(null); setPlotId(sel); }} />
       <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
     </>
@@ -1156,10 +1162,7 @@ function TaskPage({ location }) {
         <Title>
         <h2>Task {task_id}</h2>
         <Space>
-          {data && data.status !== 'FIZZLED' ? <Button href={`/?clone_task=${task_id}`}>Copy conditions &amp; rerun</Button> : null}
-          {data && data.status === 'COMPLETED' ? (
-            <DownloadButton taskId={task_id} icon={<DownloadOutlined />}>Download all</DownloadButton>
-          ) : null}
+          {data && data.status !== 'FIZZLED' ? <Button href={`/?clone_task=${task_id}`}>Rerun</Button> : null}
           {data && !['READY','RUNNING','CANCELLING'].includes(data.status) ? (
             <Button danger icon={<DeleteOutlined />} onClick={deleteTask}>Delete</Button>
           ) : null}

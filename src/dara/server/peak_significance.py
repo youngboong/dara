@@ -777,10 +777,10 @@ def submit_background(key, job) -> bool:
     return True
 
 
-def has_pending() -> bool:
-    """True while any background job is queued or running (hints may still appear)."""
+def has_pending(key=None) -> bool:
+    """True while background job ``key`` (any job without a key) is queued or running."""
     with _LOCK:
-        return bool(_PENDING)
+        return bool(_PENDING) if key is None else key in _PENDING
 
 
 def wait_idle(timeout: float = 30.0) -> bool:
@@ -919,6 +919,26 @@ def _background_job(key, args) -> None:
     _store(key, patterns)
 
 
+def _cod_key(elements, precursors, wavelength_a, two_theta_range) -> tuple:
+    return (
+        frozenset(str(e) for e in elements),
+        tuple(sorted(str(p) for p in (precursors or []))),
+        round(float(wavelength_a), 5),
+        round(float(two_theta_range[0]), 1), round(float(two_theta_range[1]), 1),
+    )
+
+
+def cod_pool_pending(elements, precursors, wavelength_a, two_theta_range) -> bool:
+    """True while the COD pool of exactly these inputs is queued or being simulated.
+
+    Other tasks' background jobs do not count: they cannot add hints to this one.
+    """
+    try:
+        return has_pending(_cod_key(elements, precursors, wavelength_a, two_theta_range))
+    except (TypeError, ValueError, IndexError):
+        return False
+
+
 def cod_reference_patterns(
     elements, precursors, wavelength_a, two_theta_range, *, mode
 ) -> list | None:
@@ -927,11 +947,7 @@ def cod_reference_patterns(
         if mode not in {"sync", "background"} or not elements:
             return None
         lo, hi = float(two_theta_range[0]), float(two_theta_range[1])
-        key = (
-            frozenset(str(e) for e in elements),
-            tuple(sorted(str(p) for p in (precursors or []))),
-            round(float(wavelength_a), 5), round(lo, 1), round(hi, 1),
-        )
+        key = _cod_key(elements, precursors, wavelength_a, two_theta_range)
         now = time.monotonic()
         with _LOCK:
             cached = _CACHE.get(key)

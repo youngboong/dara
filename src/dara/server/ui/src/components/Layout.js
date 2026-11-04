@@ -75,9 +75,13 @@ const LayoutContainer = styled(LayoutAntd)`
     background: #fff;
   }
 
-  .ant-layout-sider,
-  .ant-layout-content {
+  .ant-layout-sider {
     padding: 16px 24px;
+  }
+
+  .ant-layout-content {
+    padding: 16px clamp(16px, 2vw, 48px);
+    min-width: 0;
   }
 
   .ant-layout-sider {
@@ -144,6 +148,9 @@ const LayoutContainer = styled(LayoutAntd)`
 const ContentContainer = styled(LayoutAntd)`
   background: #fff;
   flex: 1 0 auto;
+  width: 100%;
+  max-width: 1920px;
+  margin: 0 auto;
 `;
 
 function Layout({ children, hasSider, title }) {

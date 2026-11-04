@@ -33,7 +33,7 @@ LIGHT_FIELDS = [
     "uuid", "index", "task_index", "version", "deleted", "created_at", "label", "origin",
     "phases", "controls", "background", "phase_params", "overrides", "refinement_params",
     "effective_phase_params", "elapsed_s", "bgmn_s", "summary", "refine_mode", "iteration_cap",
-    "fixed_phases",
+    "fixed_phases", "n_threads", "fit_key", "replaces",
 ]
 
 
@@ -238,8 +238,19 @@ def resolve_refinement(document, task, selection):
     }
 
 
+def _aligned(values, first=None):
+    """Per-result list of the document with an entry for the version prepended."""
+    return [first, *values] if values else None
+
+
 def document_view(document, task, record: dict):
-    """The analysis document as if the version were its final result (summaries, reports)."""
+    """The analysis document as if the version were its final result (summaries, reports).
+
+    The version becomes the first search result and the original candidates follow, so its
+    confidence is judged against the same comparison set as the original analysis (a pool of
+    one would make every verdict look certain).  A candidate with the version's phase set is
+    folded into the version's entry by the usual de-duplication.
+    """
     refinement = version_refinement(record)
     refs = version_reference_map(document, record)
     cifs = [refs[stem] for stem in record.get("phases") or [] if stem in refs]
@@ -256,12 +267,16 @@ def document_view(document, task, record: dict):
             "final_refinement_params": deepcopy(record.get("phase_params"))
             or getattr(document, "final_refinement_params", None),
             "search_kwargs": search_kwargs,
-            "results": [([[cif] for cif in cifs], refinement)],
-            "grouped_phases": None,
-            "screening_rwps": None,
-            "missing_peaks": None,
-            "extra_peaks": None,
-            "intensity_mismatch_peaks": None,
+            "results": [([[cif] for cif in cifs], refinement), *(document.results or [])],
+            "grouped_phases": _aligned(getattr(document, "grouped_phases", None)),
+            "screening_rwps": _aligned(
+                getattr(document, "screening_rwps", None), refinement.lst_data.rwp
+            ),
+            "missing_peaks": _aligned(getattr(document, "missing_peaks", None)),
+            "extra_peaks": _aligned(getattr(document, "extra_peaks", None)),
+            "intensity_mismatch_peaks": _aligned(
+                getattr(document, "intensity_mismatch_peaks", None)
+            ),
             "foms": None,
             "lattice_strains": None,
             "best_rwp": refinement.lst_data.rwp,

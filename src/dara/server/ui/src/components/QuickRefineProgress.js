@@ -1,6 +1,6 @@
 import React from 'react';
-import { Alert, Button, Progress, Space, message } from 'antd';
-import { etaText, isMissingEndpoint, progressLabel } from './versions.mjs';
+import { Alert, Button, Progress, Space, Tooltip, message } from 'antd';
+import { isMissingEndpoint, progressLabel, progressView } from './versions.mjs';
 
 export const API = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 export const NOT_AVAILABLE = 'Not available on this server version.';
@@ -183,7 +183,7 @@ export function useQuickRefine(taskId, { onVersion } = {}) {
   return { job, busy, available, start, cancel, dismiss };
 }
 
-/** Inline progress strip for the active quick job (not a modal). */
+/** Inline progress strip for the active quick job (not a modal): one time value per state. */
 export default function QuickRefineProgress({ job, onCancel, onDismiss, style }) {
   const [now, setNow] = React.useState(Date.now());
   const running = job && (job.status === 'starting' || ACTIVE.has(job.status));
@@ -199,29 +199,20 @@ export default function QuickRefineProgress({ job, onCancel, onDismiss, style })
       description={job.error || 'The server did not report a reason.'} />;
   }
   const sinceReport = job.receivedAt ? Math.max(0, (now - job.receivedAt) / 1000) : 0;
-  const queued = job.status === 'queued';
-  // While queued the server reports 0 s; count the wait since submission so it never looks stuck.
-  const elapsed = queued && job.submittedAt ? Math.max(0, (now - job.submittedAt) / 1000)
-    : Number(job.elapsed_s || 0) + (running ? sinceReport : 0);
-  const live = { ...job, elapsed_s: elapsed };
-  const etaRaw = etaText(live);
-  const known = job.status === 'running' && job.eta_s != null && Number(job.eta_s) > 0;
-  const percent = known ? Math.min(95, Math.round((elapsed / Number(job.eta_s)) * 100)) : undefined;
-  // A queued job shows its queue position (or "Starting…") instead of the generic stage name.
-  const stage = job.status === 'starting' ? 'Starting…'
-    : queued && etaRaw ? etaRaw : job.stage || (queued ? 'Queued' : 'Working');
-  const eta = !queued && etaRaw && etaRaw !== stage ? etaRaw : '';
+  const elapsed = Number(job.elapsed_s || 0) + (job.status === 'running' ? sinceReport : 0);
+  const view = progressView(job, elapsed);
+  const note = view.note ? <span style={{ color: '#666' }}>{view.note}</span> : null;
   return <Alert type="info" showIcon style={{ marginBottom: 12, ...style }}
     message={<Space wrap>
       <strong>{progressLabel(job.label) || 'Re-refining'}</strong>
-      <span>{stage}</span>
-      <span>{`${Math.round(elapsed)} s`}</span>
-      {eta ? <span>{eta}</span> : null}
+      <span>{view.stage}</span>
+      {view.time ? <span>{view.time}</span> : null}
+      {note && view.basis ? <Tooltip title={view.basis}>{note}</Tooltip> : note}
     </Space>}
     description={<Space style={{ width: '100%' }} align="center">
       <div style={{ width: 'min(520px, 60vw)' }}>
-        {known
-          ? <Progress percent={percent} size="small" status="active" showInfo={false} />
+        {view.percent !== null
+          ? <Progress percent={view.percent} size="small" status="active" showInfo={false} />
           : <Progress percent={100} size="small" status="active" showInfo={false} strokeColor="#91caff" />}
       </div>
       <Button size="small" onClick={onCancel} disabled={!job.job_id}>Cancel</Button>

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from fastapi import FastAPI
 
-from dara.server import review_router
+from dara.server import quick_refine, review_router
 from dara.server.report.builder import build_report_html
 from dara.server.report.references import REFERENCES, Citations
 
@@ -78,6 +78,7 @@ def _refinement(rwp, names=(A,), parameters=20, eps2=(-0.001657, 3.3e-05)):
 
 
 def _context(monkeypatch, *, final, results, wavelength="Cu"):
+    quick_refine._DOCUMENTS.clear()  # a test may build a second context for the same task
     task = {
         "index": 9, "uuid": "task-report", "status": "COMPLETED", "user": "Analyst",
         "job": {"name": "Sample.xy"},
@@ -109,9 +110,10 @@ def _context(monkeypatch, *, final, results, wavelength="Cu"):
             return {"output": doc}
 
     monkeypatch.setattr(review_router, "get_worker_store", lambda: Store("worker"))
-    monkeypatch.setattr(review_router, "get_result_store", lambda: Store("result"))
+    monkeypatch.setattr(quick_refine, "get_worker_store", lambda: Store("worker"))
+    monkeypatch.setattr(quick_refine, "get_result_store", lambda: Store("result"))
     monkeypatch.setattr(
-        review_router, "MontyDecoder", lambda: SimpleNamespace(process_decoded=lambda output: output)
+        quick_refine, "MontyDecoder", lambda: SimpleNamespace(process_decoded=lambda output: output)
     )
     app = FastAPI()
     app.include_router(review_router.router)

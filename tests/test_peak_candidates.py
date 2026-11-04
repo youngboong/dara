@@ -165,7 +165,11 @@ def setup(monkeypatch, tmp_path):
         return np.array(two_theta), np.array(intensity)
 
     monkeypatch.setattr(api_router, "_simulated_reference", simulated)
-    monkeypatch.setattr(peak_candidates_router, "_load", lambda task_id: (_record(), document))
+
+    async def load(task_id):
+        return _record(), document
+
+    monkeypatch.setattr(peak_candidates_router, "_load", load)
     monkeypatch.setattr(ps, "cod_reference_patterns", lambda *a, **k: None)
     monkeypatch.setattr("dara.structure_db.cod_cache_dir", lambda: tmp_path)
     return SimpleNamespace(document=document, cifs=cifs, calls=calls, tmp=tmp_path)
@@ -270,33 +274,34 @@ def test_request_validation(body):
         peak_candidates_router.PeakCandidatesRequest(**body)
 
 
-def test_out_of_range_and_versions_without_ws_a(setup, monkeypatch):
+def test_out_of_range_and_normalized_selection(setup):
     with pytest.raises(HTTPException) as error:
         _call(two_theta=[5.0])
     assert error.value.status_code == 422
-    monkeypatch.setattr(peak_candidates_router, "parse_selection", None)
-    monkeypatch.setattr(peak_candidates_router, "resolve_refinement", None)
     with pytest.raises(HTTPException) as error:
-        _call(sel="version:2")
-    assert error.value.status_code == 422 and "not available" in error.value.detail
+        _call(sel="nonsense")
+    assert error.value.status_code == 422
     assert _call(sel=0)["sel"] == 0
+    assert _call(sel="version:1")["sel"] == "best"  # the normalized selection is echoed
     assert _call(sel="best")["candidates"]
 
 
-def test_version_selection_uses_resolve_refinement(setup, monkeypatch):
+def test_version_selection_uses_the_version_view(setup, monkeypatch):
+    from dara.server import versions
+
     other = _refinement(injected=[(35.4, 500.0)])
     seen = {}
 
-    def parse(value):
-        seen["parsed"] = value
-        return ("version", 2)
-
     def resolve(document, record, sel):
         seen["resolved"] = sel
-        return other, {"kind": "version"}
+        return other, {"kind": "version", "record": {"version": 2}}
 
-    monkeypatch.setattr(peak_candidates_router, "parse_selection", parse)
-    monkeypatch.setattr(peak_candidates_router, "resolve_refinement", resolve)
+    def view(document, record, version_record):
+        seen["view"] = version_record
+        return SimpleNamespace(**{**vars(document), "final_result": other})
+
+    monkeypatch.setattr(versions, "resolve_refinement", resolve)
+    monkeypatch.setattr(versions, "document_view", view)
     response = _call(sel="version:2")
-    assert seen == {"parsed": "version:2", "resolved": ("version", 2)}
+    assert seen["resolved"] == ("version", 2) and seen["view"] == {"version": 2}
     assert response["sel"] == "version:2" and response["candidates"]

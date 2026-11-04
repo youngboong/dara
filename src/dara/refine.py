@@ -16,6 +16,7 @@ from dara.bgmn_worker import BGMNWorker
 from dara.cif2str import cif2str
 from dara.generate_control_file import generate_control_file
 from dara.result import RefinementMetrics, RefinementResult, get_result
+from dara.xrd import convert_pattern_to_xy
 
 
 def single_refinement_threads() -> int:
@@ -37,7 +38,6 @@ def with_single_refinement_threads(refinement_kwargs: dict) -> dict:
     params = dict(refinement_kwargs.get("refinement_params") or {})
     params["n_threads"] = single_refinement_threads()
     return {**refinement_kwargs, "refinement_params": params}
-from dara.xrd import convert_pattern_to_xy
 
 
 class RefinementPhase(BaseModel, frozen=True):

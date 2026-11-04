@@ -39,6 +39,9 @@ assert.equal(actionForKey(key('x'), ctx()), null);
 assert.deepEqual(actionForKey(key('Escape'), ctx({ helpOpen: true, peakSelectionCount: 2 })), { type: 'close-help' });
 assert.deepEqual(actionForKey(key('Escape'), ctx({ peakSelectionCount: 2 })), { type: 'clear-peaks' });
 assert.deepEqual(actionForKey(key('Escape'), ctx()), { type: 'close' });
+// the Add phase drawer closes before the peaks are cleared or the fit view closes
+assert.deepEqual(actionForKey(key('Escape'), ctx({ drawerOpen: true, peakSelectionCount: 2 })), { type: 'close-drawer' });
+assert.deepEqual(actionForKey(key('Escape'), ctx({ drawerOpen: true, helpOpen: true })), { type: 'close-help' });
 
 // modifiers
 for (const mod of ['ctrlKey', 'metaKey', 'altKey']) {

@@ -1,7 +1,7 @@
 import React from 'react';
-import { Alert, Button, Drawer, List, Progress, Space, Spin, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Drawer, List, Space, Spin, Tag, Tooltip, Typography } from 'antd';
 import { NOT_AVAILABLE, postJson } from './QuickRefineProgress';
-import { formatSelection, refSourceForHint } from './versions.mjs';
+import { existingPhase, formatSelection, formulaOfPhase, refSourceForHint } from './versions.mjs';
 import { autoMatchStrength, collectHints, hintText, isSlowCandidate, matchStrength, significantPeaks } from './peakSelection.mjs';
 
 const { Text } = Typography;
@@ -9,6 +9,9 @@ const POOLS = ['candidate', 'input', 'library', 'cod'];
 const RETRY_MS = 3000;
 const MAX_RETRIES = 20; // the COD pool can take ~1 min to load the first time
 const AUTO_SHOWN = 5;
+
+/** Drawer width; the fit view leaves this much room on the right while the drawer is open. */
+export const DRAWER_WIDTH = 'min(480px, 40vw)';
 
 const SOURCE_LABEL = { task: 'This task', library: 'Library', cod: 'COD' };
 
@@ -25,7 +28,7 @@ function mergeCandidates(previous, incoming) {
 const peakList = peaks => peaks.map(peak => `${Number(peak).toFixed(2)}°`).join(', ');
 
 export function candidateFormula(candidate) {
-  return candidate.formula || String(candidate.ref || candidate.name || '').replace(/_\d+_\(.*$/, '');
+  return candidate.formula || formulaOfPhase(candidate.ref || candidate.name || '');
 }
 
 /** Candidates explaining `peaks` (POST /task/{id}/peak-candidates), re-polled while COD loads. */
@@ -70,13 +73,23 @@ function usePeakCandidates(taskId, selText, peaks, enabled) {
   return { candidates, loading, pending, error };
 }
 
-function CandidateList({ search, peaks, limit, previewRef, onPreview, onAdd, busy, emptyText, strengthOf = matchStrength, list = '' }) {
+/** "In this fit" tag, or an "In vN" button that opens that version, instead of an Add button. */
+function ExistingMark({ existing, onOpenVersion }) {
+  if (existing.version && onOpenVersion) {
+    return <Tooltip title={`Already added in v${existing.version}; open it`}>
+      <Button size="small" type="link" style={{ padding: 0 }} onClick={() => onOpenVersion(existing.version)}>{existing.label}</Button>
+    </Tooltip>;
+  }
+  return <Tag>{existing.label}</Tag>;
+}
+
+function CandidateList({ search, peaks, limit, previewRef, onPreview, onAdd, busy, emptyText, strengthOf = matchStrength, list = '', existingOf, onOpenVersion }) {
   const { candidates, loading, pending, error } = search;
   if (error) return <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />;
   if (loading) {
     return <Space direction="vertical" style={{ width: '100%', padding: 24, textAlign: 'center' }}>
       <Spin />
-      <Text type="secondary">Searching references… (first search can take up to 15 s)</Text>
+      <Text type="secondary">Searching…</Text>
     </Space>;
   }
   if (!candidates.length) return <Text type="secondary">{emptyText}{pending ? ' Still searching COD…' : ''}</Text>;
@@ -90,49 +103,50 @@ function CandidateList({ search, peaks, limit, previewRef, onPreview, onAdd, bus
       const disabledReason = candidate.cif_available === false ? 'The CIF file for this reference is not available locally.'
         : busy ? 'Another re-refinement is running.' : null;
       const strength = strengthOf(candidate);
+      const useful = strength && strength.label !== 'Weak match';
+      const existing = existingOf(candidate.ref);
       return <List.Item key={`${candidate.source}|${candidate.ref}`} actions={[
         <Button key="preview" size="small" disabled={!candidate.sticks?.length}
           onClick={() => onPreview(previewing ? null : { key, sticks: candidate.sticks })}>
           {previewing ? 'Hide ticks' : 'Preview ticks'}
         </Button>,
-        <Tooltip key="add" title={disabledReason}>
-          <span><Button size="small" type="primary" disabled={Boolean(disabledReason)} onClick={() => onAdd(candidate)}>Add</Button></span>
-        </Tooltip>,
+        existing ? <ExistingMark key="add" existing={existing} onOpenVersion={onOpenVersion} />
+          : <Tooltip key="add" title={disabledReason || 'Add and refine as a new version'}>
+            <span><Button size="small" type={useful ? 'primary' : 'default'} disabled={Boolean(disabledReason)} onClick={() => onAdd(candidate)}>Add</Button></span>
+          </Tooltip>,
       ]}>
         <List.Item.Meta
           title={<Space wrap size="small">
-            <strong>{candidateFormula(candidate)}</strong>
+            <Tooltip title={candidate.ref}><strong>{candidateFormula(candidate)}</strong></Tooltip>
             {candidate.spacegroup_symbol ? <Text type="secondary">{candidate.spacegroup_symbol}{candidate.spacegroup_number ? ` (No. ${candidate.spacegroup_number})` : ''}</Text> : null}
             <Tag>{SOURCE_LABEL[sourceKind(candidate.source)] || candidate.source}</Tag>
             {strength ? <Tooltip title="Strong: explains the selected peaks with no contradicting reflection. Possible: explains several peaks with few contradictions; add it and compare the fits. Weak: only some peaks overlap, often by chance.">
               <Tag color={strength.color}>{strength.label}</Tag>
             </Tooltip> : null}
-            {isSlowCandidate(candidate) ? <Tooltip title={`${candidate.n_lines} reflections in the measured range. Adding it may take several minutes.`}>
-              <Tag color="orange">Slow to refine</Tag>
+            {isSlowCandidate(candidate) ? <Tooltip title={`${candidate.n_lines} reflections — may take minutes`}>
+              <Tag color="orange">Slow</Tag>
             </Tooltip> : null}
           </Space>}
-          description={<div>
-            <Progress percent={Math.max(0, Math.min(100, Math.round((candidate.score ?? 0) * 100)))} size="small" showInfo={false} />
-            <Text type="secondary">
-              {`Score ${Number(candidate.score ?? 0).toFixed(2)} · matched ${candidate.matched?.length ?? 0} of ${peaks.length} peak${peaks.length === 1 ? '' : 's'} · ${candidate.n_strong ?? 0} strong reflections`}
-              {candidate.strong_unobserved ? ` · ${candidate.strong_unobserved} not seen in the data` : ''}
-            </Text>
-            <div><Text type="secondary" style={{ fontSize: '0.85em', overflowWrap: 'anywhere' }}>{candidate.ref}</Text></div>
-          </div>} />
+          description={<Text type="secondary">
+            {`${candidate.matched?.length ?? 0}/${peaks.length} peak${peaks.length === 1 ? '' : 's'}`}
+            {candidate.n_strong ? ` · ${candidate.strong_unobserved ?? 0} of ${candidate.n_strong} strong lines absent` : ''}
+          </Text>} />
       </List.Item>;
     }} />
-    {limit && candidates.length > limit ? <Text type="secondary">{`${candidates.length - limit} more with lower scores. Select peaks in the plot to narrow the search.`}</Text> : null}
+    {limit && candidates.length > limit ? <Text type="secondary">{`+${candidates.length - limit} weaker matches`}</Text> : null}
   </>;
 }
 
 /**
- * "Add phase" drawer: trace-phase hints and an automatic search for the significant unexplained
- * peaks (both suggested by DARA), plus a search for the peaks clicked in the plot.
+ * "Add phase" drawer: DARA's suggestions for the displayed fit (trace-phase hints and an automatic
+ * search for the significant unexplained peaks) and a search for the peaks clicked in the plot.
  * `onSuggestions(n)` reports how many automatic candidates are at least a possible match.
+ * References already in the displayed fit (`displayedPhases`) or added by a version are marked
+ * instead of offered again; `onOpenVersion(n)` opens that version.
  */
 export default function PeakCandidatesDrawer({
   taskId, sel, peaks, open, onClose, onPreview, previewRef, onAdd, busy, diagnostics = null, onAddHint, onSuggestions,
-  active = true,
+  active = true, displayedPhases = [], versions = [], onOpenVersion,
 }) {
   const selText = formatSelection(sel) ?? 'best';
   const autoPeaks = significantPeaks(diagnostics);
@@ -145,35 +159,35 @@ export default function PeakCandidatesDrawer({
   React.useEffect(() => { if (onSuggestions) onSuggestions(auto.loading ? 0 : useful); }, [auto.loading, useful]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { if (!open && onPreview) onPreview(null); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const listProps = { previewRef, onPreview, onAdd, busy };
+  const existingOf = ref => existingPhase(ref, displayedPhases, versions);
+  const listProps = { previewRef, onPreview, onAdd, busy, existingOf, onOpenVersion };
   const hints = collectHints(diagnostics);
-  return <Drawer title="Add phase" placement="right" width={480}
+  return <Drawer title="Add phase" placement="right" width={DRAWER_WIDTH}
     open={open} onClose={onClose} keyboard={false} mask={false} destroyOnClose={false} className="dara-peak-drawer">
-    <Typography.Title level={5} style={{ marginTop: 0 }}>Suggested by DARA</Typography.Title>
+    <Typography.Title level={5} style={{ marginTop: 0 }}>Suggestions</Typography.Title>
+    {!hints.length && !autoPeaks.length ? <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>No suggestions for this fit.</Text> : null}
     {hints.length ? <div aria-label="Trace phase hints" style={{ marginBottom: 12 }}>
       {hints.map(hint => {
         const target = refSourceForHint(hint);
+        const existing = existingOf(hint.phase);
         return <div key={hint.phase} style={{ marginBottom: 4 }}>
           <Space wrap size="small">
             <Text>{hintText(hint)}</Text>
-            <Tooltip title={!target ? 'No local CIF is available for this reference.' : busy ? 'A re-refinement is already running.' : 'Add this phase and refine again as a new version'}>
-              <span><Button size="small" type="primary" disabled={!target || busy || !onAddHint} onClick={() => onAddHint(hint, target)}>Add</Button></span>
-            </Tooltip>
+            {existing ? <ExistingMark existing={existing} onOpenVersion={onOpenVersion} />
+              : <Tooltip title={!target ? 'No local CIF is available for this reference.' : busy ? 'A re-refinement is already running.' : 'Add and refine as a new version'}>
+                <span><Button size="small" disabled={!target || busy || !onAddHint} onClick={() => onAddHint(hint, target)}>Add</Button></span>
+              </Tooltip>}
           </Space>
         </div>;
       })}
-    </div> : <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>No trace-phase suggestions for this fit.</Text>}
-    <div aria-label="Significant unexplained peaks" style={{ marginBottom: 16 }}>
-      <Text strong style={{ display: 'block', marginBottom: 4 }}>
-        {autoPeaks.length ? `Matches for the significant unexplained peaks (${peakList(autoPeaks)})` : 'Matches for the significant unexplained peaks'}
-      </Text>
-      {autoPeaks.length
-        ? <CandidateList list="auto" search={auto} peaks={autoPeaks} limit={AUTO_SHOWN} emptyText="No reference matched these peaks." strengthOf={autoStrength} {...listProps} />
-        : <Text type="secondary">This fit has no significant unexplained peaks.</Text>}
-    </div>
-    <Typography.Title level={5}>{peaks?.length ? `Search by clicked peaks (${peakList(peaks)})` : 'Search by clicked peaks'}</Typography.Title>
+    </div> : null}
+    {autoPeaks.length ? <div aria-label="Significant unexplained peaks" style={{ marginBottom: 16 }}>
+      <Text strong style={{ display: 'block', marginBottom: 4 }}>{`Unexplained peaks ${peakList(autoPeaks)}`}</Text>
+      <CandidateList list="auto" search={auto} peaks={autoPeaks} limit={AUTO_SHOWN} emptyText="No reference matched these peaks." strengthOf={autoStrength} {...listProps} />
+    </div> : null}
+    <Typography.Title level={5}>{peaks?.length ? `Clicked peaks ${peakList(peaks)}` : 'Clicked peaks'}</Typography.Title>
     {peaks?.length
       ? <CandidateList list="clicked" search={clicked} peaks={peaks} emptyText="No reference matched the selected peaks." {...listProps} />
-      : <Text type="secondary">Click unexplained peaks in the plot (Shift+click for several) to search for matching phases.</Text>}
+      : <Text type="secondary">Click peaks in the plot (Shift+click adds).</Text>}
   </Drawer>;
 }

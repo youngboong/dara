@@ -3,6 +3,7 @@ import {
   adoptedTag, codCodeFromStem, deltaStrip, deltaText, etaText, formatSelection, isQuickCheck, progressLabel, refineAllRequest, parseSelection,
   plotQuery, refSourceForHint, removeRequest, selectionLabel, swapRequest,
   alternativeOfVerdict, formatSpacegroup, spacegroupOfPhase, swapKind,
+  progressView, runText, existingPhase, refineAllBase, versionReadyText, versionGone, replacementOf,
   BASELINE_LABEL, backgroundRequest, baselineRequest, baselineVersion, comparisonBase, isMissingEndpoint, needsBaseline, selectOptionGroups, selectedPhasesRequest,
 } from '../src/dara/server/ui/src/components/versions.mjs';
 import { adoptedLabel } from '../src/dara/server/ui/src/components/resultsList.mjs';
@@ -145,23 +146,54 @@ assert.equal(adoptedLabel(1).text, 'Candidate (stored #2)');
 assert.equal(adoptedLabel('nonsense'), null);
 
 // --- etaText ----------------------------------------------------------------------------------
-assert.equal(etaText({ status: 'running', eta_s: 20, elapsed_s: 8 }), '≈ 12 s left');
-assert.equal(etaText({ status: 'running', eta_s: 20, elapsed_s: 25 }), '≈ 1 s left');
-assert.equal(etaText({ status: 'running', eta_s: null, elapsed_s: 3 }), 'estimating…', 'no stale number');
-assert.equal(etaText({ status: 'running', eta_s: 200, elapsed_s: 5 }), '≈ 3 min 15 s left');
+// a total estimate, never a countdown; nothing without a comparable estimate
+assert.equal(etaText({ status: 'running', eta_s: 20, elapsed_s: 8 }), 'about 20 s in total');
+assert.equal(etaText({ status: 'running', eta_s: 20, elapsed_s: 20 }), 'about 20 s in total');
+assert.equal(etaText({ status: 'running', eta_s: 20, elapsed_s: 25 }), 'taking longer than usual');
+assert.equal(etaText({ status: 'running', eta_s: null, elapsed_s: 3 }), '', 'no estimate, no text');
+assert.equal(etaText({ status: 'running', eta_s: 0, elapsed_s: 3 }), '');
+assert.equal(etaText({ status: 'running', eta_s: 200, elapsed_s: 5 }), 'about 3 min in total');
 assert.equal(etaText({ status: 'queued', position: 3, ahead: 2 }), 'Queued (2 ahead)');
 assert.equal(etaText({ status: 'queued', position: 1, ahead: 0 }), 'Starting…');
 assert.equal(etaText({ status: 'queued', position: 2 }), 'Queued (1 ahead)', 'older records: position is 1-based');
 assert.equal(etaText({ status: 'queued', position: 1 }), 'Starting…');
 assert.equal(etaText({ status: 'queued', position: 0 }), 'Starting…');
 assert.equal(etaText({ status: 'queued', ahead: 1, ahead_label: 'Baseline (current code)', ahead_elapsed_s: 95 }),
-  'Waiting for Baseline (current code), running 1 min 35 s');
+  'Waiting for Baseline (current code) (running 1 min 35 s)');
 assert.equal(etaText({ status: 'queued', ahead: 2, ahead_label: 'Removed X', ahead_elapsed_s: 0 }), 'Waiting for Removed X + 1 more');
 assert.equal(progressLabel('Added Bi4O7 (peak search)'), 'Adding Bi4O7 (peak search)');
 assert.equal(progressLabel('Swapped A for B'), 'Swapping A for B');
 assert.equal(progressLabel('Baseline (current code)'), 'Baseline (current code)');
 assert.equal(etaText({ status: 'done' }), '');
 assert.equal(etaText(null), '');
+
+// --- progressView: one time value per state, no capped percentage ------------------------------
+{
+  const queued = progressView({ status: 'queued', ahead: 1, ahead_label: 'Baseline (current code)', ahead_elapsed_s: 17 }, 40);
+  assert.equal(queued.stage, 'Waiting for Baseline (current code) (running 17 s)');
+  assert.equal(queued.time, '', 'queued: the queue text is the only time');
+  assert.equal(queued.percent, null);
+  assert.equal(progressView({ status: 'starting' }, 3).time, '');
+  const unknown = progressView({ status: 'running', stage: 'Refining', eta_s: null, eta_n: 0 }, 12.4);
+  assert.deepEqual(unknown, { stage: 'Refining', time: '12 s', note: '', percent: null, basis: null });
+  assert.equal(progressView({ status: 'running', eta_s: null }, 0).time, '0 s');
+  const known = progressView({ status: 'running', stage: 'Refining', eta_s: 40, eta_n: 3 }, 10);
+  assert.equal(known.note, 'about 40 s in total');
+  assert.equal(known.percent, 25);
+  assert.equal(known.basis, 'Estimate from 3 similar earlier runs');
+  const late = progressView({ status: 'running', eta_s: 40, eta_n: 2 }, 55);
+  assert.equal(late.note, 'taking longer than usual');
+  assert.equal(late.percent, null, 'past the estimate: indeterminate bar, never stuck at 95 %');
+  assert.equal(late.time, '55 s');
+  assert.equal(progressView(null), null);
+}
+
+// --- runText ------------------------------------------------------------------------------------
+assert.equal(runText('2026-10-25T09:02:42.305000', 3060), '2026-10-25 09:02, 51 min');
+assert.equal(runText('2026-10-25 09:02:42', 42.4), '2026-10-25 09:02, 42 s');
+assert.equal(runText('2026-10-25 09:02:42', 7300), '2026-10-25 09:02, 2 h 2 min');
+assert.equal(runText('', null), '—');
+assert.equal(runText(undefined, 30), '30 s');
 
 console.log('test_versions_ui ok');
 
@@ -253,4 +285,61 @@ assert.equal(isQuickCheck(quickRows, 'version:3'), false);
 assert.equal(isQuickCheck(quickRows, 'best'), false);
 assert.equal(isQuickCheck(quickRows, 0), false);
 assert.deepEqual(refineAllRequest(2), { base: 'version:2', origin: 'refine_all', label: 'All phases refined (from v2)' });
+
+// the adopted-fit select never offers a quick check
+{
+  const adoptGroups = selectOptionGroups([{ source_index: 0, rwp: 7 }], quickRows, { adoptable: true });
+  assert.deepEqual(adoptGroups[2].options.map(o => o.value), ['version:3']);
+  assert.deepEqual(selectOptionGroups([], quickRows)[2].options.map(o => o.value), ['version:2', 'version:3']);
+  assert.deepEqual(selectOptionGroups([], [{ version: 1 }, { version: 2, refine_mode: 'fast' }], { adoptable: true }).map(g => g.label),
+    ['Best fit', 'Candidates']);
+  // a legacy adopted quick check is shown readably, but cannot be chosen again
+  const legacyGroups = selectOptionGroups([], quickRows, { adoptable: true, current: 'version:2' });
+  assert.deepEqual(legacyGroups[2].options.map(o => [o.value, o.label, Boolean(o.disabled)]),
+    [['version:2', 'v2 (quick check)', true], ['version:3', legacyGroups[2].options[1].label, false]]);
+  assert.deepEqual(selectOptionGroups([], quickRows, { adoptable: true, current: 'version:3' })[2].options.map(o => o.value), ['version:3']);
+}
+
+// the full fit of a quick check is compared with the quick check's own base (the check is removed)
+{
+  const rows = [{ version: 1 }, { version: 2, label: BASELINE_LABEL },
+    { version: 3, refine_mode: 'fast', origin: { kind: 'add_peak_search', base: 'best' } },
+    { version: 4, refine_mode: 'fast', origin: { kind: 'add_hint', base: 'version:3' } },
+    { version: 5, refine_mode: 'fast', origin: { kind: 'add_hint', base: 2 } }];
+  assert.equal(refineAllBase(rows, 3), 'version:2', 'best -> the baseline of the same code');
+  assert.equal(refineAllBase(rows, 4), 'version:3');
+  assert.equal(refineAllBase(rows, 5), 2);
+  assert.equal(refineAllBase([{ version: 1 }], 9), 'best');
+}
+
+// a refined quick check is removed by the server: views and comparisons move to its full fit
+{
+  const rows = [{ version: 1 }, { version: 3, refine_mode: 'full' },
+    { version: 5, origin: { kind: 'refine_all', base: 'version:4' } }, { version: 7, replaces: 6 }];
+  assert.equal(versionGone(rows, 'version:4'), true);
+  assert.equal(versionGone(rows, 'version:3'), false);
+  assert.equal(versionGone(rows, 'best'), false);
+  assert.equal(versionGone(rows, 2), false);
+  assert.equal(versionGone([], 'version:4'), false, 'not loaded yet');
+  assert.equal(replacementOf(rows, 4), 'version:5');
+  assert.equal(replacementOf(rows, 6), 'version:7');
+  assert.equal(replacementOf(rows, 3), 'best');
+}
+
+// duplicate requests reuse a version
+assert.equal(versionReadyText(4, { reused: true }), 'Same fit as v4 — opened it');
+assert.equal(versionReadyText(1, { reused: true }), 'Same fit as the best fit — opened it');
+assert.equal(versionReadyText(5, {}, 6.123), 'Version v5 ready (Rwp 6.12 %)');
+assert.equal(versionReadyText(5, null, null), 'Version v5 ready');
+
+// phases already in the fit or added by a version are not offered again
+{
+  const rows = [{ version: 1, phases: ['A'] }, { version: 3, origin: { added: ['B'] } }, { version: 6, origin: { added: ['B', 'C'] } }];
+  assert.deepEqual(existingPhase('A', ['A'], rows), { label: 'In this fit', version: null });
+  assert.deepEqual(existingPhase('B', ['A'], rows), { label: 'In v6', version: 6 });
+  assert.deepEqual(existingPhase('C', [], rows), { label: 'In v6', version: 6 });
+  assert.equal(existingPhase('D', ['A'], rows), null);
+  assert.equal(existingPhase(undefined, ['A'], rows), null);
+  assert.equal(existingPhase('A', undefined, undefined), null);
+}
 console.log('quick check helpers ok');

@@ -53,8 +53,8 @@ from dara.analysis_range import normalize_excluded_ranges, validate_analysis_ran
 from dara.bgmn_worker import RefinementCancelled
 from dara.cif import Cif
 from dara.cif2str import cif2str
-from dara.final_refinement_spec import build_final_refinement_spec
-from dara.refine import do_refinement, with_single_refinement_threads
+from dara.final_refinement_spec import REFINEMENT_CODE_DATE, build_final_refinement_spec
+from dara.refine import do_refinement, single_refinement_threads, with_single_refinement_threads
 from dara.refinement_controls import RefinementControls
 from dara.selected_refinement import valid_reference_filename
 from dara.server import versions
@@ -226,8 +226,11 @@ class QuickJob:
     created_at: str = field(default_factory=_now_iso)
     started_at: str | None = None
     eta_s: float | None = None
+    eta_n: int = 0  # earlier runs the estimate is based on (0: no estimate)
     error: str | None = None
     version: int | None = None
+    reused: bool = False  # ``version`` is an existing fit with the same inputs (no BGMN run)
+    replaces: int | None = None  # quick-check version superseded (deleted) by this full fit
     timings: dict = field(default_factory=dict)
     # Strong reference to the decoded task document (or, failing that, the raw stored one),
     # taken at POST time so that cache eviction cannot fail a job that is still queued.
@@ -254,8 +257,11 @@ class QuickJob:
             "started_at": self.started_at,
             "elapsed_s": self.elapsed(),
             "eta_s": self.eta_s,
+            "eta_n": self.eta_n,
             "error": self.error,
             "version": self.version,
+            "reused": self.reused,
+            "replaces": self.replaces,
             "label": self.label,
             # ``position`` is 1-based while queued (0 otherwise); ``ahead`` is the number of
             # active jobs in front of this one (a queued job with ahead == 0 starts next).
@@ -754,6 +760,11 @@ def plan_phases(
         raise QuickRefineError("A refinement needs at least one phase.")
     if len(final) > MAX_PHASES:
         raise QuickRefineError(f"At most {MAX_PHASES} phases can be refined together.")
+    # BGMN identifies phases by name; two references with one name would share a .lst section.
+    names = [process_phase_name(stem) for stem in final]
+    clash = next((name for name in names if names.count(name) > 1), None)
+    if clash is not None:
+        raise QuickRefineError(f"Two phases share the BGMN name {clash}; keep only one of them.")
     for stem in final:
         if not valid_reference_filename(stem):
             raise QuickRefineError("Invalid reference CIF filename.")
@@ -860,9 +871,38 @@ def _cleanup_old_runs(task_dir: Path) -> None:
             continue
 
 
+def fit_key(stems: list[str], cif_texts: dict, *, refine_mode: str, base, phase_params,
+            overrides, effective: dict, refinement_params: dict, uploaded: list) -> str:
+    """Digest of everything that decides a re-refinement's result (de-duplication of versions).
+
+    A quick check also depends on the fit it starts from (its base phases are held there).
+    The refinement code date makes an identical request re-run after a refinement upgrade.
+    """
+    payload = {
+        "code": REFINEMENT_CODE_DATE,
+        "phases": sorted(stems),
+        "cifs": {stem: _sha1(cif_texts[stem]) for stem in sorted(stems)},
+        "refine_mode": refine_mode,
+        "base": base if refine_mode == "fast" else None,
+        "phase_params": versions.encode_json(phase_params),
+        "overrides": versions.encode_json(overrides),
+        "effective": versions.encode_json({stem: effective[stem] for stem in stems}),
+        "refinement_params": versions.encode_json(refinement_params),
+        "uploaded": sorted(uploaded),
+    }
+    return _sha1(json.dumps(payload, sort_keys=True, default=str))
+
+
 def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict | None,
-             library: dict, request: QuickRefineRequest) -> dict:
-    """Worker-thread body; returns the version payload (no store access here)."""
+             library: dict, request: QuickRefineRequest, existing: dict | None = None,
+             still_stored=None) -> dict:
+    """Worker-thread body; returns the version payload (no store access here).
+
+    ``existing`` maps the fit keys of stored versions to their numbers; a request whose
+    result is already stored returns ``{"reused": number, ...}`` without running BGMN.
+    ``still_stored(number)`` re-checks that version first (it may have been deleted while
+    the job was queued); the run goes ahead when it is gone.
+    """
     if job.cancel.is_set():
         raise RefinementCancelled("Cancelled before it started.")
     t_start = time.monotonic()
@@ -904,12 +944,25 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
         refinement_params=refinement_params,
     )
     effective = spec.effective_phase_params()
+    fast = is_fast(request)
+    cif_texts = {stem: str(cif) for stem, cif in plan.cifs.items()}
+    key = fit_key(
+        plan.stems, cif_texts, refine_mode="fast" if fast else "full",
+        base=versions.format_selection(selection), phase_params=spec.phase_params,
+        overrides=_spec_overrides(spec), effective=effective,
+        refinement_params=refinement_params, uploaded=uploaded,
+    )
+    replaces = (
+        selection[1] if request.origin == "refine_all" and versions.is_quick_check(base_version) else None
+    )
+    if key in (existing or {}) and (still_stored is None or still_stored(existing[key])):
+        _update(job, stage="Storing version")
+        return {"reused": existing[key], "fit_key": key, "replaces": replaces}
 
     peaks_future = _prep_pool().submit(
         _observed_peaks, task_dir, pattern_path, spec.refinement_kwargs,
         spec.refinement_kwargs.get("refinement_params"),
     )
-    cif_texts = {stem: str(cif) for stem, cif in plan.cifs.items()}
     str_paths = [
         _cached_str(task_dir, stem, cif_texts[stem], effective[stem]) for stem in plan.stems
     ]
@@ -928,7 +981,6 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
     run_kwargs = with_single_refinement_threads(spec.refinement_kwargs)
     run_kwargs["refinement_params"]["itmax"] = QUICK_REFINE_ITMAX
     fixed_stems: list[str] = []
-    fast = is_fast(request)
     if fast:
         raw_lst = getattr(getattr(base_refinement(document, selection, base_version), "lst_data", None), "raw_lst", "")
         kept = [stem for stem in plan.stems if stem not in plan.added]
@@ -979,7 +1031,10 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
         "phases": plan.stems,
         "cifs": new_cifs,
         "uploaded_stems": uploaded,
-        "controls": request.controls.model_dump() if request.controls else None,
+        # The run inherits the base's controls when the request has none; record them too.
+        "controls": (
+            request.controls.model_dump() if request.controls else (base_version or {}).get("controls")
+        ),
         "background": (
             {
                 "degree": refinement_params.get("background_degree"),
@@ -994,6 +1049,9 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
         "elapsed_s": None,
         "bgmn_s": round(bgmn_s, 3),
         "iteration_cap": run_kwargs["refinement_params"]["itmax"],
+        "n_threads": run_kwargs["refinement_params"].get("n_threads"),
+        "fit_key": key,
+        "replaces": replaces,
         # "fast": the base phases were held at the base fit (see FAST_ADD_ITMAX); "full" otherwise.
         "refine_mode": "fast" if fast else "full",
         "fixed_phases": fixed_stems,
@@ -1047,40 +1105,72 @@ def effective_degree(request: QuickRefineRequest, base_version: dict | None, rec
     return params.get("background_degree") if isinstance(params, dict) else None
 
 
-def _eta(task_uuid: str, n_phases: int, degree=_NO_DEGREE) -> float | None:
-    """Median BGMN time of earlier versions; ``None`` ("estimating") when none is comparable.
+ETA_MIN_RUNS = 2
 
-    The run time grows with the number of background terms, so with a known ``degree`` only
-    versions refined with the same degree count - a stale number would be misleading.
+
+def _eta(task_uuid: str, n_phases: int | None, degree=_NO_DEGREE, *,
+         refine_mode: str = "full", n_threads: int | None = None) -> tuple[float | None, int]:
+    """``(median BGMN time, runs)`` of comparable earlier versions; ``(None, 0)`` without.
+
+    Comparable means the same refinement mode (a quick check caps the iterations and holds
+    the base phases), BGMN thread count, resulting phase count and, with a known ``degree``,
+    background degree.  At least ``ETA_MIN_RUNS`` such runs are needed: a single run or a
+    different kind of run makes a misleading estimate.
     """
+    if not n_phases:
+        return None, 0
     try:
         records = versions.list_versions(task_uuid)
     except Exception:  # noqa: BLE001
+        return None, 0
+    pool = [
+        r["bgmn_s"] for r in records
+        if r.get("bgmn_s")
+        and (r.get("refine_mode") or "full") == refine_mode
+        and (n_threads is None or r.get("n_threads") == n_threads)
+        and len(r.get("phases") or []) == n_phases
+        and (degree is _NO_DEGREE or _record_degree(r) == degree)
+    ]
+    if len(pool) < ETA_MIN_RUNS:
+        return None, 0
+    return round(statistics.median(pool), 1), len(pool)
+
+
+def _result_phase_count(request: QuickRefineRequest, record: dict, base_version: dict | None,
+                        document) -> int | None:
+    """Phase count of the fit a request will produce (``None`` when the base is not known)."""
+    selection = versions.parse_selection(request.base)
+    if base_version is not None:
+        base = len(base_version.get("phases") or [])
+    elif isinstance(selection, int):
+        try:
+            base = len(document.results[selection][0]) if document is not None else 0
+        except (AttributeError, IndexError, TypeError):
+            base = 0
+    else:
+        base = len((record.get("summary") or {}).get("final_phases") or [])
+    if not base:
         return None
-    if degree is not _NO_DEGREE:
-        records = [r for r in records if _record_degree(r) == degree]
-    same = [r["bgmn_s"] for r in records if r.get("bgmn_s") and len(r.get("phases") or []) == n_phases]
-    anyv = [r["bgmn_s"] for r in records if r.get("bgmn_s")]
-    pool = same or anyv
-    return round(statistics.median(pool), 1) if pool else None
+    return base - len(request.remove) + len(request.phases)
 
 
-async def _finish(job: QuickJob, future, task_index: int) -> None:
+async def _finish(job: QuickJob, future, task_index: int, rerun=None) -> None:
     """Persist the outcome on the event-loop thread (the only thread allowed to open stores)."""
     try:
-        await _finish_inner(job, future, task_index)
+        await _finish_inner(job, future, task_index, rerun)
     finally:
         job.document = job.raw = None  # release the strong references
         if job.discarded:  # a running job may have written files after the task was deleted
             shutil.rmtree(task_cache(job.task_uuid), ignore_errors=True)
 
 
-async def _finish_inner(job: QuickJob, future, task_index: int) -> None:
+async def _await_outcome(job: QuickJob, future) -> dict | None:
+    """The worker's payload, or ``None`` once a cancellation or failure is recorded."""
     try:
         payload = await future
     except RefinementCancelled:
         _update(job, status="cancelled", stage="Done", error=None)
-        return
+        return None
     except asyncio.CancelledError:
         _update(job, status="cancelled", stage="Done")
         raise
@@ -1088,39 +1178,127 @@ async def _finish_inner(job: QuickJob, future, task_index: int) -> None:
         logger.info("Quick refinement %s failed", job.job_id, exc_info=True)
         message = str(exc).strip().splitlines()[0] if str(exc).strip() else exc.__class__.__name__
         _update(job, status="failed", stage="Done", error=message[:500])
-        return
+        return None
     if job.cancel.is_set() or job.discarded:
         _update(job, status="cancelled", stage="Done")
+        return None
+    return payload
+
+
+def _matching_version(task_uuid: str, payload: dict) -> int | None:
+    """Stored version with the payload's fit (``None`` when there is none or it was deleted)."""
+    candidates = (payload.get("reused"), _stored_versions_by_key(task_uuid).get(payload.get("fit_key")))
+    for number in candidates:
+        if number is None:
+            continue
+        try:
+            versions.load_version(task_uuid, number, light=True)
+        except HTTPException:
+            continue
+        return number
+    return None
+
+
+async def _finish_inner(job: QuickJob, future, task_index: int, rerun=None) -> None:
+    payload = await _await_outcome(job, future)
+    if payload is None:
         return
     try:
-        payload["created_at"] = versions.utc_now()
-        number = versions.save_version(job.task_uuid, task_index, payload)
+        # Another job may have stored the same fit while this one ran: keep the stored one.
+        number = _matching_version(job.task_uuid, payload)
+        if number is None and "result" not in payload and rerun is not None:
+            # The version to reuse was deleted after the worker checked it: refine after all.
+            payload = await _await_outcome(job, rerun())
+            if payload is None:
+                return
+            number = _matching_version(job.task_uuid, payload)
+        if number is not None:
+            reused = True
+        elif "result" not in payload:  # last resort: nothing to reuse and no fit to store
+            _update(job, status="failed", stage="Done",
+                    error="The matching version was deleted meanwhile; run the re-refinement again.")
+            return
+        else:
+            payload["created_at"] = versions.utc_now()
+            number = versions.save_version(job.task_uuid, task_index, payload)
+            reused = False
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not store version for %s", job.job_id, exc_info=True)
         _update(job, status="failed", stage="Done", error=f"Could not store the result: {exc}"[:500])
         return
-    _update(job, status="done", stage="Done", version=number)
+    replaces = payload.get("replaces")
+    if replaces is not None and replaces != number:
+        _retire_quick_check(job.task_uuid, replaces)
+    _update(job, status="done", stage="Done", version=number, reused=reused, replaces=replaces)
 
 
-def _load_completed(task_id: int) -> dict:
+def _still_stored_check(loop, task_uuid: str):
+    """``number -> bool`` for worker threads: looks the version up on the event-loop thread."""
+
+    def still_stored(number: int) -> bool:
+        async def check() -> bool:
+            try:
+                versions.load_version(task_uuid, number, light=True)
+            except HTTPException:
+                return False
+            return True
+
+        try:
+            return asyncio.run_coroutine_threadsafe(check(), loop).result(timeout=30)
+        except Exception:  # noqa: BLE001  (loop closing: the finish step re-checks)
+            return True
+
+    return still_stored
+
+
+def _stored_versions_by_key(task_uuid: str) -> dict:
+    """``fit_key -> version number`` of the stored versions (older records have no key)."""
+    out: dict = {}
+    for item in versions.list_versions(task_uuid):
+        if item.get("fit_key"):
+            out.setdefault(item["fit_key"], item["version"])
+    return out
+
+
+def _retire_quick_check(task_uuid: str, number: int) -> None:
+    """Delete the quick check a full fit was made from (it is superseded; never adoptable)."""
+    try:
+        record = versions.load_version(task_uuid, number, light=True)
+        if not versions.is_quick_check(record):
+            return
+        versions.tombstone_version(task_uuid, number)
+        from dara.server import api_router
+
+        api_router._version_plot_json.cache_clear()
+    except Exception:  # noqa: BLE001 - the new version is stored either way
+        logger.debug("Could not retire quick check %s", number, exc_info=True)
+
+
+COMPLETED_ONLY_MESSAGE = "Wait for the task to complete first."
+
+
+def completed_task(task_id: int) -> dict:
+    """Worker record of a COMPLETED task (404 / 409 otherwise).  Event-loop thread only."""
     with get_worker_store() as store:
         record = store.query_one({"index": task_id})
     if record is None:
         raise HTTPException(404, "Task not found")
     if record.get("status") != "COMPLETED":
-        raise HTTPException(409, "Wait for the task to complete before re-refining.")
+        raise HTTPException(409, COMPLETED_ONLY_MESSAGE)
     return record
 
 
 async def submit_quick_refine(task_id: int, request: QuickRefineRequest) -> dict:
     """Queue a quick refinement; returns as soon as the job is scheduled."""
-    record = _load_completed(task_id)
+    record = completed_task(task_id)
     if _queued_count() >= MAX_QUEUED:
         raise HTTPException(429, "Too many re-refinements are waiting; try again shortly.")
     selection = versions.parse_selection(request.base)
     base_version = (
         versions.load_version(record["uuid"], selection[1]) if isinstance(selection, tuple) else None
     )
+    if request.origin == "refine_all" and not versions.is_quick_check(base_version):
+        raise HTTPException(409, "Refine all phases starts from a quick-check version.")
     library: dict = {}
     wanted = [m.group(1) for p in request.phases if (m := LIBRARY_SOURCE_RE.match(p.source))]
     if wanted:
@@ -1140,20 +1318,31 @@ async def submit_quick_refine(task_id: int, request: QuickRefineRequest) -> dict
     decoded, raw = _document_handles(record["uuid"])
     job = _new_job(task_id, record["uuid"], default_label(request))
     job.document, job.raw = decoded, raw
-    job.eta_s = _eta(
-        record["uuid"], len(base_version["phases"]) if base_version else 0,
+    job.eta_s, job.eta_n = _eta(
+        record["uuid"], _result_phase_count(request, record, base_version, decoded),
         effective_degree(request, base_version, record),
+        refine_mode="fast" if is_fast(request) else "full",
+        n_threads=single_refinement_threads(),
     )
+    existing = _stored_versions_by_key(record["uuid"])
     _persist(job)
     loop = asyncio.get_running_loop()
+
+    def rerun():
+        """Run BGMN after all (the version this job was to reuse was deleted meanwhile)."""
+        return loop.run_in_executor(
+            _refine_pool(), _run_job, job, dict(record), raw, base_version, library, request,
+        )
+
     try:
         future = loop.run_in_executor(
-            _refine_pool(), _run_job, job, dict(record), raw, base_version, library, request
+            _refine_pool(), _run_job, job, dict(record), raw, base_version, library, request,
+            existing, _still_stored_check(loop, record["uuid"]),
         )
     except RuntimeError as exc:
         _update(job, status="failed", stage="Done", error="The server is shutting down.")
         raise HTTPException(503, "The server is shutting down.") from exc
-    task = asyncio.create_task(_finish(job, future, record["index"]))
+    task = asyncio.create_task(_finish(job, future, record["index"], rerun))
     _TASKS.add(task)
     task.add_done_callback(_TASKS.discard)
     position = self_position(job)
@@ -1161,6 +1350,7 @@ async def submit_quick_refine(task_id: int, request: QuickRefineRequest) -> dict
         "job_id": job.job_id,
         "status": "queued",
         "eta_s": job.eta_s,
+        "eta_n": job.eta_n,
         "position": position,
         "ahead": max(0, position - 1),
     }
@@ -1301,3 +1491,9 @@ async def load_document(task_uuid: str):
     ready, raw = _document_handles(task_uuid)
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _DOCUMENTS.get, task_uuid, raw, ready)
+
+
+async def load_completed(task_id: int) -> tuple[dict, Any]:
+    """``(worker record, decoded document)`` of a COMPLETED task (cached document)."""
+    record = completed_task(task_id)
+    return record, await load_document(record["uuid"])

@@ -374,8 +374,12 @@ def _simulated_reference(cif, stem: str, ctx: _PeakContext, window, *, compute: 
     return result
 
 
-def _simulate_references_in_background(todo: list, ctx: _PeakContext, window) -> None:
-    """Fill the reference memo for ``todo`` ``[(cif, stem)]`` on the low-priority worker."""
+def _simulate_references_in_background(todo: list, ctx: _PeakContext, window) -> bool:
+    """Fill the reference memo for ``todo`` ``[(cif, stem)]`` on the low-priority worker.
+
+    Returns whether that job is queued or running now (``False`` once the worker is stopped,
+    so the hints are not reported as pending forever).
+    """
 
     def job() -> None:
         for cif, stem in todo:
@@ -387,6 +391,7 @@ def _simulate_references_in_background(todo: list, ctx: _PeakContext, window) ->
     key = ("references", ctx.job_key, round(ctx.wavelength["alpha1_a"], 5),
            round(window[0], 1), round(window[1], 1))
     peak_significance.submit_background(key, job)
+    return peak_significance.has_pending(key)
 
 
 def _reference_patterns(document, refinement, ctx: _PeakContext) -> list[dict]:
@@ -434,12 +439,15 @@ def _reference_patterns(document, refinement, ctx: _PeakContext) -> list[dict]:
             "two_theta": simulated[0],
             "intensity": simulated[1],
         })
-    if todo:
-        _simulate_references_in_background(todo, ctx, window)
+    if todo and _simulate_references_in_background(todo, ctx, window):
         ctx.hints_pending = True
     cod = ctx.cod_patterns(refinement)
-    if cod is None and background and ctx.wavelength is not None and peak_significance.has_pending():
-        ctx.hints_pending = True  # the COD pool is still being simulated
+    if cod is None and background and peak_significance.cod_pool_pending(
+        getattr(document, "elements", None) or [], getattr(document, "precursors", None) or [],
+        ctx.wavelength["alpha1_a"], window,
+    ):
+        # This document's COD pool is still being simulated (other tasks' jobs do not count).
+        ctx.hints_pending = True
     patterns.extend(cod or [])
     return patterns
 
@@ -2075,6 +2083,23 @@ def _csv_response(content: bytes, filename: str) -> Response:
     )
 
 
+def _adopted_version_record(job: dict) -> dict | None:
+    """Stored record of the adopted re-refinement (``version:<n>``; never a quick check)."""
+    selection = (job.get("review") or {}).get("selection")
+    if not (isinstance(selection, str) and selection.startswith("version:")):
+        return None
+    from dara.server import versions
+
+    try:
+        parsed = versions.parse_selection(selection)
+        if parsed == "best":
+            return None
+        record = versions.load_version(job["uuid"], parsed[1], light=True)
+    except HTTPException:
+        return None  # the adopted version was deleted
+    return None if versions.is_quick_check(record) else record
+
+
 @router.get("/task/{task_id}/table.csv")
 async def download_task_table(task_id: int):
     """Flat CSV with one row per (candidate, phase) of a completed task."""
@@ -2085,7 +2110,7 @@ async def download_task_table(task_id: int):
     if job["status"] != "COMPLETED":
         raise HTTPException(status_code=409, detail="Only completed tasks can be exported")
     summary = await result(task_id)
-    rows = task_table_rows(task_id, job, summary)
+    rows = task_table_rows(task_id, job, summary, _adopted_version_record(job))
     filename = f"dara_task_{task_id}_{_safe_download_name(job['job']['name'])}_table.csv"
     return _csv_response(rows_to_csv(rows, TABLE_COLUMNS), filename)
 

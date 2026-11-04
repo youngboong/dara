@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from fastapi import FastAPI
 
-from dara.server import review_router
+from dara.server import quick_refine, review_router
 
 
 class ASGIClient:
@@ -104,8 +104,9 @@ def context(monkeypatch):
             task.update(deepcopy(value))
 
     monkeypatch.setattr(review_router, "get_worker_store", lambda: Store("worker"))
-    monkeypatch.setattr(review_router, "get_result_store", lambda: Store("result"))
-    monkeypatch.setattr(review_router, "MontyDecoder", lambda: SimpleNamespace(process_decoded=lambda output: output))
+    monkeypatch.setattr(quick_refine, "get_worker_store", lambda: Store("worker"))
+    monkeypatch.setattr(quick_refine, "get_result_store", lambda: Store("result"))
+    monkeypatch.setattr(quick_refine, "MontyDecoder", lambda: SimpleNamespace(process_decoded=lambda output: output))
     app = FastAPI()
     app.include_router(review_router.router)
     return ASGIClient(app), task, doc

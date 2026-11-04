@@ -1,20 +1,24 @@
 import React from 'react';
 import { Alert, Button, Dropdown, Space, Tag, Tooltip } from 'antd';
-import { DownOutlined, ExportOutlined, FileImageOutlined } from '@ant-design/icons';
+import { DownloadOutlined, DownOutlined } from '@ant-design/icons';
 import {
   EXPORT_FORMATS, displacementTag, evidenceLines, exportHref, figureHref, overallAlertType,
-  overallColor, reasonsText, screeningTags, verdictColor,
+  overallColor, reasonsText, reasonsWithoutPeaks, screeningTags, verdictColor,
 } from './confidence.mjs';
 
-const API = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
+import { API } from './QuickRefineProgress';
+import { downloadReport } from './ResultWorkflows';
 
 const lines = values => <div style={{ whiteSpace: 'pre-line' }}>{values.join('\n')}</div>;
 
-/** Overall banner at the top of a completed result; nothing for tasks without confidence data. */
-export function ConfidenceBanner({ confidence, action = null }) {
+/**
+ * Overall banner at the top of a completed result; nothing for tasks without confidence data.
+ * `omitPeakReasons` leaves out the unexplained-peak reasons where a peak-diagnostics row shows them.
+ */
+export function ConfidenceBanner({ confidence, action = null, omitPeakReasons = false }) {
   const overall = confidence?.overall;
   if (!overall?.level) return null;
-  const reasons = reasonsText(overall);
+  const reasons = omitPeakReasons ? reasonsWithoutPeaks(overall) : reasonsText(overall);
   return <Alert
     style={{ marginBottom: 16 }}
     showIcon
@@ -66,17 +70,25 @@ export function ScreeningTags({ candidateSummary }) {
   </Space>;
 }
 
-/** Figure (PNG/SVG) and structure-export downloads for one result selection. */
-export function FigureExportActions({ taskId, selection, size }) {
-  const items = EXPORT_FORMATS.map(format => ({
-    key: format.key,
-    label: <a href={exportHref(API, taskId, format.key, selection)}>{format.label}</a>,
-  }));
-  return <>
-    <Button size={size} icon={<FileImageOutlined />} href={figureHref(API, taskId, 'png', selection)}>Figure (PNG)</Button>
-    <Button size={size} icon={<FileImageOutlined />} href={figureHref(API, taskId, 'svg', selection)}>Figure (SVG)</Button>
-    <Dropdown menu={{ items }} trigger={['click']}>
-      <Button size={size} icon={<ExportOutlined />}>Export for… <DownOutlined /></Button>
-    </Dropdown>
-  </>;
+/**
+ * One "Download" dropdown for a result selection: report, figure (PNG/SVG), export for other
+ * programs, plus `extraItems` (`{key, label, onClick?}`). `selection` undefined = the adopted fit.
+ * `blocked` (a reason) disables the whole menu, e.g. for a quick check; `reportBlocked` only the report.
+ */
+export function DownloadMenu({ taskId, selection, size, blocked = null, reportBlocked = null, extraItems = [], label = 'Download' }) {
+  const items = [
+    { key: 'report', disabled: Boolean(reportBlocked), label: reportBlocked ? `Report (${reportBlocked})` : 'Report (HTML)' },
+    { key: 'png', label: <a href={figureHref(API, taskId, 'png', selection)}>Figure (PNG)</a> },
+    { key: 'svg', label: <a href={figureHref(API, taskId, 'svg', selection)}>Figure (SVG)</a> },
+    { key: 'export', label: 'Export for…', children: EXPORT_FORMATS.map(format => ({
+      key: `export:${format.key}`, label: <a href={exportHref(API, taskId, format.key, selection)}>{format.label}</a> })) },
+    ...extraItems.map(({ onClick, ...item }) => item),
+  ];
+  const onClick = ({ key }) => {
+    if (key === 'report') downloadReport(taskId, selection);
+    extraItems.find(item => item.key === key)?.onClick?.();
+  };
+  const button = <Button size={size} icon={<DownloadOutlined />} disabled={Boolean(blocked)}>{label} <DownOutlined /></Button>;
+  if (blocked) return <Tooltip title={blocked}><span>{button}</span></Tooltip>;
+  return <Dropdown menu={{ items, onClick }} trigger={['click']}>{button}</Dropdown>;
 }

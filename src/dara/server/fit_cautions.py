@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 import tempfile
+import threading
 from collections import OrderedDict
 from html import unescape
 from pathlib import Path
@@ -342,6 +343,8 @@ _PARAM_PATTERN = re.compile(
 )
 _LATTICE_FLAG_CACHE: OrderedDict[str, list[dict]] = OrderedDict()
 _LATTICE_FLAG_CACHE_SIZE = 32
+# Reached from request handlers (event loop) and version summaries (worker threads).
+_LATTICE_FLAG_LOCK = threading.Lock()
 
 
 def _cif_keys(cif) -> set[str]:
@@ -482,22 +485,26 @@ def lattice_bound_flags(refinement, reference_cifs, lattice_range) -> list[dict]
 
 def cached_lattice_flags(task_uuid, compute) -> list[dict]:
     """Memoize ``compute()`` per task so repeated page loads do not rerun cif2str."""
-    if task_uuid is not None and task_uuid in _LATTICE_FLAG_CACHE:
-        _LATTICE_FLAG_CACHE.move_to_end(task_uuid)
-        return _LATTICE_FLAG_CACHE[task_uuid]
+    if task_uuid is not None:
+        with _LATTICE_FLAG_LOCK:
+            if task_uuid in _LATTICE_FLAG_CACHE:
+                _LATTICE_FLAG_CACHE.move_to_end(task_uuid)
+                return _LATTICE_FLAG_CACHE[task_uuid]
     try:
         flags = list(compute() or [])
     except Exception:
         flags = []
     if task_uuid is not None:
-        _LATTICE_FLAG_CACHE[task_uuid] = flags
-        while len(_LATTICE_FLAG_CACHE) > _LATTICE_FLAG_CACHE_SIZE:
-            _LATTICE_FLAG_CACHE.popitem(last=False)
+        with _LATTICE_FLAG_LOCK:
+            _LATTICE_FLAG_CACHE[task_uuid] = flags
+            while len(_LATTICE_FLAG_CACHE) > _LATTICE_FLAG_CACHE_SIZE:
+                _LATTICE_FLAG_CACHE.popitem(last=False)
     return flags
 
 
 def clear_lattice_flag_cache(task_uuid=None) -> None:
-    if task_uuid is None:
-        _LATTICE_FLAG_CACHE.clear()
-    else:
-        _LATTICE_FLAG_CACHE.pop(task_uuid, None)
+    with _LATTICE_FLAG_LOCK:
+        if task_uuid is None:
+            _LATTICE_FLAG_CACHE.clear()
+        else:
+            _LATTICE_FLAG_CACHE.pop(task_uuid, None)

@@ -37,7 +37,7 @@ function EditorForm({ busy, getView, onSubmit, baseDegree }) {
       </div>
       <div>
         <strong>Exclude a hump</strong>
-        <div><Text type="secondary">2θ intervals left out of the fit, for example an amorphous hump.</Text></div>
+        <div><Text type="secondary">2θ intervals excluded from the fit</Text></div>
         {ranges.map((range, index) => <Space key={index} style={{ marginTop: 6 }}>
           <InputNumber aria-label={`Excluded interval ${index + 1} from`} value={range[0]} step={0.5} onChange={value => setRange(index, 0, value)} />
           <span>–</span>
@@ -52,7 +52,6 @@ function EditorForm({ busy, getView, onSubmit, baseDegree }) {
           </Space>
         </div>
       </div>
-      <Text type="secondary">Changing the background or excluded ranges changes Rwp; compare fits made with the same settings.</Text>
       <Button type="primary" disabled={!request || invalid || busy} loading={busy}
         onClick={() => onSubmit(request.background, request.label)}>Re-refine</Button>
     </Space>

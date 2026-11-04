@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  cautionSortValue, cautionTagColor, cautionTooltip, countCautions, sortCautions,
+  cautionSortValue, cautionTagColor, cautionTooltip, cautionsBesideBanner, countCautions, sortCautions,
 } from '../src/dara/server/ui/src/components/fitCautions.mjs';
 import {
   adoptedLabel, formatFixed, phasesLabel, phasesTooltip, tasksQuery,

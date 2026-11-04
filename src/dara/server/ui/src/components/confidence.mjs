@@ -149,6 +149,14 @@ export function reasonsText(confidenceItem) {
   return reasons.map(reasonText).filter(Boolean);
 }
 
+// Unexplained and instrument-line peak reasons; the "Peak diagnostics" row lists those peaks.
+const PEAK_REASON = /\bunexplained peaks?\b|\bweak peaks? match(es)?\b/i;
+
+/** ``reasonsText`` without the peak reasons, for a view that shows the peak diagnostics already. */
+export function reasonsWithoutPeaks(confidenceItem) {
+  return reasonsText(confidenceItem).filter(text => !PEAK_REASON.test(text));
+}
+
 export const EXPORT_FORMATS = [
   { key: 'profex', label: 'Profex / BGMN (.sav + .str)' },
   { key: 'topas', label: 'TOPAS (.inp starting model)' },
