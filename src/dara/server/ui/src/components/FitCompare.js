@@ -2,10 +2,10 @@ import React from 'react';
 import Loadable from 'react-loadable';
 import { Alert, Button, Modal, Select, Space, Spin, Table, Tag, Tooltip } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
-import usePlotView, { NAVIGATION_CONFIG, NAVIGATION_HELP } from './usePlotView';
+import usePlotView, { NAVIGATION_CONFIG, NAVIGATION_DRAGMODE, NAVIGATION_HELP } from './usePlotView';
 import { addDSpacingHover } from './plotNavigation.mjs';
 import { NOT_AVAILABLE, requestJson } from './QuickRefineProgress';
-import { QUICK_CHECK_HINT, REFINE_ALL_FIRST, formatSelection, formulaOfPhase, isQuickCheck, selectOptionGroups, selectionLabel } from './versions.mjs';
+import { QUICK_CHECK_HINT, REFINE_ALL_FIRST, formatSelection, isQuickCheck, selectOptionGroups, selectionLabel, weightRows } from './versions.mjs';
 
 const Plot = Loadable({ loader: () => import('./RefinementPlotly'), loading: () => <Spin /> });
 
@@ -40,7 +40,9 @@ function regionBounds(region) {
 export default function FitCompare({ taskId, a, b, open, onClose, onAdoptB, adopting, onViewB, allResults = [], versions = [], onSelect }) {
   const [data, setData] = React.useState(null);
   const [error, setError] = React.useState('');
-  const view = usePlotView();
+  // The view starts at (and never leaves) the measured 2θ range, not Plotly's padded autorange.
+  const xs = data?.x || [];
+  const view = usePlotView(xs.length > 1 ? [Number(xs[0]), Number(xs[xs.length - 1])] : null);
   const selA = formatSelection(a);
   const selB = formatSelection(b);
   React.useEffect(() => {
@@ -62,14 +64,14 @@ export default function FitCompare({ taskId, a, b, open, onClose, onAdoptB, adop
   const labelB = selectionLabel(selB, names) || String(selB);
   const quickA = isQuickCheck(versions, selA) || data?.a?.refine_mode === 'fast';
   const quickB = isQuickCheck(versions, selB) || data?.b?.refine_mode === 'fast';
-  const weightPhases = data ? [...new Set([...Object.keys(data.a?.weight_percent || {}), ...Object.keys(data.b?.weight_percent || {})])] : [];
+  // one row per compound: the same phase from another database record shares it
+  const weights = data ? weightRows(data.a, data.b) : [];
   const massBalance = data && (data.a?.mass_balance?.level || data.b?.mass_balance?.level);
   const rows = data ? [
     { key: 'rwp', metric: 'Rwp (%)', a: fixed(data.a?.rwp), b: fixed(data.b?.rwp) },
     { key: 'gof', metric: 'GOF', a: fixed(data.a?.gof), b: fixed(data.b?.gof) },
-    ...weightPhases.map(phase => ({ key: `wt:${phase}`, metric: `${formulaOfPhase(phase)} (wt%)`, title: phase,
-      a: data.a?.weight_percent?.[phase] == null ? '—' : fixed(data.a.weight_percent[phase]),
-      b: data.b?.weight_percent?.[phase] == null ? '—' : fixed(data.b.weight_percent[phase]) })),
+    ...weights.map(row => ({ key: `wt:${row.key}`, metric: `${row.formula} (wt%)`, title: row.names.join(' / '),
+      a: fixed(row.a), b: fixed(row.b) })),
     ...(massBalance ? [{ key: 'mb', metric: 'Mass balance', a: massBalanceText(data.a?.mass_balance), b: massBalanceText(data.b?.mass_balance) }] : []),
     { key: 'unexplained', metric: 'Unexplained peaks', a: count(data.a?.n_unexplained), b: count(data.b?.n_unexplained) },
     { key: 'cautions', metric: 'Cautions', a: count(data.a?.cautions), b: count(data.b?.cautions) },
@@ -118,13 +120,16 @@ export default function FitCompare({ taskId, a, b, open, onClose, onAdoptB, adop
           { x: data.x, y: data.a_residual, name: 'A obs − calc', type: 'scatter', mode: 'lines', xaxis: 'x2', yaxis: 'y2', line: { color: '#1677ff' } },
           { x: data.x, y: data.b_residual, name: 'B obs − calc', type: 'scatter', mode: 'lines', xaxis: 'x2', yaxis: 'y2', line: { color: '#e67700', dash: 'dash' } },
         ], data.wavelength_angstrom)}
-        layout={{ autosize: true, margin: { l: 80, r: 30, t: 50, b: 65 }, legend: { orientation: 'h', y: 1.1 }, hovermode: 'x unified', dragmode: 'pan',
+        layout={{ autosize: true, margin: { l: 80, r: 30, t: 50, b: 65 }, legend: { orientation: 'h', y: 1.1 }, hovermode: 'x unified', dragmode: NAVIGATION_DRAGMODE,
           shapes,
-          xaxis: { domain: [0, 1], anchor: 'y', title: '2θ (°)', showticklabels: true, ...view.xaxis },
+          // One 2θ title, under the lower panel: the upper panel keeps its tick labels only.
+          xaxis: { domain: [0, 1], anchor: 'y', showticklabels: true, ...view.xaxis },
           xaxis2: { domain: [0, 1], anchor: 'y2', matches: 'x', title: '2θ (°)', showticklabels: true, ...view.xaxis },
-          yaxis: { domain: [0.43, 1], title: 'Intensity', ...view.yaxis }, yaxis2: { domain: [0, 0.26], title: 'Obs − calc', zeroline: true },
+          yaxis: { domain: [0.40, 1], title: 'Intensity', ...view.yaxis },
+          // The residual intensity stays fixed: box zoom there is a 2θ band.
+          yaxis2: { domain: [0, 0.28], title: 'Obs − calc', zeroline: true, fixedrange: true },
           uirevision: `${selA}-${selB}:${view.revision}` }}
-        onRelayout={view.onRelayout} onDoubleClick={() => view.reset()}
+        xBounds={view.full} onRelayout={view.onRelayout} onDoubleClick={() => view.reset()}
         config={{ responsive: true, displaylogo: false, ...NAVIGATION_CONFIG, toImageButtonOptions: { format: 'svg', filename: `task_${taskId}_fit_compare` } }} />
       {regions.length ? <Space wrap style={{ marginTop: 8 }}>
         <Tooltip title="Model-disagreement regions, not proof of unique diagnostic reflections. Click to zoom.">

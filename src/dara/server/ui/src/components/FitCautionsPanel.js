@@ -12,7 +12,7 @@ export default function FitCautions({ cautions, style, besideBanner = false }) {
   const items = cautionsBesideBanner(cautions, besideBanner);
   if (!items.length) return null;
   return (
-    <div style={{ marginTop: 8, ...style }}>
+    <div className="dara-note-group" style={{ marginTop: 8, ...style }}>
       <Tooltip title="Automated checks, not a verdict">
         <Text strong style={{ display: 'inline-block', marginBottom: 4 }}>Cautions</Text>
       </Tooltip>

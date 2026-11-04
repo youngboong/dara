@@ -73,7 +73,7 @@ export function ReviewPanel({ data, review, versions = [] }) {
   const groups = selectOptionGroups(data.all_results, versions, { adoptable: true, current: review.selection });
   const saved = review.saved.selection;
   const savedLabel = saved == null ? 'Not adopted yet' : selectionLabel(saved, { all_results: data.all_results, versions }) || String(saved);
-  return <section aria-label="Result review" style={{ marginBottom: 20, padding: 16, border: '1px solid #d9d9d9', borderRadius: 6 }}>
+  return <section aria-label="Result review" className="dara-panel" style={{ marginBottom: 20, padding: 16, border: '1px solid #d9d9d9', borderRadius: 6 }}>
     <h3>Adopted fit &amp; notes</h3>
     {review.error ? <Alert type="error" showIcon message={review.error} /> : null}
     <Space wrap style={{ marginBottom: 12 }}>

@@ -148,7 +148,8 @@ def test_report_defaults_to_adoption_and_escapes_all_user_content(context):
     response = client.get("/api/task/9/report")
     assert response.status_code == 200
     assert "candidate_2_report.html" in response.headers["Content-Disposition"]
-    assert "Result shown: candidate 2, adopted by the user" in response.text
+    # stored result 2 repeats the phases of result 1: labelled by its displayed candidate
+    assert "Result shown: candidate 1 (stored #2), adopted by the user" in response.text
     assert '<script>' not in response.text
     assert "&lt;script&gt;" in response.text
     assert '<svg ' in response.text

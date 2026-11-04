@@ -229,10 +229,26 @@ def task_table_rows(
         )
     for number, candidate in enumerate(summary.get("all_results") or [], start=1):
         source_index = candidate.get("source_index", number - 1)
-        rows += _rows_for_result(
-            task_id, name, str(number), source_index,
-            _is_adopted(selection, "candidate", source_index), candidate,
+        label = str(number)
+        adopted = _is_adopted(selection, "candidate", source_index)
+        member = None if adopted else next(
+            (
+                item
+                for item in candidate.get("merged_results") or []
+                if _is_adopted(selection, "candidate", item.get("source_index"))
+            ),
+            None,
         )
+        if member is not None:
+            # the adopted result is this candidate refined with another database record;
+            # same wording as the UI, without the leading "Candidate"
+            from dara.server.versions import merged_label
+
+            label = merged_label(
+                number, member.get("source_index"), member.get("differing_phases")
+            ).removeprefix("Candidate ")
+            adopted = True
+        rows += _rows_for_result(task_id, name, label, source_index, adopted, candidate)
     return rows
 
 

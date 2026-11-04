@@ -76,6 +76,7 @@ from dara.utils import (
     get_head_of_compositional_cluster,
 )
 from dara.xrd import (
+    SUPPORTED_PATTERN_EXTENSIONS,
     get_xrdml_metadata,
     load_pattern,
     recommend_xrdml_instrument_profile,
@@ -250,6 +251,20 @@ def _peak_diagnostics(refinement, missing=None, extra=None, mismatch=None) -> di
         **values,
         "counts": {key: len(value or []) for key, value in values.items()},
     }
+
+
+def unexplained_count(diagnostics) -> int | None:
+    """Unexplained peaks as on the task card: significant + minor (instrument/noise peaks
+    excluded); the raw missing-peak count for payloads without the classification."""
+    diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+    by_class = diagnostics.get("counts_by_class")
+    if isinstance(by_class, dict):
+        try:
+            return int(by_class.get("significant") or 0) + int(by_class.get("minor") or 0)
+        except (TypeError, ValueError):
+            pass
+    missing = (diagnostics.get("counts") or {}).get("missing")
+    return missing if isinstance(missing, int) and not isinstance(missing, bool) else None
 
 
 # ---------------------------------------------------------------------------
@@ -1406,13 +1421,26 @@ def _counts_like(document) -> bool | None:
         return None
 
 
+def _matching_result_index(document, refinement) -> int | None:
+    """Search result with ``refinement``'s phases: same references first, else same identities."""
+    names = list(refinement.lst_data.phases_results)
+    results = list(getattr(document, "results", None) or [])
+    exact, wanted = tuple(sorted(names)), _search_result_key(names)
+    for index, (_, candidate) in enumerate(results):
+        if tuple(sorted(candidate.lst_data.phases_results)) == exact:
+            return index
+    for index, (_, candidate) in enumerate(results):
+        if _search_result_key(list(candidate.lst_data.phases_results)) == wanted:
+            return index
+    return None
+
+
 def _matching_candidate_cifs(document, refinement) -> list[Cif]:
-    """CIFs of the displayed result whose phase set equals ``refinement``'s phases."""
+    """CIFs of the search result whose phase set equals ``refinement``'s phases."""
     try:
-        wanted = _search_result_key(list(refinement.lst_data.phases_results))
-        for cifs, candidate in getattr(document, "results", None) or []:
-            if _search_result_key(list(candidate.lst_data.phases_results)) == wanted:
-                return _flatten_cifs(cifs)
+        index = _matching_result_index(document, refinement)
+        if index is not None:
+            return _flatten_cifs(document.results[index][0])
     except Exception:
         logger.debug("Could not match the final result to a candidate", exc_info=True)
     return []
@@ -1625,6 +1653,16 @@ def _mass_balance_block(
     return block
 
 
+def _weight_percent(refinement) -> dict:
+    try:
+        return {
+            phase: round(fraction * 100, 4)
+            for phase, fraction in refinement.get_phase_weights().items()
+        }
+    except (TypeError, ValueError, ZeroDivisionError):
+        return {}
+
+
 def summarize_document(job: dict, document, *, persist_summary: bool = True) -> dict:
     """Return the COMPLETED-task payload served by GET /api/task/{id}.
 
@@ -1642,16 +1680,20 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
 
     all_results = []
     evidence_rows = []
-    equivalent_result_indexes: dict[tuple[str, ...], int] = {}
 
-    for result_index, result in enumerate(d.results):
-        try:
-            result_weight_percent = {
-                phase: round(fraction * 100, 4)
-                for phase, fraction in result[1].get_phase_weights().items()
-            }
-        except (TypeError, ValueError, ZeroDivisionError):
-            result_weight_percent = {}
+    def screening_rwp(index):
+        if d.screening_rwps and index < len(d.screening_rwps):
+            return d.screening_rwps[index]
+        return d.results[index][1].lst_data.rwp
+
+    # A search can reach one phase hypothesis in another insertion order or with another
+    # database record of the same compound (same formula and space group). Each group is
+    # shown once by its lowest-Rwp result; the others stay addressable via merged_results.
+    # Polymorphs (different space group) remain separate results.
+    for group in candidate_groups(d):
+        result_index = group.representative
+        result = d.results[result_index]
+        result_weight_percent = _weight_percent(result[1])
         grouped_phases = deepcopy(d.grouped_phases[result_index]) if d.grouped_phases else None
         phases = [[cif.filename for cif in cifs] for cifs in result[0]]
         highlighted_phases = list(result[1].lst_data.phases_results)
@@ -1668,16 +1710,6 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
             ),
             context=peak_context,
         )
-
-        # A search path can reach exactly the same phase hypothesis in a different
-        # insertion order. Treat database records with the same formula/space
-        # group as one displayed phase, while preserving genuinely different
-        # polymorphs as separate results.
-        result_key = _search_result_key(highlighted_phases)
-        if result_key in equivalent_result_indexes:
-            existing = all_results[equivalent_result_indexes[result_key]]
-            existing["equivalent_result_count"] += 1
-            continue
 
         if not grouped_phases:  # for backward compatibility
             grouped_phases = []
@@ -1699,17 +1731,27 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
                     grouped_phases[i][j][1],
                 )
 
-        equivalent_result_indexes[result_key] = len(all_results)
         fit_quality = _fit_quality(result[1])
         phase_details = _phase_refinement_details(result[1])
+        shown = set(highlighted_phases)
+        merged_results = []
+        for member in group.members[1:]:
+            refinement = d.results[member][1]
+            names = list(refinement.lst_data.phases_results)
+            merged_results.append({
+                "source_index": member,
+                "rwp": refinement.lst_data.rwp,
+                "screening_rwp": screening_rwp(member),
+                "highlighted_phases": names,
+                "phase_metadata": _refined_phase_metadata(refinement),
+                "weight_percent": _weight_percent(refinement),
+                "fit_quality": _fit_quality(refinement),
+                "differing_phases": [name for name in names if name not in shown],
+            })
         all_results.append(
             {
                 "rwp": result[1].lst_data.rwp,
-                "screening_rwp": (
-                    d.screening_rwps[result_index]
-                    if d.screening_rwps and result_index < len(d.screening_rwps)
-                    else result[1].lst_data.rwp
-                ),
+                "screening_rwp": screening_rwp(result_index),
                 "is_final_refined": bool(d.screening_rwps),
                 "phases": phases,
                 "highlighted_phases": highlighted_phases,
@@ -1723,7 +1765,8 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
                 "grouped_phases": grouped_phases,
                 "weight_percent": result_weight_percent,
                 "source_index": result_index,
-                "equivalent_result_count": 1,
+                "equivalent_result_count": len(group.members),
+                "merged_results": merged_results,
             }
         )
         evidence_rows.append(
@@ -1737,13 +1780,7 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
     end_time = convert_to_local_tz(job["end_time"])
     runtime = (end_time - start_time).total_seconds()
     predict_kwargs = d.predict_kwargs or {}
-    try:
-        weight_percent = {
-            phase: round(fraction * 100, 4)
-            for phase, fraction in d.final_result.get_phase_weights().items()
-        }
-    except (TypeError, ValueError, ZeroDivisionError):
-        weight_percent = {}
+    weight_percent = _weight_percent(d.final_result)
     final_phase_metadata = _refined_phase_metadata(d.final_result)
     final_peak_diagnostics = _classified_peak_diagnostics(
         d, d.final_result, context=peak_context
@@ -1831,20 +1868,96 @@ def summarize_document(job: dict, document, *, persist_summary: bool = True) -> 
     raise HTTPException(status_code=404, detail="No phases identified in the pattern")
 
 
+# Only these suffixes are dropped from a download name, so a phase name such as
+# "Nb16.8O42_55_(cod_2106534)-None" keeps everything after its first dot.
+_DOWNLOAD_NAME_EXTENSIONS = frozenset((*SUPPORTED_PATTERN_EXTENSIONS, ".cif"))
+
+
 def _safe_download_name(value: str) -> str:
-    """Return a filesystem-safe stem for a downloaded result archive."""
-    stem = Path(value).stem
+    """Return a filesystem-safe stem for a downloaded file (archive, table or CIF).
+
+    Directories and a trailing pattern or CIF extension are removed; other dots stay.
+    """
+    stem = Path(str(value)).name
+    suffix = Path(stem).suffix
+    if suffix.lower() in _DOWNLOAD_NAME_EXTENSIONS:
+        stem = stem[: -len(suffix)]
     return re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._") or "dara_result"
 
 
 def _phase_identity(filename: str) -> str:
-    """Return the selected reference identity for already-deduplicated results."""
-    return filename
+    """Identity of a reference for candidate grouping: reduced formula + database space group.
+
+    Falls back to the name itself when either is unknown, so references that cannot be
+    identified are never merged.
+    """
+    stem = str(filename)
+    if stem.lower().endswith(".cif"):
+        stem = stem[:-4]
+    formula, number = confidence_module.phase_identity(stem)
+    if formula is None or number is None:
+        return f"name:{stem}"
+    return f"{formula}_{number}"
 
 
 def _search_result_key(phases: list[str]) -> tuple[str, ...]:
-    """Canonicalize a selected phase hypothesis independent of insertion order."""
+    """Canonicalize a selected phase hypothesis independent of insertion order and record."""
     return tuple(sorted(_phase_identity(phase) for phase in phases))
+
+
+@dataclass
+class CandidateGroup:
+    key: tuple[str, ...]
+    representative: int  # source index with the lowest Rwp (tie: lowest index)
+    members: list[int]  # all source indices, representative first, then by Rwp
+
+
+def _rwp_sort_value(refinement) -> float:
+    try:
+        value = float(refinement.lst_data.rwp)
+    except (AttributeError, TypeError, ValueError):
+        return float("inf")
+    return value if np.isfinite(value) else float("inf")
+
+
+def candidate_groups(document) -> list[CandidateGroup]:
+    """Displayed candidates: search results with the same phase identities, in first-seen order.
+
+    Results whose phases share reduced formula and space group (they differ only in phase order
+    or database record) form one group shown by its lowest-Rwp member. A document may pin a
+    source index (``pinned_result_index``, set by version views) as its group's representative.
+    """
+    order: list[tuple[str, ...]] = []
+    members: dict[tuple[str, ...], list[int]] = {}
+    results = list(getattr(document, "results", None) or [])
+    for index, (_, refinement) in enumerate(results):
+        key = _search_result_key(list(refinement.lst_data.phases_results))
+        if key not in members:
+            order.append(key)
+            members[key] = []
+        members[key].append(index)
+    pinned = getattr(document, "pinned_result_index", None)
+    groups = []
+    for key in order:
+        ranked = sorted(members[key], key=lambda i: (_rwp_sort_value(results[i][1]), i))
+        if pinned in ranked:
+            ranked.remove(pinned)
+            ranked.insert(0, pinned)
+        groups.append(CandidateGroup(key, ranked[0], ranked))
+    return groups
+
+
+def group_of(document, source_index: int) -> tuple[int, CandidateGroup] | None:
+    """``(displayed 1-based number, group)`` of the group holding ``source_index``."""
+    for number, group in enumerate(candidate_groups(document), start=1):
+        if source_index in group.members:
+            return number, group
+    return None
+
+
+def displayed_number_of(document, source_index: int) -> int | None:
+    found = group_of(document, source_index)
+    return found[0] if found else None
 
 
 def _flatten_cifs(value) -> list[Cif]:
@@ -1916,9 +2029,12 @@ def _write_refinement_files(
     )
 
     for phase_name in refinement.lst_data.phases_results:
+        cif_folder = "refined_cifs"
         try:
             cif_text = refinement.export_structure(phase_name).to(fmt="cif")
         except (TypeError, ValueError, AttributeError):
+            # The unrefined reference goes to its own folder so it is not taken for a refined one.
+            cif_folder = "reference_cifs"
             reference = next(
                 (
                     cif
@@ -1931,7 +2047,7 @@ def _write_refinement_files(
                 continue
             cif_text = reference.orig_string
         output.writestr(
-            f"{folder}refined_cifs/{_safe_download_name(phase_name)}.cif",
+            f"{folder}{cif_folder}/{_safe_download_name(phase_name)}.cif",
             cif_text,
         )
 
@@ -1951,6 +2067,8 @@ def _make_result_archive(
             description = (
                 "final/: final re-refinement\n"
                 "search_results/result_N/: every ranked search hypothesis\n"
+                "search_results/result_N/alternative_references/: the same phases refined "
+                "with other database records (when present)\n"
             )
         else:
             export_summary = {
@@ -1961,6 +2079,10 @@ def _make_result_archive(
                     (index, result)
                     for index, result in enumerate(summary["all_results"])
                     if result.get("source_index", index) == result_index
+                    or any(
+                        member.get("source_index") == result_index
+                        for member in result.get("merged_results") or []
+                    )
                 ),
                 (result_index, None),
             )
@@ -1969,6 +2091,25 @@ def _make_result_archive(
             export_summary["search_result_number"] = displayed_index + 1
             export_summary["search_result"] = displayed_result
             description = f"Selected search hypothesis: {displayed_index + 1}\n"
+            representative = displayed_result.get("source_index", displayed_index)
+            if representative != result_index:
+                # Same phases as the displayed result, refined with other database records
+                # (or reached in another phase order).
+                from dara.server.versions import merged_label
+
+                export_summary["reference_variant_of"] = representative
+                member = next(
+                    (
+                        item
+                        for item in displayed_result.get("merged_results") or []
+                        if item.get("source_index") == result_index
+                    ),
+                    {},
+                )
+                label = merged_label(
+                    displayed_index + 1, result_index, member.get("differing_phases")
+                )
+                description = f"Selected search hypothesis: {label}\n"
 
         output.writestr(
             "summary.json",
@@ -1984,7 +2125,10 @@ def _make_result_archive(
             "results_table.csv: one row per candidate and phase (weight %, lattice "
             "parameters, fit statistics, cautions); present in the all-results archive\n"
             "Each result folder contains refinement.csv, phase_parameters.json, "
-            "refinement.lst (raw BGMN listing), plot.html, and refined_cifs/.\n"
+            "refinement.lst (raw BGMN listing), plot.html, and refined_cifs/ (refined "
+            "lattice; atomic positions and occupancies are those of the reference).\n"
+            "reference_cifs/, when present, holds the unrefined reference CIF of a phase "
+            "whose refined structure could not be written.\n"
             "plot.html loads Plotly from its public CDN when opened.\n",
         )
 
@@ -2034,6 +2178,18 @@ def _make_result_archive(
                     document.missing_peaks[idx] if document.missing_peaks else None,
                     document.extra_peaks[idx] if document.extra_peaks else None,
                 )
+                merged = displayed_result.get("merged_results") or []
+                for number, member in enumerate(merged, start=1):
+                    member_idx = member["source_index"]
+                    member_cifs, member_result = document.results[member_idx]
+                    _write_refinement_files(
+                        output,
+                        member_result,
+                        f"search_results/result_{displayed_idx + 1}/alternative_references/ref_{number}",
+                        _flatten_cifs(member_cifs),
+                        document.missing_peaks[member_idx] if document.missing_peaks else None,
+                        document.extra_peaks[member_idx] if document.extra_peaks else None,
+                    )
 
     archive.seek(0)
     return archive

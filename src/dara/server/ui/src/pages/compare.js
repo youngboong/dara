@@ -4,7 +4,7 @@ import Loadable from 'react-loadable';
 import Layout from '../components/Layout';
 import { comparisonTraces, measuredAngularBounds, parseComparisonTaskIds } from '../components/patternComparison.mjs';
 import { viewChangeFromRelayout } from '../components/plotNavigation.mjs';
-import { NAVIGATION_CONFIG, NAVIGATION_HELP } from '../components/usePlotView';
+import { NAVIGATION_CONFIG, NAVIGATION_DRAGMODE, NAVIGATION_HELP } from '../components/usePlotView';
 
 const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8001/api';
 const Plotly = Loadable({
@@ -57,6 +57,8 @@ function MeasuredComparePage({ location }) {
   const traces = React.useMemo(() => comparisonTraces(patterns, { normalize, offset }), [patterns, normalize, offset]);
   const wavelengths = new Set(patterns.map(pattern => pattern.wavelength).filter(Boolean));
   const missingRadiation = patterns.some(pattern => !pattern.wavelength);
+  // Zoom and pan stay inside the measured 2θ range; the view starts there (no autorange padding).
+  const bounds = React.useMemo(() => measuredAngularBounds(patterns), [patterns]);
   const validRange = minimum !== null && maximum !== null && Number.isFinite(minimum) && Number.isFinite(maximum) && minimum < maximum;
   const changeNormalization = value => {
     setNormalize(value);
@@ -90,16 +92,17 @@ function MeasuredComparePage({ location }) {
         layout={{
           autosize: true, height: 530 + patterns.length * 23,
           margin: { t: 25, l: 85, r: 25, b: 80 + patterns.length * 23 },
-          xaxis: { title: '2θ (°)', range, autorange: !range, showline: true, mirror: true, ticks: 'outside', zeroline: false },
+          // A copy: Plotly writes box zooms into the range array it is given, and bounds is the zoom limit.
+          xaxis: { title: '2θ (°)', range: (range || bounds) ? [...(range || bounds)] : undefined, autorange: !(range || bounds), showline: true, mirror: true, ticks: 'outside', zeroline: false },
           yaxis: { title: normalize ? 'Normalized intensity + offset' : 'Measured intensity + offset', showline: true, ticks: 'outside', zeroline: false },
           legend: { orientation: 'h', x: 0, y: -0.18, xanchor: 'left', yanchor: 'top' },
-          hovermode: 'closest', dragmode: 'pan', uirevision: `${taskQuery}-${viewRevision}`,
+          hovermode: 'closest', dragmode: NAVIGATION_DRAGMODE, uirevision: `${taskQuery}-${viewRevision}`,
         }}
         onRelayout={event => {
-          const change = viewChangeFromRelayout(event);
+          const change = viewChangeFromRelayout(event, { full: bounds });
           if (change.xRange) { setRange(change.xRange); setMinimum(Number(Math.min(...change.xRange).toFixed(3))); setMaximum(Number(Math.max(...change.xRange).toFixed(3))); }
         }}
-        onDoubleClick={resetView}
+        onDoubleClick={resetView} xBounds={bounds}
         config={{ responsive: true, displaylogo: false, ...NAVIGATION_CONFIG, toImageButtonOptions: { format: 'svg', filename: 'dara-pattern-comparison' } }}
         style={{ width: '100%' }} useResizeHandler
       />}

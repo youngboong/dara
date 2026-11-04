@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { SHORTCUT_HELP, actionForKey, isTypingTarget } from '../src/dara/server/ui/src/components/keyboardShortcuts.mjs';
+import { MOUSE_HELP, SHORTCUT_HELP, actionForKey, isTypingTarget } from '../src/dara/server/ui/src/components/keyboardShortcuts.mjs';
 
 const ctx = (extra = {}) => ({
   options: ['best', 0, 1, 'version:3'], current: 'best', phaseGroups: ['A', 'B', 'C'],
@@ -9,6 +9,11 @@ const key = (k, extra = {}) => ({ key: k, target: { tagName: 'DIV' }, ...extra }
 
 assert.equal(SHORTCUT_HELP.length, 6);
 assert.ok(SHORTCUT_HELP.every(row => row.keys && row.action));
+// The mouse rows describe the current plot navigation (box zoom, pan, fixed-step wheel).
+assert.ok(MOUSE_HELP.every(row => row.keys && row.action));
+assert.match(MOUSE_HELP.find(row => row.keys === 'Drag').action, /box/);
+assert.match(MOUSE_HELP.find(row => row.keys.startsWith('Shift+drag')).action, /Pan/);
+assert.match(MOUSE_HELP.find(row => row.keys === 'Wheel').action, /1\.25/);
 
 // arrows: step and wrap-around
 assert.deepEqual(actionForKey(key('ArrowRight'), ctx()), { type: 'select', value: 0 });

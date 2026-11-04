@@ -978,6 +978,12 @@ def test_add_phase_is_a_fast_quick_check_and_refine_all_makes_the_full_fit(monke
     assert stored[3]["deleted"] is True and stored[4]["replaces"] == 3
     assert (full["replaces"], full["reused"]) == (3, False)
     assert stored[4]["n_threads"] == refine.single_refinement_threads()
+    # Nothing points at the deleted quick check: v4 is recorded against v3's own base (v2) and
+    # keeps what v3 added.
+    assert stored[3]["origin"]["base"] == "version:2"
+    assert stored[4]["origin"]["base"] == "version:2"
+    assert stored[4]["origin"]["added"] == [references[1].filename]
+    assert stored[4]["origin"]["removed"] == []
 
 
 def test_refine_all_only_starts_from_a_quick_check(monkeypatch, env):

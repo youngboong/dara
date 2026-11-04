@@ -7,7 +7,7 @@ export const DEFAULT_CONTROLS = { lattice: 'inherit', lattice_percent: 2, orient
 
 export function RefinementControlsEditor({ value = DEFAULT_CONTROLS, onChange }) {
   const update = patch => onChange({ ...value, ...patch });
-  return <section aria-label="Final refinement controls" style={{ padding: 12, border: '1px solid #ddd', marginBottom: 16 }}>
+  return <section aria-label="Final refinement controls" style={{ padding: 12, border: '1px solid #ddd', borderRadius: 6, marginBottom: 16 }}>
     <h4>Final refinement controls</h4>
     <Space wrap align="start">
       <label>Lattice parameters<br /><Select aria-label="Lattice refinement" value={value.lattice} style={{ width: 200 }} onChange={lattice => update({ lattice })}
@@ -63,7 +63,7 @@ export function TaskProgress({ taskId, onStatusChange }) {
     }});
   if (error) return <Alert type="warning" message={error} />;
   if (!data || data.status === 'COMPLETED') return null;
-  return <section aria-label="Analysis progress" style={{ padding: 16, border: '1px solid #ddd', marginBottom: 16 }}>
+  return <section aria-label="Analysis progress" className="dara-panel" style={{ padding: 16, border: '1px solid #ddd', borderRadius: 6, marginBottom: 16 }}>
     <Space wrap><Tag>{data.status}</Tag><strong>{data.stage}</strong>
       {['READY','RUNNING','CANCELLING'].includes(data.status) ? <Button danger loading={busy} disabled={data.status === 'CANCELLING'} onClick={cancel}>{data.status === 'CANCELLING' ? 'Stopping…' : 'Stop analysis'}</Button> : null}
       {data.completed_candidates > 0 ? <Button href={`${API}/task/${taskId}/checkpoints`}>Download completed candidates ({data.completed_candidates})</Button> : null}

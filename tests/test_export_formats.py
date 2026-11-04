@@ -322,3 +322,20 @@ def test_topas_falls_back_to_p1_when_symmetry_cannot_be_reproduced(monkeypatch):
     text = topas_inp.topas_input(document.final_result, document)
     assert 'space_group "P1"' in text and "all atoms are listed in P1" in text
     assert text.count("\n        site ") == 30  # every atom of the hexagonal R3c cell
+
+
+def test_unrefined_fallback_cif_goes_to_reference_cifs(tmp_path):
+    from dara.export.bundles import write_refined_cifs
+
+    def fail(name):
+        raise ValueError("no structure")
+
+    refinement = SimpleNamespace(
+        lst_data=SimpleNamespace(phases_results={PHASE: None}), export_structure=fail
+    )
+    reference = SimpleNamespace(filename=f"{PHASE}.cif", orig_string="data_reference")
+    written = write_refined_cifs(refinement, tmp_path, [reference])
+    assert [path.relative_to(tmp_path).as_posix() for path in written] == [
+        f"reference_cifs/{PHASE}.cif"
+    ]
+    assert not (tmp_path / "refined_cifs").exists()

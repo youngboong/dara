@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { buildRefinementView } from '../src/dara/server/ui/src/components/refinementPlotState.mjs';
-import { boxZoomUpdate, viewChangeFromRelayout } from '../src/dara/server/ui/src/components/plotNavigation.mjs';
+import {
+  clampRange, insideRange, panRange, viewChangeFromRelayout, wheelNotches, wheelZoomRange, xRangeUpdate, WHEEL_STEP,
+} from '../src/dara/server/ui/src/components/plotNavigation.mjs';
 
 const x = Array.from({ length: 101 }, (_, i) => 10 + i);
 const y = x.map(t => (t === 30 ? 1000 : t === 70 ? 60 : 10));
@@ -39,18 +41,60 @@ assert.equal(windowed.layout.yaxis.fixedrange, true);
 const unfitted = buildRefinementView(plot, { xRange: [60, 80], fitY: false });
 assert(unfitted.layout.yaxis.range[1] > 1000);
 assert.equal(unfitted.layout.yaxis.fixedrange, false);
-// An explicit intensity zoom wins and frees the axis for panning.
+// An explicit intensity zoom wins and frees the axis: it is the data window, shown in full.
 const manual = buildRefinementView(plot, { xRange: [60, 80], yRange: [0, 500] });
-assert.deepEqual(manual.layout.yaxis.range, [0, 500]);
+assert.equal(manual.layout.yaxis.range[1], 500);
+assert(manual.layout.yaxis.range[0] <= 0);
 assert.equal(manual.layout.yaxis.fixedrange, false);
+// The residual intensity never zooms, the 2θ window never leaves the data.
+assert.equal(manual.layout.yaxis2.fixedrange, true);
+assert.deepEqual(buildRefinementView(plot, { xRange: [0, 50] }).layout.xaxis.range, [10, 60]);
+assert.deepEqual(buildRefinementView(plot, { xRange: [-50, 300] }).layout.xaxis.range, [10, 110]);
+// One 2θ title, under the lower panel.
+assert.equal(manual.layout.xaxis.title.text, '');
+assert.equal(manual.layout.xaxis.showticklabels, true);
 // Bragg rows stay just below the fitted window.
 const rows = buildRefinementView(plot, { xRange: [60, 80], selection: { A: true } });
 assert(rows.data[1].y[0] < 10 && rows.data[1].y[0] > -50, rows.data[1].y[0]);
 
-// Right-drag box -> relayout payload (sorted ranges, y only in the main panel).
-assert.deepEqual(boxZoomUpdate({ xRange: [40, 30], yRange: [5, 1] }),
-  { 'xaxis.range': [30, 40], 'xaxis.autorange': false, 'yaxis.range': [1, 5], 'yaxis.autorange': false });
-assert.deepEqual(boxZoomUpdate({ xRange: [30, 40] }), { 'xaxis.range': [30, 40], 'xaxis.autorange': false });
+// Clamp: zoom and pan stay inside the measured 2θ range.
+const full = [9.9, 100.1];
+const near = (a, b) => a.every((value, i) => Math.abs(value - b[i]) < 1e-9);
+assert(near(clampRange([5.14, 104.82], full), full)); // wider than the data -> the data
+assert(near(clampRange([0, 20], full), [9.9, 29.9])); // sticks out -> shifted back, same width
+assert(near(clampRange([95, 110], full), [85.1, 100.1]));
+assert(near(clampRange([40, 30], full), [30, 40])); // sorted
+assert(near(clampRange([30, 40], null), [30, 40])); // no bounds known: unchanged
+assert.equal(clampRange([30, 30], full), null);
+assert.equal(clampRange([NaN, 3], full), null);
+const tiny = clampRange([50, 50.00001], full);
+assert(Math.abs(tiny[1] - tiny[0] - 0.0902) < 1e-6 && Math.abs((tiny[0] + tiny[1]) / 2 - 50.000005) < 1e-6);
+assert(insideRange([20, 30], full) && !insideRange([5, 30], full) && insideRange([5, 30], null));
+
+// Wheel: one notch is one fixed step (1.25x) about the cursor, whatever the pixel delta.
+assert.equal(WHEEL_STEP, 1.25);
+assert.equal(wheelNotches({ deltaY: 100 }), 1);
+assert.equal(wheelNotches({ deltaY: -120 }), -1);
+assert.equal(wheelNotches({ deltaY: 66.7 }), 1); // a notch at 150 % page zoom
+assert.equal(wheelNotches({ deltaY: -3, deltaMode: 1 }), -1); // lines (Firefox)
+assert.equal(wheelNotches({ deltaY: 4 }), 0.04); // trackpad: fractional
+assert.equal(wheelNotches({ deltaY: 900 }), 3); // capped
+assert.equal(wheelNotches({ deltaY: 0 }), 0);
+const zoomIn = wheelZoomRange([20, 60], 30, -1, full);
+assert(near(zoomIn, [30 - 10 / 1.25, 30 + 30 / 1.25])); // the cursor stays put
+assert(Math.abs((zoomIn[1] - zoomIn[0]) - 40 / 1.25) < 1e-9);
+assert(near(wheelZoomRange(zoomIn, 30, 1, full), [20, 60])); // in then out returns
+assert(near(wheelZoomRange([10, 100], 50, 3, full), full)); // zoom out stops at the data
+assert(near(wheelZoomRange([9.9, 30], 9.9, 2, full), [9.9, 9.9 + 20.1 * 1.5625])); // at the edge
+assert.deepEqual(wheelZoomRange([20, 60], 30, 0, full), [20, 60]);
+// Pan keeps the width and stops at the ends.
+assert(near(panRange([20, 30], 5, full), [25, 35]));
+assert(near(panRange([20, 30], -50, full), [9.9, 19.9]));
+assert(near(panRange([90, 100], 50, full), [90.1, 100.1]));
+// Both panels get the same 2θ window.
+assert.deepEqual(xRangeUpdate([1, 2], { xaxis2: true }),
+  { 'xaxis.range': [1, 2], 'xaxis.autorange': false, 'xaxis2.range': [1, 2], 'xaxis2.autorange': false });
+assert.deepEqual(xRangeUpdate([1, 2]), { 'xaxis.range': [1, 2], 'xaxis.autorange': false });
 
 // Relayout events -> view state.
 assert.deepEqual(viewChangeFromRelayout({ 'xaxis.range[0]': 20, 'xaxis.range[1]': 25 }), { xRange: [20, 25] });
@@ -58,7 +102,11 @@ assert.deepEqual(viewChangeFromRelayout({ 'xaxis2.range[0]': 20, 'xaxis2.range[1
 assert.deepEqual(viewChangeFromRelayout({ 'xaxis.range': [1, 2], 'yaxis.range': [3, 4] }), { xRange: [1, 2], yRange: [3, 4] });
 assert.deepEqual(viewChangeFromRelayout({ 'xaxis.autorange': true, 'yaxis.autorange': true }), { xRange: null, yRange: null });
 assert.deepEqual(viewChangeFromRelayout({ dragmode: 'pan' }), {});
-console.log('Reset clears 2θ zoom, fit-to-view intensity, box zoom payload and relayout mapping passed.');
+assert.deepEqual(viewChangeFromRelayout({ 'xaxis2.range': [3, 4] }), { xRange: [3, 4] });
+// With the data range, an axis drag past the data is clamped on the way into the state.
+assert.deepEqual(viewChangeFromRelayout({ 'xaxis.range[0]': 0, 'xaxis.range[1]': 20 }, { full: [10, 110] }), { xRange: [10, 30] });
+assert.deepEqual(viewChangeFromRelayout(xRangeUpdate([20, 30], { xaxis2: true }), { full: [10, 110] }), { xRange: [20, 30] });
+console.log('Reset clears 2θ zoom, fit-to-view intensity, clamped wheel/pan/box navigation and relayout mapping passed.');
 
 // d-spacing on hover (Bragg's law, Cu Kα1).
 import { addDSpacingHover, dSpacing } from '../src/dara/server/ui/src/components/plotNavigation.mjs';

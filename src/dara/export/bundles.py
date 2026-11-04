@@ -37,14 +37,18 @@ def write_pattern_xy(document, path: Path) -> Path:
 
 
 def write_refined_cifs(refinement, out_dir: Path, reference_cifs=None) -> list[Path]:
-    """Refined CIF per phase; falls back to the reference CIF text when the export fails."""
-    folder = Path(out_dir) / "refined_cifs"
-    folder.mkdir(parents=True, exist_ok=True)
+    """Refined CIF per phase in ``refined_cifs/``.
+
+    When the export fails the unrefined reference CIF is written to ``reference_cifs/``
+    instead, so it is never mistaken for a refined structure.
+    """
     written: list[Path] = []
     for name in refinement.lst_data.phases_results:
+        folder = Path(out_dir) / "refined_cifs"
         try:
             text = refinement.export_structure(name).to(fmt="cif")
         except (TypeError, ValueError, AttributeError):
+            folder = Path(out_dir) / "reference_cifs"
             reference = next(
                 (
                     cif
@@ -56,6 +60,7 @@ def write_refined_cifs(refinement, out_dir: Path, reference_cifs=None) -> list[P
             if reference is None or not getattr(reference, "orig_string", None):
                 continue
             text = reference.orig_string
+        folder.mkdir(parents=True, exist_ok=True)
         target = folder / f"{safe_name(name)}.cif"
         target.write_text(text, encoding="utf-8")
         written.append(target)
@@ -91,7 +96,10 @@ def readme_text(fmt: str, refinement, document) -> str:
         "Common files",
         "  pattern.xy           Measured pattern, two columns (2theta in degrees, intensity).",
         "  refined_cifs/*.cif   Crystal structure of each refined phase at the refined lattice",
-        "                       parameters and atomic positions.",
+        "                       parameters; atomic positions and occupancies are those of the",
+        "                       reference (DARA does not refine them).",
+        "  reference_cifs/*.cif Only present when a refined structure could not be written:",
+        "                       the unrefined reference CIF of that phase.",
         "  dara_refinement.lst  Raw BGMN listing of the DARA refinement.",
         "",
     ]
@@ -131,7 +139,7 @@ def readme_text(fmt: str, refinement, document) -> str:
         lines += [
             f"Import into {program}",
             "  1. Import pattern.xy as a two-column 2theta/intensity powder histogram.",
-            "  2. Add each file in refined_cifs/ as a phase.",
+            "  2. Add each file in refined_cifs/ (and reference_cifs/, if present) as a phase.",
             "  3. Select the instrument parameters of your diffractometer; DARA's BGMN",
             "     instrument profile is not converted.",
             "",

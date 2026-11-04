@@ -985,26 +985,25 @@ def confidence_for_selection(
     """Confidence of the final result (``selection`` None/"best") or of one candidate.
 
     ``selection`` is a candidate source index (``document.results[selection]``). The
-    comparison set is every deduplicated displayed candidate, as on the task page.
+    comparison set is the displayed candidates (one per ``candidate_groups`` group), as on
+    the task page; a merged-away selection is numbered as its displayed group.
     """
     try:
         from dara.server.api_router import (
             _classified_peak_diagnostics, _counts_like, _fit_quality, _flatten_cifs,
             _matching_candidate_cifs, _phase_refinement_details, _refined_phase_metadata,
-            _search_result_key,
+            candidate_groups,
         )
 
         final = getattr(document, "final_result", None)
         displayed: list[CandidateEvidence] = []
-        seen: set = set()
-        for index, (cifs, refinement) in enumerate(getattr(document, "results", None) or []):
-            key = _search_result_key(list(refinement.lst_data.phases_results))
-            if key in seen:
-                continue
-            seen.add(key)
+        groups = candidate_groups(document)
+        for number, group in enumerate(groups, start=1):
+            index = group.representative
+            cifs, refinement = document.results[index]
             displayed.append(
                 build_evidence(
-                    f"candidate:{index}", len(displayed) + 1, index, refinement,
+                    f"candidate:{index}", number, index, refinement,
                     _fit_quality(refinement), _phase_refinement_details(refinement),
                     _refined_phase_metadata(refinement), cifs=_flatten_cifs(cifs),
                 )
@@ -1021,7 +1020,9 @@ def confidence_for_selection(
         else:
             refinement = document.results[selection][1]
             cif_pool = _flatten_cifs(document.results[selection][0])
-            number = next((c.number for c in displayed if c.source_index == selection), None)
+            number = next(
+                (n for n, group in enumerate(groups, start=1) if selection in group.members), None
+            )
             source, flags, key = selection, None, f"candidate:{selection}"
         quality = _fit_quality(refinement)
         target = build_evidence(

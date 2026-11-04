@@ -758,7 +758,7 @@ def _mass_balance_section(block: dict | None, numbering: _Numbering | None = Non
     ]
 
 
-def _result_shown(selection, selection_label, is_final, adopted) -> str | None:
+def _result_shown(selection, selection_label, is_final, adopted, document=None) -> str | None:
     """Short line naming a non-default result (version, candidate or adopted selection)."""
     if selection_label:
         match = re.match(r"^Version\s+(\d+)\s*[—–-]\s*(.*)$", selection_label)
@@ -772,7 +772,10 @@ def _result_shown(selection, selection_label, is_final, adopted) -> str | None:
             return None
         shown = "minimum-Rwp result"
     else:
-        shown = f"candidate {selection + 1}"
+        from dara.server.versions import candidate_label
+
+        label = candidate_label(document, selection) if document is not None else None
+        shown = f"c{label[1:]}" if label else f"candidate {selection + 1}"
     return f"Result shown: {shown}" + (", adopted by the user" if adopted else "")
 
 
@@ -864,7 +867,7 @@ def build_report_html(
         f"<h1>XRD phase analysis — {escape(str(name))}</h1>",
         f'<p class="byline">Task {task_id} · {today} · DARA {escape(_dara_version())}</p>',
     ]
-    shown = _result_shown(selection, selection_label, is_final, adopted)
+    shown = _result_shown(selection, selection_label, is_final, adopted, document)
     if shown:
         parts.append(f'<p class="byline">{escape(shown)}</p>')
 

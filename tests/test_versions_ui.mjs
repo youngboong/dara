@@ -4,7 +4,8 @@ import {
   plotQuery, refSourceForHint, removeRequest, selectionLabel, swapRequest,
   alternativeOfVerdict, formatSpacegroup, spacegroupOfPhase, swapKind,
   progressView, runText, existingPhase, refineAllBase, versionReadyText, versionGone, replacementOf,
-  BASELINE_LABEL, backgroundRequest, baselineRequest, baselineVersion, comparisonBase, isMissingEndpoint, needsBaseline, selectOptionGroups, selectedPhasesRequest,
+  availableComparisonBase, weightRows,
+  BASELINE_LABEL, backgroundRequest, displayedCandidateOf, referenceVariants, baselineRequest, baselineVersion, comparisonBase, isMissingEndpoint, needsBaseline, selectOptionGroups, selectedPhasesRequest,
 } from '../src/dara/server/ui/src/components/versions.mjs';
 import { adoptedLabel } from '../src/dara/server/ui/src/components/resultsList.mjs';
 
@@ -32,9 +33,36 @@ const data = {
 };
 assert.equal(selectionLabel('best', data), 'Best fit');
 assert.equal(selectionLabel(4, data), 'Candidate 2 — Rwp 7.1%');
-assert.equal(selectionLabel(9, data), 'Candidate 10');
+// an index in no displayed row: name the stored number, not a displayed position
+assert.equal(selectionLabel(9, data), 'Candidate (stored #10)');
+
+// --- merged results (same phases, other database record) ---------------------------------------
+const merged = {
+  all_results: [
+    { source_index: 1, rwp: 6.87, merged_results: [
+      { source_index: 0, rwp: 7.35, differing_phases: ['Bi2O3_14_(cod_1010004)-0'] },
+      { source_index: 3, rwp: 7.4, differing_phases: [] },
+    ] },
+    { source_index: 2, rwp: 7.0, merged_results: [] },
+  ],
+};
+assert.equal(selectionLabel(0, merged), 'Candidate 1 · other reference (cod_1010004) — Rwp 7.35%');
+assert.equal(selectionLabel(3, merged), 'Candidate 1 (stored #4) — Rwp 7.4%');
+assert.equal(selectionLabel(1, merged), 'Candidate 1 — Rwp 6.87%');
+assert.equal(selectionLabel(2, merged), 'Candidate 2 — Rwp 7%');
+assert.equal(displayedCandidateOf(merged.all_results, 0).number, 1);
+assert.equal(displayedCandidateOf(merged.all_results, 0).member.rwp, 7.35);
+assert.equal(displayedCandidateOf(merged.all_results, 2).member, null);
+assert.equal(displayedCandidateOf(merged.all_results, 8), null);
+assert.deepEqual(referenceVariants(merged.all_results[0]).map(m => m.source_index), [0]);
+const mergedOptions = selectOptionGroups(merged.all_results, [])[1].options;
+// the other record follows its candidate; a reordering of the same references is not listed
+assert.deepEqual(mergedOptions.map(o => o.value), [1, 0, 2]);
+assert.equal(mergedOptions[1].label, 'Candidate 1 · other reference (cod_1010004) — Rwp 7.35%');
 assert.equal(selectionLabel('version:3', data), 'v3 — Added Fe3O4');
-assert.equal(selectionLabel('version:7', data), 'v7');
+// A version missing from the loaded list was deleted (replaced quick check, deleted version).
+assert.equal(selectionLabel('version:7', data), 'v7 (deleted)');
+assert.equal(selectionLabel('version:7', { versions: [] }), 'v7');
 assert.equal(selectionLabel('bogus', data), '');
 assert.equal(plotQuery('best'), '');
 assert.equal(plotQuery(null), '');
@@ -343,3 +371,48 @@ assert.equal(versionReadyText(5, null, null), 'Version v5 ready');
   assert.equal(existingPhase('A', undefined, undefined), null);
 }
 console.log('quick check helpers ok');
+
+// --- a base that is gone (replaced quick check, deleted version) ------------------------------
+{
+  // v8 is the full fit of quick check v7 (deleted): its stored base may still say version:7.
+  const rows = [{ version: 1 }, { version: 2, label: BASELINE_LABEL }, { version: 6 }, { version: 8, replaces: 7 }];
+  assert.equal(availableComparisonBase('version:7', rows, 8), 'version:2'); // gone -> best -> baseline
+  assert.equal(availableComparisonBase('version:6', rows, 8), 'version:6');
+  assert.equal(availableComparisonBase('best', rows, 2), 'best');
+  assert.equal(availableComparisonBase(undefined, [{ version: 1 }], 3), 'best');
+  assert.equal(availableComparisonBase(3, rows, 8), 3); // candidates are never "gone"
+  // The adopted select keeps a deleted adopted version readable instead of a raw `version:7`.
+  const groups = selectOptionGroups([], rows, { adoptable: true, current: 'version:7' });
+  const deleted = groups.find(group => group.label === 'Deleted');
+  assert.deepEqual(deleted.options.map(o => [o.value, o.disabled]), [['version:7', true]]);
+  assert.match(deleted.options[0].label, /^v7 \(deleted\)/);
+  assert.equal(selectOptionGroups([], rows, { adoptable: true, current: 'version:6' }).find(g => g.label === 'Deleted'), undefined);
+  assert.equal(selectOptionGroups([], rows, { current: 'version:7' }).find(g => g.label === 'Deleted'), undefined);
+}
+console.log('missing bases ok');
+
+// --- weightRows: one row per compound in the fit comparison -----------------------------------
+{
+  const A1 = 'Bi2O3_14_(cod_9012546)-0';
+  const A2 = 'Bi2O3_14_(cod_1010004)-0';
+  const B = 'Nb16.8O42_55_(cod_2106534)-None';
+  const best = { weight_percent: { [A2]: 50.34, [B]: 49.66 }, phase_identity: { [A2]: 'Bi2O3_14', [B]: 'Nb16.8O42_55' } };
+  const member = { weight_percent: { [A1]: 49.92, [B]: 50.08 }, phase_identity: { [A1]: 'Bi2O3_14', [B]: 'Nb16.8O42_55' } };
+  const rows = weightRows(best, member);
+  assert.deepEqual(rows.map(row => [row.formula, row.a, row.b]), [['Bi2O3', 50.34, 49.92], ['Nb16.8O42', 49.66, 50.08]]);
+  assert.deepEqual(rows[0].names, [A2, A1]);
+  // without the server map the formula + space group of the name still match
+  assert.equal(weightRows({ weight_percent: best.weight_percent }, { weight_percent: member.weight_percent }).length, 2);
+  // the server's reduced formula joins differently written formulas
+  assert.equal(weightRows({ weight_percent: { 'Bi4O6_14_(cod_1)-0': 50 }, phase_identity: { 'Bi4O6_14_(cod_1)-0': 'Bi2O3_14' } },
+    { weight_percent: { [A1]: 50 }, phase_identity: { [A1]: 'Bi2O3_14' } }).length, 1);
+  // other polymorphs and unparsable names stay apart
+  assert.equal(weightRows({ weight_percent: { 'TiO2_136_(cod_1)-0': 60 } }, { weight_percent: { 'TiO2_141_(cod_2)-0': 60 } }).length, 2);
+  assert.deepEqual(weightRows({ weight_percent: { BiFeO3: 60 } }, { weight_percent: { BiFeO3: 55, Other: 45 } })
+    .map(row => [row.key, row.a, row.b]), [['name:BiFeO3', 60, 55], ['name:Other', null, 45]]);
+  // two phases of one compound in a fit are paired by weight and numbered
+  const two = weightRows({ weight_percent: { [A1]: 20, [A2]: 70, [B]: 10 } }, { weight_percent: { [A1]: 80, [B]: 20 } });
+  assert.deepEqual(two.map(row => [row.formula, row.a, row.b]), [['Bi2O3 #1', 70, 80], ['Bi2O3 #2', 20, null], ['Nb16.8O42', 10, 20]]);
+  assert.equal(new Set(two.map(row => row.key)).size, 3);
+  console.log('fit comparison weight rows ok');
+}

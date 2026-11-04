@@ -157,9 +157,16 @@ def test_web_mp_limit_defaults_to_100():
 
 def test_download_filename_is_sanitized():
     assert _safe_download_name("Fe2O3 + TiO2 / result.xrdml") == "result"
+    assert _safe_download_name("sample.XY") == "sample"
+    assert _safe_download_name("sample") == "sample"
+    assert _safe_download_name("Fe2O3_167_(cod_9000139)-0.cif") == "Fe2O3_167__cod_9000139_-0"
+    # only a known extension is dropped: dots inside a phase name stay
+    assert _safe_download_name("Nb16.8O42_55_(cod_2106534)-None") == "Nb16.8O42_55__cod_2106534_-None"
+    assert _safe_download_name("Nb16.8O42_55_(cod_2106534)-None") != _safe_download_name("Nb16.9O42_55_(cod_1)-0")
+    assert _safe_download_name("batch 1.2") == "batch_1.2"
 
 
-def test_search_result_key_ignores_order_but_preserves_distinct_references():
+def test_search_result_key_ignores_order_and_record_but_preserves_polymorphs():
     first = [
         "In2O3_206_(cod_2310009)-0",
         "TiO2_141_(cod_7206075)-0",
@@ -169,10 +176,19 @@ def test_search_result_key_ignores_order_but_preserves_distinct_references():
         "In2O3_206_(cod_1538147)-0",
     ]
 
-    assert _search_result_key(first) != _search_result_key(reordered_with_other_record)
+    # same formula and space group, other database record: one hypothesis
+    assert _search_result_key(first) == _search_result_key(reordered_with_other_record)
     assert _search_result_key(first) == _search_result_key(list(reversed(first)))
+    # polymorph (other space group) stays distinct
     assert _search_result_key(first) != _search_result_key(
         ["TiO2_141_(cod_7206075)-0", "In2O3_199_(cod_1010341)-None"]
+    )
+    # unknown space group or unparseable formula: never merged
+    assert _search_result_key(["In2O3_(cod_1)"]) != _search_result_key(["In2O3_(cod_2)"])
+    assert _search_result_key(["Fe2O3-user"]) != _search_result_key(["Fe2O3_167_(cod_1)-0"])
+    assert _search_result_key(["???_12_(cod_1)"]) != _search_result_key(["???_12_(cod_2)"])
+    assert _search_result_key(["Nb16.8O42_55_(cod_2106534)-None"]) == _search_result_key(
+        ["Nb16.8O42_55_(cod_9999999)-0"]
     )
 
 

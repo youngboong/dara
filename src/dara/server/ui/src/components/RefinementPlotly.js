@@ -2,7 +2,9 @@ import React from 'react';
 import createPlotlyComponent from 'react-plotly.js/factory';
 import Plotly from 'plotly.js/lib/core';
 import Scatter from 'plotly.js/lib/scatter';
-import { boxZoomUpdate } from './plotNavigation.mjs';
+import {
+  clampRange, finiteRange, insideRange, panRange, viewChangeFromRelayout, wheelNotches, wheelZoomRange, xRangeUpdate,
+} from './plotNavigation.mjs';
 
 // The refinement view only renders scatter traces. Importing react-plotly.js
 // directly pulls every Plotly trace type (maps, 3-D, finance, etc.) into the
@@ -11,122 +13,168 @@ Plotly.register([Scatter]);
 
 const Plot = createPlotlyComponent(Plotly);
 
-const MIN_BOX_PX = 5;
+const PAN_BUTTONS = new Set([1, 2]); // middle, right
+const CLICK_SLOP_PX = 3;
 
-// Mouse navigation for XRD plots: left-drag pans (layout dragmode 'pan'), the
-// wheel zooms (config scrollZoom) and a right-drag draws a zoom box. Plotly has
-// no right-button gesture, so the box is drawn here and applied with relayout.
-function attachRightDragZoom(gd) {
-  let start = null;
-  let box = null;
+function dataXBounds(gd) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  (gd._fullData || []).forEach(trace => {
+    if (trace.visible === false || !trace.x) return;
+    for (let i = 0; i < trace.x.length; i += 1) {
+      const value = Number(trace.x[i]);
+      if (Number.isFinite(value)) { lo = Math.min(lo, value); hi = Math.max(hi, value); }
+    }
+  });
+  return lo < hi ? [lo, hi] : null;
+}
 
-  const subplotAt = (clientX, clientY) => {
+// Mouse navigation for XRD plots (see plotNavigation.mjs): Plotly draws the left-drag zoom
+// box (layout dragmode 'zoom'); 2θ panning, the wheel and the range clamp are handled here,
+// because Plotly's own pan and scroll zoom neither stop at the data nor use a fixed step.
+function attachNavigation(gd, boundsRef) {
+  let drag = null;
+  let frame = null;
+  let pending = null;
+
+  const bounds = () => finiteRange(boundsRef.current) || dataXBounds(gd);
+  const hasX2 = () => Boolean(gd._fullLayout?.xaxis2);
+  const currentRange = () => finiteRange(gd._fullLayout?.xaxis?.range);
+
+  const inPlotArea = (clientX, clientY) => {
     const full = gd._fullLayout;
-    if (!full) return null;
+    if (!full?.xaxis) return null;
     const rect = gd.getBoundingClientRect();
     const px = clientX - rect.left;
     const py = clientY - rect.top;
     const xa = full.xaxis;
-    if (!xa || px < xa._offset || px > xa._offset + xa._length) return null;
+    if (px < xa._offset || px > xa._offset + xa._length) return null;
     for (const name of ['yaxis', 'yaxis2']) {
       const ya = full[name];
-      if (ya && py >= ya._offset && py <= ya._offset + ya._length) return { xa, ya, name, rect };
+      if (ya && py >= ya._offset && py <= ya._offset + ya._length) return { xa, px: px - xa._offset };
     }
     return null;
   };
 
-  const freeIntensity = target => target.name === 'yaxis' && !target.ya.fixedrange;
-
-  const clear = () => {
-    if (box) box.remove();
-    box = null;
-    start = null;
-    window.removeEventListener('mousemove', onMove);
-    window.removeEventListener('mouseup', onUp);
-    window.removeEventListener('keydown', onKey);
+  // One relayout per animation frame: wheel and drag events come faster than Plotly redraws.
+  // The timer is a fallback for pages that get no animation frames (hidden or throttled).
+  const flush = () => {
+    if (frame === null) return;
+    window.cancelAnimationFrame(frame.raf);
+    window.clearTimeout(frame.timer);
+    frame = null;
+    const next = pending;
+    pending = null;
+    const shown = currentRange();
+    if (next && !(shown && Math.abs(shown[0] - next[0]) < 1e-12 && Math.abs(shown[1] - next[1]) < 1e-12)) {
+      Plotly.relayout(gd, xRangeUpdate(next, { xaxis2: hasX2() }));
+    }
+  };
+  const apply = range => {
+    pending = range;
+    if (frame !== null) return;
+    frame = { raf: window.requestAnimationFrame(flush), timer: window.setTimeout(flush, 50) };
   };
 
-  const geometry = event => {
-    const { xa, ya, rect } = start.target;
-    const clamp = (value, lo, hi) => Math.min(Math.max(value, lo), hi);
-    const x0 = clamp(start.x - rect.left, xa._offset, xa._offset + xa._length);
-    const x1 = clamp(event.clientX - rect.left, xa._offset, xa._offset + xa._length);
-    // Only 2θ is zoomed (a vertical band) in the residual panel, and in the main panel
-    // while its intensity axis follows the visible window ("Fit intensity to view"):
-    // a box there would clip peak tops and hide the Bragg rows below the baseline.
-    const yOnly = freeIntensity(start.target);
-    const y0 = yOnly ? clamp(start.y - rect.top, ya._offset, ya._offset + ya._length) : ya._offset;
-    const y1 = yOnly ? clamp(event.clientY - rect.top, ya._offset, ya._offset + ya._length) : ya._offset + ya._length;
-    return { x0, x1, y0, y1 };
+  const stopDrag = () => {
+    drag = null;
+    gd.style.cursor = '';
+    window.removeEventListener('mousemove', onMove, true);
+    window.removeEventListener('mouseup', onUp, true);
   };
 
   function onMove(event) {
-    if (!start) return;
-    const { x0, x1, y0, y1 } = geometry(event);
-    Object.assign(box.style, {
-      left: `${Math.min(x0, x1)}px`, top: `${Math.min(y0, y1)}px`,
-      width: `${Math.abs(x1 - x0)}px`, height: `${Math.abs(y1 - y0)}px`,
-    });
+    if (!drag) return;
+    event.preventDefault();
+    if (!drag.moved && Math.abs(event.clientX - drag.x) < CLICK_SLOP_PX && Math.abs(event.clientY - drag.y) < CLICK_SLOP_PX) return;
+    drag.moved = true;
+    const degreesPerPixel = (drag.range[1] - drag.range[0]) / drag.length;
+    apply(panRange(drag.range, -(event.clientX - drag.x) * degreesPerPixel, bounds()));
   }
 
   function onUp(event) {
-    if (!start) return;
-    const { x0, x1, y0, y1 } = geometry(event);
-    const { xa, ya } = start.target;
-    const freeY = freeIntensity(start.target);
-    clear();
-    if (Math.abs(x1 - x0) < MIN_BOX_PX) return;
-    const update = boxZoomUpdate({
-      xRange: [xa.p2l(x0 - xa._offset), xa.p2l(x1 - xa._offset)],
-      yRange: freeY && Math.abs(y1 - y0) >= MIN_BOX_PX
-        ? [ya.p2l(y0 - ya._offset), ya.p2l(y1 - ya._offset)] : null,
-    });
-    Plotly.relayout(gd, update);
-  }
-
-  function onKey(event) {
-    if (event.key === 'Escape') clear();
+    if (!drag) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const { moved, button } = drag;
+    stopDrag();
+    // Shift+click (several peaks) must still reach the plot: Plotly never saw this mousedown,
+    // so emit its click event with the hovered points, as Plotly itself does.
+    if (!moved && button === 0 && gd._hoverdata?.length) gd.emit('plotly_click', { points: gd._hoverdata, event });
   }
 
   const onDown = event => {
-    if (event.button !== 2) return;
-    const target = subplotAt(event.clientX, event.clientY);
+    const pan = PAN_BUTTONS.has(event.button) || (event.button === 0 && event.shiftKey);
+    if (!pan) return;
+    const target = inPlotArea(event.clientX, event.clientY);
+    const range = currentRange();
+    if (!target || !range) return;
+    // Capture phase: Plotly's drag layer must not start a zoom box or its own (unclamped) pan.
+    event.preventDefault();
+    event.stopPropagation();
+    drag = { x: event.clientX, y: event.clientY, button: event.button, moved: false, range, length: Math.max(target.xa._length, 1) };
+    gd.style.cursor = 'grabbing';
+    window.addEventListener('mousemove', onMove, true);
+    window.addEventListener('mouseup', onUp, true);
+  };
+
+  const onWheel = event => {
+    const target = inPlotArea(event.clientX, event.clientY);
     if (!target) return;
     event.preventDefault();
     event.stopPropagation();
-    start = { x: event.clientX, y: event.clientY, target };
-    box = document.createElement('div');
-    Object.assign(box.style, {
-      position: 'absolute', pointerEvents: 'none', zIndex: 10,
-      border: '1px dashed #1677ff', background: 'rgba(22,119,255,0.12)',
-    });
-    if (getComputedStyle(gd).position === 'static') gd.style.position = 'relative';
-    gd.appendChild(box);
-    onMove(event);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    window.addEventListener('keydown', onKey);
-  };
-  const onContextMenu = event => {
-    if (subplotAt(event.clientX, event.clientY)) event.preventDefault();
+    const range = pending || currentRange();
+    const notches = wheelNotches(event);
+    if (!range || !notches) return;
+    const center = target.xa.p2l(target.px);
+    apply(wheelZoomRange(range, center, notches, bounds()));
   };
 
-  // Capture phase: Plotly's own drag layer must not see the right button.
+  const onContextMenu = event => {
+    if (inPlotArea(event.clientX, event.clientY)) event.preventDefault();
+  };
+
+  // Safety net for the gestures Plotly still handles (axis drags, box zoom): a 2θ window that
+  // leaves the measured range is moved back inside it.
+  const onRelayout = event => {
+    const change = viewChangeFromRelayout(event || {});
+    if (!change.xRange) return;
+    const full = bounds();
+    if (insideRange(change.xRange, full)) return;
+    const fixed = clampRange(change.xRange, full);
+    if (fixed) Plotly.relayout(gd, xRangeUpdate(fixed, { xaxis2: hasX2() }));
+  };
+
   gd.addEventListener('mousedown', onDown, true);
+  gd.addEventListener('wheel', onWheel, { capture: true, passive: false });
   gd.addEventListener('contextmenu', onContextMenu);
+  if (typeof gd.on === 'function') gd.on('plotly_relayout', onRelayout);
   return () => {
-    clear();
+    stopDrag();
+    if (frame !== null) {
+      window.cancelAnimationFrame(frame.raf);
+      window.clearTimeout(frame.timer);
+      frame = null;
+    }
     gd.removeEventListener('mousedown', onDown, true);
+    gd.removeEventListener('wheel', onWheel, { capture: true });
     gd.removeEventListener('contextmenu', onContextMenu);
+    if (typeof gd.removeListener === 'function') gd.removeListener('plotly_relayout', onRelayout);
   };
 }
 
-export default function RefinementPlotly({ onInitialized, ...props }) {
+/**
+ * Plotly scatter plot with the DARA navigation. `xBounds` is the measured 2θ range that zoom
+ * and pan stay inside (default: the extent of the plotted data).
+ */
+export default function RefinementPlotly({ onInitialized, xBounds = null, ...props }) {
   const detach = React.useRef(null);
+  const boundsRef = React.useRef(xBounds);
+  boundsRef.current = xBounds;
   React.useEffect(() => () => { if (detach.current) detach.current(); }, []);
   return <Plot {...props} onInitialized={(figure, gd) => {
     if (detach.current) detach.current();
-    detach.current = attachRightDragZoom(gd);
+    detach.current = attachNavigation(gd, boundsRef);
     if (onInitialized) onInitialized(figure, gd);
   }} />;
 }

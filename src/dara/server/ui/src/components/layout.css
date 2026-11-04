@@ -22,3 +22,25 @@ code {
 
 @media(max-width:540px){ html { font-size:calc(14px + 2 * ((100vw - 414px) / 126));; } }
 @media(max-width:360px){ html { font-size:14px; } } 
+/* Coloured note boxes (antd Alert) take the width of their text, up to one readable line
+   length, instead of stretching across the wide content area. Tables and plots stay wide. */
+.ant-alert {
+  width: fit-content;
+  max-width: min(100%, 1100px);
+}
+
+/* Notes listed together share one width: that of the widest note. */
+.dara-note-group {
+  width: fit-content;
+  max-width: min(100%, 1100px);
+}
+
+.dara-note-group > .ant-alert {
+  width: auto;
+  max-width: none;
+}
+
+/* Bordered panels with text and controls (review notes, progress) keep the same limit. */
+.dara-panel {
+  max-width: min(100%, 1100px);
+}

@@ -676,15 +676,14 @@ def base_phase_stems(document, selection, base_version: dict | None, refs: dict)
         if selection >= len(document.results or []):
             raise QuickRefineError("Unknown candidate index")
         return _group_heads(document.results[selection][0])
-    from dara.server.api_router import _search_result_key
+    from dara.server.api_router import _matching_result_index
 
     final = document.final_result
     if final is None:
         raise QuickRefineError("The task has no final result to start from.")
-    wanted = _search_result_key(list(final.lst_data.phases_results))
-    for groups, candidate in document.results or []:
-        if _search_result_key(list(candidate.lst_data.phases_results)) == wanted:
-            return _group_heads(groups)
+    index = _matching_result_index(document, final)
+    if index is not None:
+        return _group_heads(document.results[index][0])
     # Fall back to the BGMN phase names of the final fit.
     names = list(final.lst_data.phases_results)
     by_name = {process_phase_name(stem): stem for stem in refs}
@@ -893,6 +892,32 @@ def fit_key(stems: list[str], cif_texts: dict, *, refine_mode: str, base, phase_
     return _sha1(json.dumps(payload, sort_keys=True, default=str))
 
 
+def record_origin(kind: str, selection, plan: PhasePlan, base_version: dict | None,
+                  replaces: int | None) -> dict:
+    """``origin`` of a new version record.
+
+    A full fit that replaces a quick check is recorded against the quick check's own base:
+    the quick check is deleted when the full fit is stored, so nothing may point at it.
+    What the quick check added or removed is carried over (``replaces`` keeps its number).
+    """
+    origin = {
+        "kind": kind,
+        "base": versions.format_selection(selection),
+        "added": list(plan.added),
+        "removed": list(plan.removed),
+    }
+    if replaces is None:
+        return origin
+    previous = (base_version or {}).get("origin") or {}
+    base = previous.get("base")
+    origin["base"] = "best" if base is None or base == "" else base
+    for field in ("added", "removed"):
+        merged = list(previous.get(field) or [])
+        merged += [stem for stem in origin[field] if stem not in merged]
+        origin[field] = merged
+    return origin
+
+
 def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict | None,
              library: dict, request: QuickRefineRequest, existing: dict | None = None,
              still_stored=None) -> dict:
@@ -1022,12 +1047,7 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
     record_out = {
         "job_id": job.job_id,
         "label": default_label(request),
-        "origin": {
-            "kind": request.origin,
-            "base": versions.format_selection(selection),
-            "added": plan.added,
-            "removed": plan.removed,
-        },
+        "origin": record_origin(request.origin, selection, plan, base_version, replaces),
         "phases": plan.stems,
         "cifs": new_cifs,
         "uploaded_stems": uploaded,

@@ -47,19 +47,60 @@ export function isMissingEndpoint(status, detail) {
   return !text || text === 'Not Found' || /^Request failed \(HTTP \d+\)\.?$/.test(text);
 }
 
+/**
+ * Displayed candidate holding a source index: `{number, result, member}` (1-based number, the
+ * displayed row, and the `merged_results` entry when the index was merged into that row), or null.
+ */
+export function displayedCandidateOf(allResults = [], sourceIndex) {
+  const results = allResults || [];
+  for (let i = 0; i < results.length; i += 1) {
+    const result = results[i];
+    if ((result.source_index ?? i) === sourceIndex) return { number: i + 1, result, member: null };
+    const member = (result.merged_results || []).find(item => item.source_index === sourceIndex);
+    if (member) return { number: i + 1, result, member };
+  }
+  return null;
+}
+
+/** Short database record of a reference name: `cod_1010004` from `Bi2O3_14_(cod_1010004)-0`. */
+const recordOf = name => /\(([^()]+)\)[^()]*$/.exec(String(name ?? ''))?.[1] ?? String(name ?? '');
+
+/** Merged results of a displayed row that use other database records (not only another phase order). */
+export function referenceVariants(result) {
+  return (result?.merged_results || []).filter(m => m.differing_phases?.length);
+}
+
+/**
+ * Label of a result merged into displayed candidate `number`, the same wording as the server
+ * (`versions.merged_label`): `Candidate 1 · other reference (cod_1010004)` for other database
+ * records, `Candidate 1 (stored #2)` when only the phase order differs.
+ */
+export function mergedLabel(number, member) {
+  const differing = member?.differing_phases || [];
+  return differing.length
+    ? `Candidate ${number} · other reference (${differing.map(recordOf).join(', ')})`
+    : `Candidate ${number} (stored #${member.source_index + 1})`;
+}
+
+/** `mergedLabel` for a merged result; null for a displayed row. */
+function memberLabel(found) {
+  return found?.member ? mergedLabel(found.number, found.member) : null;
+}
+
 /** Human label for a selection. `data` = `{all_results, versions}`. */
 export function selectionLabel(sel, data = {}) {
   const parsed = parseSelection(sel);
   if (parsed === 'best') return 'Best fit';
   if (typeof parsed === 'number') {
-    const results = data.all_results || [];
-    const index = results.findIndex((result, i) => (result.source_index ?? i) === parsed);
-    if (index < 0) return `Candidate ${parsed + 1}`;
-    const rwp = results[index].rwp;
-    return `Candidate ${index + 1}${finite(rwp) ? ` — Rwp ${rwp}%` : ''}`;
+    const found = displayedCandidateOf(data.all_results, parsed);
+    if (!found) return `Candidate (stored #${parsed + 1})`;
+    const rwp = (found.member || found.result).rwp;
+    const rwpText = finite(rwp) ? ` — Rwp ${rwp}%` : '';
+    return `${memberLabel(found) || `Candidate ${found.number}`}${rwpText}`;
   }
   if (parsed) {
     const version = (data.versions || []).find(item => item.version === parsed.version);
+    if (!version && versionGone(data.versions, parsed)) return `v${parsed.version} (deleted)`;
     return `v${parsed.version}${version?.label ? ` — ${version.label}` : ''}`;
   }
   return '';
@@ -107,6 +148,42 @@ const MAX_LABEL = 120; // the server rejects longer quick-refine labels
 export function spacegroupOfPhase(name) {
   const match = String(name || '').match(/^.+?_(\d+)_\(/);
   return match ? Number(match[1]) : null;
+}
+
+/**
+ * Weight-fraction rows of two fits keyed by phase identity (formula + space group; the server's
+ * `phase_identity` map gives the reduced formula), so one compound refined from different
+ * database records shares a row. Unknown identities fall back to the name. Phases of one
+ * identity in a fit are paired with the other fit's by weight and numbered (`Fe2O3 #2`).
+ * `a`/`b` are fit-compare sides (`{weight_percent, phase_identity}`).
+ */
+export function weightRows(a, b) {
+  const groups = new Map();
+  [['a', a], ['b', b]].forEach(([side, fit]) => {
+    const identity = fit?.phase_identity || {};
+    Object.entries(fit?.weight_percent || {}).forEach(([name, value]) => {
+      const number = spacegroupOfPhase(name);
+      const key = identity[name] || (number == null ? `name:${name}` : `${formulaOfPhase(name)}_${number}`);
+      if (!groups.has(key)) groups.set(key, { a: [], b: [] });
+      groups.get(key)[side].push({ name, value: finite(value) ? Number(value) : null });
+    });
+  });
+  const byWeight = (x, y) => (y.value ?? -Infinity) - (x.value ?? -Infinity);
+  return [...groups].flatMap(([key, group]) => {
+    group.a.sort(byWeight);
+    group.b.sort(byWeight);
+    const size = Math.max(group.a.length, group.b.length);
+    return Array.from({ length: size }, (_, i) => {
+      const names = [...new Set([group.a[i]?.name, group.b[i]?.name].filter(Boolean))];
+      return {
+        key: size > 1 ? `${key}#${i + 1}` : key,
+        formula: `${formulaOfPhase(names[0])}${size > 1 ? ` #${i + 1}` : ''}`,
+        names,
+        a: group.a[i]?.value ?? null,
+        b: group.b[i]?.value ?? null,
+      };
+    });
+  });
 }
 
 /** `R-3c`, `P2₁/c` (from BGMN's `P2_1/c`) or `SG 14` when only the number is known. */
@@ -367,6 +444,15 @@ export function comparisonBase(sel, versions = [], self = null) {
   return baseline && baseline.version !== self ? `version:${baseline.version}` : 'best';
 }
 
+/**
+ * `comparisonBase` for the delta strip of a version: a base that no longer exists (a replaced
+ * quick check, a deleted version) falls back to the best fit instead of a missing version.
+ */
+export function availableComparisonBase(sel, versions = [], self = null) {
+  const wanted = formatSelection(sel ?? 'best') ?? 'best';
+  return comparisonBase(versionGone(versions, wanted) ? 'best' : wanted, versions, self);
+}
+
 /** True when the first re-refinement should be preceded by a silent baseline job. */
 export function needsBaseline(baselineStale, versions = [], body = {}) {
   if (!baselineStale || baselineVersion(versions)) return false;
@@ -384,14 +470,25 @@ export function selectOptionGroups(allResults = [], versions = [], { adoptable =
   const currentSel = formatSelection(current);
   const legacy = item => adoptable && item.refine_mode === 'fast';
   const shown = (versions || []).filter(item => item.version > 1 && (!legacy(item) || `version:${item.version}` === currentSel));
+  // A saved choice whose version was deleted stays readable instead of showing `version:N`.
+  const gone = adoptable && versionGone(versions, currentSel)
+    ? [{ value: currentSel, label: `${selectionLabel(currentSel, { versions })} — adopt another fit`, disabled: true }] : [];
   return [
     { label: 'Best fit', options: [{ value: 'best', label: 'Best fit' }] },
-    { label: 'Candidates', options: (allResults || []).map((r, i) => ({ value: r.source_index ?? i, label: `Candidate ${i + 1} — Rwp ${r.rwp}%` })) },
+    { label: 'Candidates', options: (allResults || []).flatMap((r, i) => [
+      { value: r.source_index ?? i, label: `Candidate ${i + 1} — Rwp ${r.rwp}%` },
+      // the same phases refined with another database record, right after their candidate
+      ...referenceVariants(r).map(m => ({
+        value: m.source_index,
+        label: `${mergedLabel(i + 1, m)} — Rwp ${m.rwp}%`,
+      })),
+    ]) },
     ...(shown.length ? [{ label: 'Versions',
       options: shown.map(item => (legacy(item)
         ? { value: `version:${item.version}`, label: `v${item.version} (quick check)`, disabled: true }
         : { value: `version:${item.version}`,
           label: `v${item.version} — ${item.label || 'Re-refinement'}${finite(item.rwp) ? ` — Rwp ${Number(item.rwp).toFixed(2)}%` : ''}` })) }] : []),
+    ...(gone.length ? [{ label: 'Deleted', options: gone }] : []),
   ];
 }
 

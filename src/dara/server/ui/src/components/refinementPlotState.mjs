@@ -1,4 +1,4 @@
-import { addDSpacingHover } from './plotNavigation.mjs';
+import { addDSpacingHover, clampRange, finiteRange } from './plotNavigation.mjs';
 
 // Keep legend selection in React state: Plotly's internal visibility is lost
 // whenever a toolbar action supplies a fresh data array.
@@ -71,20 +71,35 @@ function intensityStats(plot, isShown, xRange) {
   return { maximum, minimum, smallestPositive };
 }
 
+// Below this plot width the legend column gets smaller text and only the room it needs
+// (the server reserves 290 px, which leaves too little for the pattern at 1280 px).
+export const COMPACT_LEGEND_WIDTH = 1400;
+
 export function buildRefinementView(plot, {
   selection = {}, showDiagnostics = true, showPhaseProfiles = true,
-  showReflections = true, scale = 'linear', yRange = null, xRange = null, fitY = true,
+  showReflections = true, scale = 'linear', yRange = null, xRange = null, fitY = true, plotWidth = null,
 } = {}) {
   plot = withDSpacing(plot);
   const baseLayout = cloneLayout(plot.layout);
+  // The plot div sets the size: a fixed server height would override autosize and
+  // push the Obs − calc panel under the content below (or leave an empty band).
+  delete baseLayout.height;
+  delete baseLayout.width;
+  baseLayout.autosize = true;
+  const fullX = finiteRange(baseLayout.xaxis?.range);
+  // The 2θ window never leaves the measured range.
+  const xWindow = xRange ? (clampRange(xRange, fullX) || null) : null;
   const shown = (trace, index) => {
     if (!isTraceSelected(trace, index, selection)) return false;
     return trace.meta !== 'phase-profile' || showPhaseProfiles;
   };
+  // A user intensity range (box zoom with Auto-Y off) is the data window: the marker band and
+  // the Bragg rows are added below it, so they always stay inside the main panel.
+  const userY = finiteRange(yRange);
   // Scale the intensity axis to the visible 2θ window when zoomed, so weak
   // peaks fill the panel; fall back to the whole pattern.
-  let fitted = Boolean(fitY && xRange);
-  let stats = fitted ? intensityStats(plot, shown, xRange) : intensityStats(plot, () => true, null);
+  let fitted = Boolean(fitY && xWindow);
+  let stats = fitted ? intensityStats(plot, shown, xWindow) : intensityStats(plot, () => true, null);
   if (!Number.isFinite(stats.maximum)) {
     fitted = false;
     stats = intensityStats(plot, () => true, null);
@@ -95,8 +110,16 @@ export function buildRefinementView(plot, {
   let smallestPositive = stats.smallestPositive;
   if (!Number.isFinite(minimum)) minimum = 0;
   if (!Number.isFinite(smallestPositive)) smallestPositive = 1;
+  if (userY) {
+    if (scale === 'log') {
+      smallestPositive = 10 ** userY[0];
+      maximum = 10 ** userY[1];
+    } else {
+      [minimum, maximum] = userY;
+    }
+  }
   const span = Math.max(maximum - minimum, 1e-9);
-  const unit = fitted ? span : maximum;
+  const unit = fitted || userY ? span : maximum;
   // Peak markers get their own band between the pattern and the Bragg rows, so the
   // observed points and the axis edge never cover them.
   const markersShown = showDiagnostics && plot.data.some((trace, index) =>
@@ -134,24 +157,32 @@ export function buildRefinementView(plot, {
     });
     return { ...trace, visible, x: numbers(trace.x), y: numbers(trace.x).map(() => position) };
   });
-  const defaultRange = scale === 'log'
-    ? [Math.log10(smallestPositive / logMarkerBand) - (rows.length + 0.5) * Math.log10(4), Math.log10(maximum) + 0.04]
-    : [minimum - unit * (markerBand + (rows.length ? 0.095 * (rows.length + 0.55) : 0.035)), maximum + unit * 0.05];
-  const range = yRange || defaultRange;
+  const top = userY ? 0 : 1;
+  const range = scale === 'log'
+    ? [Math.log10(smallestPositive / logMarkerBand) - (rows.length + 0.5) * Math.log10(4), Math.log10(maximum) + 0.04 * top]
+    : [minimum - unit * (markerBand + (rows.length ? 0.095 * (rows.length + 0.55) : 0.035)), maximum + unit * 0.05 * top];
   const yaxis = { ...baseLayout.yaxis, type: scale, range, autorange: false,
-    // While the intensity axis follows the 2θ window, wheel/pan act on 2θ only.
-    fixedrange: Boolean(fitY && !yRange),
-    // Hide only the upper panel's negative intensity ticks. Residuals retain
-    // their signed values and automatic tick labels.
+    // While the intensity axis follows the 2θ window, box zoom and pan act on 2θ only.
+    fixedrange: Boolean(fitY && !userY),
+    // Ticks cover the data window only (not the marker band and Bragg rows below it) and
+    // hide the upper panel's negative intensities. Residuals keep their signed values.
     tickmode: scale === 'log' ? 'auto' : 'array',
-    tickvals: scale === 'log' ? undefined : positiveTicks(Math.min(...range), Math.max(...range)),
+    tickvals: scale === 'log' ? undefined : positiveTicks(minimum, range[1]),
     ticktext: undefined,
   };
-  const fullX = baseLayout.xaxis?.range;
-  const xView = xRange ? [Math.min(...xRange), Math.max(...xRange)] : fullX;
-  const xaxis = { ...baseLayout.xaxis, showticklabels: true, title: { text: '2θ [°]', standoff: 8 } };
-  if (xView) Object.assign(xaxis, { range: xView, autorange: false });
+  const xView = xWindow || fullX;
+  // The 2θ title is drawn once, under the Obs − calc panel; the main panel keeps its tick
+  // labels, which leaves a clear gap between the panels at small heights.
+  const xaxis = { ...baseLayout.xaxis, showticklabels: true, title: { text: '' } };
+  if (xView) Object.assign(xaxis, { range: [...xView], autorange: false });
   const layout = { ...baseLayout, annotations, yaxis, xaxis };
-  if (layout.xaxis2 && xView) Object.assign(layout.xaxis2, { range: xView, autorange: false });
+  if (layout.xaxis2 && xView) Object.assign(layout.xaxis2, { range: [...xView], autorange: false });
+  // The residual intensity never zooms: a box there is a 2θ band.
+  if (layout.yaxis2) layout.yaxis2 = { ...layout.yaxis2, fixedrange: true };
+  if (Number.isFinite(plotWidth) && plotWidth > 0 && plotWidth < COMPACT_LEGEND_WIDTH) {
+    // Plotly widens the right margin to the legend's own width when it needs more.
+    layout.margin = { ...(layout.margin || {}), r: 24 };
+    layout.legend = { ...(layout.legend || {}), font: { ...(layout.legend?.font || {}), size: 10 }, itemwidth: 30 };
+  }
   return { data, layout, rows, fullXRange: fullX || null };
 }

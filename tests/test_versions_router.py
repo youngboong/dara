@@ -496,3 +496,94 @@ def test_table_export_lists_the_adopted_version(monkeypatch, api):
     assert adopted and all(row["adopted"] == "yes" for row in adopted)
     assert all(row["adopted"] == "" for row in rows if row["candidate"] == "final")
     assert not any(row["candidate"] == "version 4" for row in rows)  # quick checks never appear
+
+
+# --------------------------------------------------------------------------- dangling bases
+def test_a_base_pointing_at_a_deleted_quick_check_is_resolved(monkeypatch, api):
+    """Records stored before the fix name the replaced quick check as their base."""
+    _make_versions(monkeypatch, api)
+    store = api["versions"]
+    v2 = store.query_one({"uuid": TASK_UUID, "index": 2})
+    v3 = store.query_one({"uuid": TASK_UUID, "index": 3})
+    v2["origin"] = {"kind": "add_hint", "base": "best", "added": ["Bi2Fe4O9"], "removed": []}
+    v2["refine_mode"] = "fast"
+    v3["origin"] = {"kind": "refine_all", "base": "version:2", "added": [], "removed": []}
+    v3["replaces"] = 2
+    store.update([v2, v3])
+    versions.tombstone_version(TASK_UUID, 2)
+    listing = _call(versions_router.list_task_versions(7))
+    entry = next(v for v in listing["versions"] if v["version"] == 3)
+    assert entry["origin"]["base"] == "best"
+    assert entry["origin"]["added"] == ["Bi2Fe4O9"] and entry["replaces"] == 2
+    detail = _call(versions_router.get_task_version(7, 3))
+    assert detail["origin"]["base"] == "best" and detail["origin"]["added"] == ["Bi2Fe4O9"]
+    # The stored record is not rewritten.
+    assert store.query_one({"uuid": TASK_UUID, "index": 3})["origin"]["base"] == "version:2"
+
+
+def test_bases_follow_chains_and_unknown_numbers_fall_back_to_best():
+    by_number = {
+        2: {"index": 2, "deleted": True, "origin": {"base": "version:3"}},
+        3: {"index": 3, "deleted": True, "origin": {"base": 0}},
+        4: {"index": 4, "origin": {"base": "best"}},
+    }
+    resolve = versions_router._resolve_origin
+    assert resolve({"origin": {"base": "version:2"}}, by_number)["base"] == 0
+    assert resolve({"origin": {"base": "version:4"}}, by_number)["base"] == "version:4"
+    assert resolve({"origin": {"base": "version:9"}}, by_number)["base"] == "best"
+    assert resolve({"origin": {"base": 1}}, by_number)["base"] == 1
+    assert resolve({"origin": None}, by_number) is None
+    loop = {5: {"deleted": True, "origin": {"base": "version:6"}}, 6: {"deleted": True, "origin": {"base": "version:5"}}}
+    assert resolve({"origin": {"base": "version:5"}}, loop)["base"] == "best"
+
+
+def test_v1_peak_counts_are_filled_on_a_cold_server(monkeypatch, api):
+    quick_refine._DOCUMENTS.clear()
+    first = _call(versions_router.list_task_versions(7))["versions"][0]
+    assert first["n_unexplained"] == 1  # the fixture fit has one missing peak
+    assert _call(versions_router.get_task_version(7, 1))["n_unexplained"] == 1
+
+
+def test_unexplained_count_matches_the_task_card():
+    from dara.server.api_router import unexplained_count
+
+    classified = {
+        "counts": {"missing": 5},
+        "counts_by_class": {"significant": 2, "minor": 2, "instrument": 1, "noise": 0},
+    }
+    # significant + minor, as the task card and the delta strip show (instrument/noise excluded)
+    assert unexplained_count(classified) == 4
+    assert unexplained_count({"counts": {"missing": 3}}) == 3  # unclassified payloads
+    assert unexplained_count(None) is None
+    entry = versions_router._version_entry(
+        {"version": 2, "summary": {"peak_diagnostics": classified}}
+    )
+    assert entry["n_unexplained"] == 4
+    lite = versions_router._lite(1, {"label": "x"}, {"peak_diagnostics": classified})
+    assert lite["n_unexplained"] == 4
+
+
+def test_merged_member_gets_the_same_cautions_as_a_displayed_entry(monkeypatch):
+    # source index 4 was merged into another entry, so it has no all_results row of its own
+    monkeypatch.setattr(versions_router, "_task_payload", lambda task, document: {"all_results": []})
+    quality = {"rwp": 25.0, "gof": 6.0}
+    details = {"A": {"weight_percent": 0.5, "weight_esd_percent": 0.1}}
+    monkeypatch.setattr(api_router, "_fit_quality", lambda refinement: quality)
+    monkeypatch.setattr(api_router, "_phase_refinement_details", lambda refinement: details)
+    monkeypatch.setattr(api_router, "_classified_peak_diagnostics", lambda *args, **kwargs: {})
+    monkeypatch.setattr(api_router, "_weight_percent", lambda refinement: {"A": 0.5})
+    monkeypatch.setattr(api_router, "_counts_like", lambda document: False)
+    refinement = type("R", (), {"lst_data": type("L", (), {"rwp": 25.0})()})()
+    summary = versions_router._side_summary({"uuid": "u"}, object(), 4, {}, refinement)
+    expected = api_router.fit_cautions(quality, details, {}, counts_like=False)
+    assert summary["cautions"] == expected
+    assert {c["code"] for c in summary["cautions"]} >= {"poor_fit", "insignificant_phase", "rexp_unreliable"}
+    lite = versions_router._lite(4, {}, summary)
+    assert lite["cautions"] == expected
+    assert lite["phase_identity"] == {"A": "name:A"}
+
+
+def test_fit_compare_sides_carry_phase_identities():
+    weights = {"Bi2O3_14_(cod_9012546)-0": 50.0, "Bi2O3_14_(cod_1010004)-0": 50.0}
+    lite = versions_router._lite(0, {}, {"weight_percent": weights})
+    assert lite["phase_identity"] == dict.fromkeys(weights, "Bi2O3_14")

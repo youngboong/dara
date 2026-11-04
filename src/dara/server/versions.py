@@ -217,7 +217,7 @@ def resolve_refinement(document, task, selection):
         from dara.server.api_router import _flatten_cifs
 
         return document.results[sel][1], {
-            "kind": "candidate", "label": f"Candidate {sel + 1}",
+            "kind": "candidate", "label": candidate_label(document, sel),
             "cifs": _flatten_cifs(document.results[sel][0]),
             "refinement_params": base_params, "version": None,
             "phase_params": getattr(document, "final_refinement_params", None),
@@ -236,6 +236,42 @@ def resolve_refinement(document, task, selection):
         "version": number,
         "record": record,
     }
+
+
+def reference_record(name) -> str:
+    """Short database record of a reference: ``cod_1010004`` from ``Bi2O3_14_(cod_1010004)-0``."""
+    match = re.search(r"\(([^()]+)\)[^()]*$", str(name))
+    return match.group(1) if match else str(name)
+
+
+def merged_label(number: int, index: int, differing_phases) -> str:
+    """Label of stored result ``index`` merged into displayed candidate ``number``.
+
+    ``Candidate 1 · other reference (cod_1010004)`` when it refines other database records
+    (``differing_phases``, as in ``merged_results``); ``Candidate 1 (stored #2)`` when only
+    the phase order differs. The UI (versions.mjs) uses the same wording.
+    """
+    if differing_phases:
+        records = ", ".join(reference_record(name) for name in differing_phases)
+        return f"Candidate {number} · other reference ({records})"
+    return f"Candidate {number} (stored #{index + 1})"
+
+
+def candidate_label(document, index: int) -> str:
+    """``Candidate N`` by displayed position; a merged-away result is labelled by ``merged_label``."""
+    from dara.server.api_router import group_of
+
+    found = group_of(document, index)
+    if found is None:
+        return f"Candidate {index + 1}"
+    number, group = found
+    if group.representative == index:
+        return f"Candidate {number}"
+    shown = set(document.results[group.representative][1].lst_data.phases_results)
+    differing = [
+        name for name in document.results[index][1].lst_data.phases_results if name not in shown
+    ]
+    return merged_label(number, index, differing)
 
 
 def _aligned(values, first=None):
@@ -281,6 +317,8 @@ def document_view(document, task, record: dict):
             "lattice_strains": None,
             "best_rwp": refinement.lst_data.rwp,
             "input_cifs": list(getattr(document, "input_cifs", None) or []) + added,
+            # the version represents its candidate group even when a candidate fits better
+            "pinned_result_index": 0,
         }
     )
 

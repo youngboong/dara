@@ -31,8 +31,6 @@ export default function useKeyboardShortcuts(enabled, contextRef, handlers) {
     const onKeyDown = event => {
       if (event.defaultPrevented) return;
       if (foreignModalHasFocus() || foreignModalOpen()) return;
-      // Esc during a right-drag zoom box only cancels the box (RefinementPlotly handles it).
-      if (event.key === 'Escape' && document.querySelector('.js-plotly-plot [style*="dashed"]')) return;
       const action = actionForKey(event, contextRef.current || {});
       if (!action) return;
       const handler = latest.current?.[action.type];

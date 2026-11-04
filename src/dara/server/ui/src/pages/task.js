@@ -8,6 +8,7 @@ import parse from 'html-react-parser';
 import {STATE_COLOR} from './results';
 import { buildRefinementView, isTraceSelected, legendKey } from '../components/refinementPlotState.mjs';
 import { viewChangeFromRelayout } from '../components/plotNavigation.mjs';
+import { NAVIGATION_CONFIG, NAVIGATION_DRAGMODE } from '../components/usePlotView';
 import { formatParameterWithEsd, latticeParameterRows } from '../components/latticeParameters.mjs';
 import { PhaseSelectionButton, RetryActions, ReviewPanel, useTaskReview } from '../components/ResultWorkflows';
 import { TaskProgress } from '../components/PracticalControls';
@@ -21,15 +22,16 @@ import PeakCandidatesDrawer, { DRAWER_WIDTH } from '../components/PeakCandidates
 import FitCompare from '../components/FitCompare';
 import BackgroundEditor from '../components/BackgroundEditor';
 import useKeyboardShortcuts, { FIT_MODAL_CLASS, HELP_MODAL_CLASS } from '../components/useKeyboardShortcuts';
-import { SHORTCUT_HELP } from '../components/keyboardShortcuts.mjs';
+import { MOUSE_HELP, SHORTCUT_HELP } from '../components/keyboardShortcuts.mjs';
 import {
   collectHints, hintsPending, observedPeak, peakFromClick, peakShapes, phaseGroupNames, previewTrace, significantPeaks, updatePeakSelection,
 } from '../components/peakSelection.mjs';
 import { searchOptionsText } from '../components/resultsList.mjs';
 import {
-  BASELINE_LABEL, QUICK_CHECK_HINT, REFINE_ALL_FIRST, alternativeOfVerdict, baselineRequest, comparisonBase, deltaStrip, deltaText,
+  BASELINE_LABEL, QUICK_CHECK_HINT, REFINE_ALL_FIRST, alternativeOfVerdict, availableComparisonBase, baselineRequest,
+  deltaStrip, deltaText, displayedCandidateOf,
   formulaOfPhase, isQuickCheck, needsBaseline, parseSelection, plotQuery, refineAllBase, refineAllRequest, removeRequest,
-  replacementOf, runText, selectOptionGroups, selectionLabel, swapKind, swapRequest, versionGone, versionReadyText,
+  referenceVariants, replacementOf, runText, selectOptionGroups, selectionLabel, swapKind, swapRequest, versionGone, versionReadyText,
 } from '../components/versions.mjs';
 
 const { Text } = Typography;
@@ -228,6 +230,22 @@ const RefinementPlot = React.forwardRef(function RefinementPlot({
   const [fitY, setFitY] = React.useState(true);
   const lastLegendKey = React.useRef(null);
   const sameLegendClicked = React.useRef(false);
+  // Width of the plot: below COMPACT_LEGEND_WIDTH the legend column is made narrower.
+  const [plotWidth, setPlotWidth] = React.useState(null);
+  const containerRef = React.useRef(null);
+  React.useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return undefined;
+    const measure = () => setPlotWidth(Math.round(element.getBoundingClientRect().width) || null);
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [plot]);
   const resetView = () => { setXRange(null); setYRange(null); setResetKey(value => value + 1); };
   // Keyboard shortcuts act through this handle; it always reads the latest state.
   const latest = React.useRef({});
@@ -264,7 +282,7 @@ const RefinementPlot = React.forwardRef(function RefinementPlot({
   if (error) return <Alert type="error" showIcon message={error} />;
   if (!plot) return <Spin />;
   const view = buildRefinementView(plot, {
-    selection, showDiagnostics, showPhaseProfiles, showReflections, scale, yRange, xRange, fitY,
+    selection, showDiagnostics, showPhaseProfiles, showReflections, scale, yRange, xRange, fitY, plotWidth,
   });
   const toggleLegend = event => {
     const index = event.curveNumber;
@@ -308,34 +326,36 @@ const RefinementPlot = React.forwardRef(function RefinementPlot({
       <Tooltip title="Unexplained-peak and diagnostic markers"><Text>Markers</Text></Tooltip><Switch checked={showDiagnostics} onChange={setShowDiagnostics} />
       <Tooltip title="Fit the intensity axis to the visible 2θ range (F)"><Text>Auto-Y</Text></Tooltip><Switch checked={fitY} onChange={value => { setFitY(value); setYRange(null); }} />
       <Button onClick={resetView}>Reset zoom</Button>
-      <Tooltip title={`Left-drag to pan, right-drag to zoom into a box, mouse wheel to zoom 2θ, double-click or Reset zoom to show the whole pattern. Click a phase in the legend to show its profile and Bragg positions; hover for 2θ, d-spacing and hkl. The lower panel shows observed − calculated.${onPeakClick ? ' Click a missing-peak marker or an observed point to search references for that peak (Shift+click to select several).' : ''}`}>
+      <Tooltip title={`Left-drag to zoom into a box (2θ only while Auto-Y is on), Shift- or right-drag to pan 2θ, mouse wheel to zoom 2θ at the cursor, double-click or Reset zoom to show the whole pattern. Zoom and pan stop at the measured range. Click a phase in the legend to show its profile and Bragg positions; hover for 2θ, d-spacing and hkl. The lower panel shows observed − calculated.${onPeakClick ? ' Click a missing-peak marker or an observed point to search references for that peak (Shift+click to select several).' : ''}`}>
         <InfoCircleOutlined aria-label="Plot navigation help" style={{ color: '#888' }} />
       </Tooltip>
       <Text type="secondary">Press ? for shortcuts</Text>
     </Space>
-    <Plotly key={`${task_id}-${plot_id}`} data={data}
+    <div ref={containerRef} style={{ width: '100%' }}>
+    <Plotly key={`${task_id}-${plot_id}`} data={data} xBounds={view.fullXRange}
       layout={{ ...view.layout, autosize: true,
         shapes: [...(view.layout.shapes || []), ...excludedRanges.flatMap(([x0, x1]) => [
           { type: 'rect', xref: 'x', yref: 'y domain', x0, x1, y0: 0, y1: 1, fillcolor: 'rgba(130,130,130,0.15)', line: { width: 0 }, layer: 'below' },
           { type: 'rect', xref: 'x2', yref: 'y2 domain', x0, x1, y0: 0, y1: 1, fillcolor: 'rgba(130,130,130,0.15)', line: { width: 0 }, layer: 'below' },
         ]), ...peakShapes(peaks)],
-        dragmode: 'pan',
+        dragmode: NAVIGATION_DRAGMODE,
         uirevision: `${task_id}-${plot_id}-${resetKey}` }}
       onLegendClick={toggleLegend}
       onLegendDoubleClick={isolateLegend}
       onDoubleClick={resetView}
       onClick={handleClick}
       onRelayout={event => {
-        const change = viewChangeFromRelayout(event);
+        const change = viewChangeFromRelayout(event, { full: view.fullXRange });
         if ('xRange' in change) setXRange(change.xRange);
+        // A y box (Auto-Y off) becomes the data window; the bands are drawn below it.
         if ('yRange' in change) setYRange(change.yRange);
       }}
-      config={{ responsive: true, displaylogo: false, scrollZoom: true, doubleClick: false,
-        // Ranges are React state: Plotly's own reset/autoscale buttons would only
-        // restore the state they were last given, so Reset zoom replaces them.
-        modeBarButtonsToRemove: ['zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d'],
+      // Ranges are React state: Plotly's own reset/autoscale buttons would only
+      // restore the state they were last given, so Reset zoom replaces them.
+      config={{ responsive: true, displaylogo: false, ...NAVIGATION_CONFIG,
         toImageButtonOptions: { format: 'svg', filename: `dara_${task_id}_${String(plot_id ?? 'best').replace(':', '_')}`, width: 1600, height: 900 } }}
       useResizeHandler style={{ height: 'clamp(520px, calc(100vh - 330px), 1200px)', width: '100%' }} />
+    </div>
   </>;
 });
 
@@ -459,6 +479,23 @@ function PhaseList({ phases, highlighted_phases, grouped_phases, show_alternativ
       }}
     />
   );
+}
+
+// The same phases refined with other database records, merged into this candidate.
+function MergedReferenceList({ items, show, taskId, onView }) {
+  if (!items.length) return null;
+  if (!show) {
+    const rwps = items.map(item => Number(item.rwp)).filter(Number.isFinite);
+    const range = rwps.length ? ` (Rwp ${rwps.length > 1 ? `${Math.min(...rwps)}–${Math.max(...rwps)}` : rwps[0]} %)` : '';
+    return <Text type="secondary">{`+ ${items.length} other reference entr${items.length === 1 ? 'y' : 'ies'}${range}`}</Text>;
+  }
+  return <Space direction="vertical" size={2}>
+    {items.map(item => <Space key={item.source_index} size="small" wrap>
+      <Text type="secondary" style={{ overflowWrap: 'anywhere' }}>{`${item.differing_phases.join(' + ')} — Rwp ${item.rwp} %`}</Text>
+      <Button size="small" onClick={() => onView(item.source_index)}>View fit</Button>
+      <Tooltip title="Download (ZIP)"><DownloadButton taskId={taskId} resultIndex={item.source_index} size="small" icon={<DownloadOutlined />} aria-label={`Download stored result ${item.source_index + 1}`} /></Tooltip>
+    </Space>)}
+  </Space>;
 }
 
 function PeakDiagnosticTags({ diagnostics }) {
@@ -587,6 +624,8 @@ function ShortcutHelp({ open, onClose }) {
     wrapClassName={HELP_MODAL_CLASS} width={420}>
     <Table size="small" pagination={false} rowKey="keys" dataSource={SHORTCUT_HELP}
       columns={[{ title: 'Keys', dataIndex: 'keys', width: 110, render: keys => <code>{keys}</code> }, { title: 'Action', dataIndex: 'action' }]} />
+    <Table size="small" pagination={false} rowKey="keys" dataSource={MOUSE_HELP} style={{ marginTop: 12 }}
+      columns={[{ title: 'Mouse (plot)', dataIndex: 'keys', width: 110, render: keys => <code>{keys}</code> }, { title: 'Action', dataIndex: 'action' }]} />
   </Modal>;
 }
 
@@ -658,7 +697,7 @@ function TaskDetail({ data, task_id }) {
       // A duplicate request compares the existing version it matched.
       if (job?.reused) message.info(text);
       else message.success(text);
-      setCompare({ a: comparisonBase(meta.base ?? 'best', list, n), b: sel ?? 'best' });
+      setCompare({ a: availableComparisonBase(meta.base ?? 'best', list, n), b: sel ?? 'best' });
     } else if (job?.reused) {
       // A duplicate request: nothing new was refined, the existing version is opened instead.
       message.info(text);
@@ -705,8 +744,9 @@ function TaskDetail({ data, task_id }) {
   const currentSel = plot_id === null || plot_id === undefined ? 'best' : plot_id;
   const versionNumber = typeof plot_id === 'string' ? (parseSelection(plot_id)?.version ?? null) : null;
   const versionData = versionNumber ? versionDetails[versionNumber] : null;
-  // Deltas against 'best' use the baseline version (same code as the new version) when it exists.
-  const effectiveBase = versionData ? comparisonBase(versionData.origin?.base ?? 'best', store.versions, versionNumber) : null;
+  // Deltas against 'best' use the baseline version (same code as the new version) when it exists;
+  // a base that is gone (replaced quick check, deleted version) falls back to the best fit.
+  const effectiveBase = versionData ? availableComparisonBase(versionData.origin?.base ?? 'best', store.versions, versionNumber) : null;
   const baseParsed = effectiveBase !== null ? parseSelection(effectiveBase) : null;
   const baseVersionNumber = baseParsed && typeof baseParsed === 'object' ? baseParsed.version : null;
   React.useEffect(() => {
@@ -717,7 +757,10 @@ function TaskDetail({ data, task_id }) {
     wanted.forEach(n => {
       requestJson(`/task/${task_id}/versions/${n}`)
         .then(body => { if (active) setVersionDetails(previous => ({ ...previous, [n]: body })); })
-        .catch(error => { if (active) setVersionError(error.missing ? NOT_AVAILABLE : error.message); });
+        .catch(error => {
+          // Only the displayed version is worth an error; a missing base just leaves out the deltas.
+          if (active && n === versionNumber) setVersionError(error.missing ? NOT_AVAILABLE : error.message);
+        });
     });
     return () => { active = false; };
   }, [task_id, versionNumber, baseVersionNumber, versionDetails]);
@@ -732,14 +775,19 @@ function TaskDetail({ data, task_id }) {
     openDrawerWithFit.current = false;
   }, [plot_id]);
 
+  // A merged result (other database record) shows its own Rwp, weights and fit statistics.
+  const candidateSummary = index => {
+    const found = displayedCandidateOf(data.all_results, index);
+    return found ? (found.member || found.result) : undefined;
+  };
   const displayedResult = plot_id === undefined ? undefined
     : plot_id === null ? data.final_result
       : versionNumber ? versionData?.final_result
-        : data.all_results.find((result, index) => (result.source_index ?? index) === plot_id);
+        : candidateSummary(plot_id);
   const findSummary = sel => {
     const parsed = parseSelection(sel);
     if (parsed === 'best' || parsed === null) return data.final_result;
-    if (typeof parsed === 'number') return data.all_results.find((result, index) => (result.source_index ?? index) === parsed);
+    if (typeof parsed === 'number') return candidateSummary(parsed);
     return versionDetails[parsed.version]?.final_result;
   };
   const baseSummary = versionData ? findSummary(effectiveBase) : null;
@@ -827,7 +875,7 @@ function TaskDetail({ data, task_id }) {
 
   const options = [
     'best',
-    ...data.all_results.map((result, index) => result.source_index ?? index),
+    ...data.all_results.flatMap((result, index) => [result.source_index ?? index, ...referenceVariants(result).map(m => m.source_index)]),
     ...store.versions.filter(item => item.version > 1).map(item => `version:${item.version}`),
   ];
   const keyContext = React.useRef({});
@@ -846,7 +894,7 @@ function TaskDetail({ data, task_id }) {
   const modalTitle = plot_id === undefined ? 'Fit'
     : plot_id === null ? 'Best fit'
       : versionNumber ? selectionLabel(plot_id, { versions: store.versions })
-        : `Candidate ${(data.all_results.findIndex((r, i) => (r.source_index ?? i) === plot_id)) + 1}`;
+        : selectionLabel(plot_id, { all_results: data.all_results }).split(' — ')[0];
   const selectOptions = selectOptionGroups(data.all_results, store.versions);
   const [backgroundOpen, setBackgroundOpen] = React.useState(false);
   const firstOtherCandidate = data.all_results.length
@@ -934,8 +982,8 @@ function TaskDetail({ data, task_id }) {
       <ResultTitleContainer>
         <Space wrap align="baseline">
           <h3 style={{ marginTop: 16 }}>{`Candidates (${data.all_results.length})`}</h3>
-          {data.duplicate_results_removed > 0 ? <Tooltip title="DARA can reach the same phase set in different phase-addition orders. Only one copy is shown; different compositions or space groups remain separate.">
-            <Text type="secondary">{`${data.duplicate_results_removed} equivalent search path${data.duplicate_results_removed === 1 ? '' : 's'} merged`}</Text>
+          {data.duplicate_results_removed > 0 ? <Tooltip title="Results with the same phases (same formula and space group) reached in another order or with other database records. Only the best-Rwp copy is listed; polymorphs stay separate.">
+            <Text type="secondary">{`${data.duplicate_results_removed} equivalent result${data.duplicate_results_removed === 1 ? '' : 's'} merged`}</Text>
           </Tooltip> : null}
         </Space>
         <Button disabled={firstOtherCandidate === null}
@@ -968,7 +1016,7 @@ function TaskDetail({ data, task_id }) {
         ]} />
       <div style={{ marginBottom: 8 }}>
         Show alternative CIFs
-        <Tooltip title="Other database records DARA grouped as matching references for the same phase slot. Name format: formula_space group_(database ID)-energy above hull ('None': no energy metadata).">
+        <Tooltip title="Other database records of the same phases: matching references grouped per phase slot, and merged results refined with other records. Name format: formula_space group_(database ID)-energy above hull ('None': no energy metadata).">
           <InfoCircleOutlined style={{ marginLeft: 4 }} />
         </Tooltip>
         <Switch checked={showAlternatives} onChange={setShowAlternatives} size="small" style={{ marginLeft: 8 }} />
@@ -986,8 +1034,8 @@ function TaskDetail({ data, task_id }) {
                   </Tooltip>
                 ) : null}
               </Space>}>
-                {result.equivalent_result_count > 1 ? <Tag color="default">{result.equivalent_result_count} equivalent paths combined</Tag> : null}
                 <PhaseList phases={result.phases} highlighted_phases={result.highlighted_phases} grouped_phases={result.grouped_phases} show_alternatives={showAlternatives} weight_percent={result.weight_percent} phase_metadata={result.phase_metadata} />
+                <MergedReferenceList items={referenceVariants(result)} show={showAlternatives} taskId={task_id} onView={setPlotId} />
               </Descriptions.Item>
             );
           })

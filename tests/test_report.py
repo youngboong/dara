@@ -206,7 +206,8 @@ def test_hamilton_reference_only_when_a_result_exists(monkeypatch, plain):
 def test_candidate_report_uses_selected_refinement(plain):
     client, _, _ = plain
     html = client.get("/api/task/9/report?idx=1").text
-    assert "Result shown: candidate 2" in html
+    # stored result 2 has the same phases as result 1, so it is merged into candidate 1
+    assert "Result shown: candidate 1 (stored #2)" in html
     assert "Rwp = 8.00%" in html
 
 

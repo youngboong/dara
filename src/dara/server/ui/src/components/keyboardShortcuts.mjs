@@ -11,6 +11,15 @@ export const SHORTCUT_HELP = [
   { keys: '?', action: 'Show shortcuts' },
 ];
 
+/** Mouse controls of the fit plot (shown under the keys in the "?" help). */
+export const MOUSE_HELP = [
+  { keys: 'Drag', action: 'Zoom into a box (2θ only while Auto-Y is on)' },
+  { keys: 'Shift+drag / right-drag', action: 'Pan 2θ' },
+  { keys: 'Wheel', action: 'Zoom 2θ at the cursor (1.25× per notch)' },
+  { keys: 'Double-click', action: 'Reset zoom (whole measured range)' },
+  { keys: 'Shift+click', action: 'Select several peaks' },
+];
+
 const TYPING_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 const TYPING_ROLES = new Set(['combobox', 'textbox', 'searchbox', 'spinbutton']);
 

@@ -13,13 +13,28 @@ const URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8
 const { confirm } = Modal;
 const { Dragger } = Upload;
 
+// The form has a fixed label column and a fixed overall width (it does not grow with the
+// window); notes and panels that are not fields start at the input column (.dara-form-note).
+const FORM_MAX_WIDTH = 960;
+const LABEL_WIDTH = 260;
+
 const Container = styled.div`
   font-size: 1rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   .center { text-align: center; }
+  .dara-submit-form { width: 100%; max-width: ${FORM_MAX_WIDTH}px; }
+  .dara-form-note { margin-left: ${LABEL_WIDTH}px; }
+  @media (max-width: 575px) {
+    .dara-form-note { margin-left: 0; }
+  }
 `;
+
+/** A note or panel of the submit form, aligned with the input column. */
+function FormNote({ children }) {
+  return <div className="dara-form-note">{children}</div>;
+}
 
 const INSTRUMENT_NAMES = [
   'synchrotron',
@@ -441,10 +456,10 @@ function Submission() {
   return (
     <Layout hasSider={false} title="Submit">
       <Container>
-        {msg ? <Alert message={msg} type="error" showIcon closable style={{ width: '70%' }} /> : null}
+        {msg ? <div style={{ width: '100%', maxWidth: FORM_MAX_WIDTH }}><Alert message={msg} type="error" showIcon closable /></div> : null}
         <h1>DARA practical phase analysis</h1>
-        <Form
-          labelCol={{ span: 9 }} wrapperCol={{ span: 15 }} style={{ width: '70%' }} form={form}
+        <Form className="dara-submit-form" labelWrap
+          labelCol={{ flex: `${LABEL_WIDTH}px` }} wrapperCol={{ flex: '1 1 0', style: { minWidth: 0 } }} form={form}
           initialValues={{
             analysis_mode: 'elemental', temperature: 800, atmosphere: 'air', use_cod: true,
             use_mp: true, mp_e_hull_cutoff: 0.05, max_mp_structures: 100,
@@ -464,12 +479,12 @@ function Submission() {
             </span> : null}>
             <Input placeholder="Username" />
           </Form.Item>
-          {loadingClone ? <Alert type="info" showIcon message="Loading saved pattern and conditions..." style={{ marginBottom: 20 }} /> : null}
+          {loadingClone ? <FormNote><Alert type="info" showIcon message="Loading saved pattern and conditions..." style={{ marginBottom: 20 }} /></FormNote> : null}
           {cloneSource ? (
-            <Alert type="info" showIcon style={{ marginBottom: 20 }}
+            <FormNote><Alert type="info" showIcon style={{ marginBottom: 20 }}
               message={`Copied from Task ${cloneSource.source_task_id}: ${cloneSource.filename}`}
               description={`The original pattern (${cloneSource.pattern.data_points.toLocaleString()} points) will be reused unless you upload a replacement. Edit any conditions below; the source task is unchanged.`}
-            />
+            /></FormNote>
           ) : null}
           {!cloneSource && !loadingClone ? (
             <Form.Item label="Submit as a series" extra="Analyse several patterns (for example a temperature or time series) with identical settings.">
@@ -491,9 +506,9 @@ function Submission() {
                   <p className="ant-upload-hint">Up to {MAX_SERIES_FILES} files with the same format and acquisition settings</p>
                 </Dragger>
               </Form.Item>
-              {seriesPreview?.error ? <Alert type="warning" showIcon message="Series order preview unavailable" description={seriesPreview.error} style={{ marginBottom: 20 }} /> : null}
+              {seriesPreview?.error ? <FormNote><Alert type="warning" showIcon message="Series order preview unavailable" description={seriesPreview.error} style={{ marginBottom: 20 }} /></FormNote> : null}
               {seriesPreview?.items?.length ? (
-                <div style={{ marginBottom: 20 }}>
+                <div className="dara-form-note" style={{ marginBottom: 20 }}>
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>Series order preview</div>
                   <Table size="small" pagination={false} rowKey="filename" dataSource={seriesPreviewRows(seriesPreview)}
                     columns={[
@@ -519,11 +534,11 @@ function Submission() {
             </Form.Item>
           )}
           {inspectingPattern ? (
-            <Alert type="info" showIcon message="Reading pattern and acquisition metadata..." style={{ marginBottom: 20 }} />
+            <FormNote><Alert type="info" showIcon message="Reading pattern and acquisition metadata..." style={{ marginBottom: 20 }} /></FormNote>
           ) : patternInspection?.error ? (
-            <Alert type="error" showIcon message={seriesMode ? 'First file could not be read' : 'Pattern could not be read'} description={patternInspection.error} style={{ marginBottom: 20 }} />
+            <FormNote><Alert type="error" showIcon message={seriesMode ? 'First file could not be read' : 'Pattern could not be read'} description={patternInspection.error} style={{ marginBottom: 20 }} /></FormNote>
           ) : patternInspection ? (
-            <Alert
+            <FormNote><Alert
               type={patternInspection.profile_suggestion ? 'success' : 'warning'}
               showIcon
               message={(seriesMode ? 'Inspection of the first file: ' : '') + (patternInspection.profile_suggestion
@@ -542,25 +557,25 @@ function Submission() {
                 patternInspection.profile_suggestion ? 'Confirm the selection if the actual slit or optical setup was different.' : null,
               ].filter(Boolean).join(' · ')}
               style={{ marginBottom: 20 }}
-            />
+            /></FormNote>
           ) : null}
           {patternInspection && !patternInspection.error && qualityAlertItems(patternInspection).length ? (
-            <div style={{ marginBottom: 20 }}>
+            <div className="dara-form-note" style={{ marginBottom: 20 }}><div className="dara-note-group">
               <div style={{ fontWeight: 600, marginBottom: 4 }}>Data quality pre-check (advisory)</div>
               {qualityAlertItems(patternInspection).map((item, index) => (
                 <Alert key={index} type={item.type} showIcon message={item.message} style={{ marginBottom: 4, padding: '4px 12px' }} />
               ))}
-            </div>
+            </div></div>
           ) : null}
           {patternInspection?.filename_chemistry ? (
-            <Alert type="info" showIcon style={{ marginBottom: 20 }}
+            <FormNote><Alert type="info" showIcon style={{ marginBottom: 20 }}
               message={patternInspection.filename_chemistry.elements.length
                 ? `Elements recognised from the file name: ${patternInspection.filename_chemistry.elements.join(', ')}`
                 : 'No unambiguous chemical formula was found in the file name. Enter the elements manually.'}
               description={patternInspection.filename_chemistry.elements.length
                 ? `Recognised formulas: ${patternInspection.filename_chemistry.formulas.join(', ')}. ${patternInspection.elementsAutoApplied ? 'They were added to Included elements.' : 'Existing element entries were kept.'} This is a suggestion from the file name; compare it with the actual sample. Temperatures, times and single-letter element symbols are not filled in automatically.`
                 : 'Example: BiFeO3_800C_60min.xrdml → Bi, Fe, O. Check single-letter symbols such as C or S and ambiguous names before entering them.'}
-            />
+            /></FormNote>
           ) : null}
           <Form.Item label="Analysis mode" name="analysis_mode">
             <Radio.Group buttonStyle="solid">
@@ -569,7 +584,7 @@ function Submission() {
               <Radio.Button value="reaction">Reaction check</Radio.Button>
             </Radio.Group>
           </Form.Item>
-          <Alert type={analysisMode === 'known_mixture' ? 'warning' : 'info'} showIcon message={modeMessage} style={{ marginBottom: 20 }} />
+          <FormNote><Alert type={analysisMode === 'known_mixture' ? 'warning' : 'info'} showIcon message={modeMessage} style={{ marginBottom: 20 }} /></FormNote>
           <Form.Item label="Included elements" name="elements"
             rules={[{ required: analysisMode === 'elemental', message: 'Please input element symbols.' }]}
             tooltip="Example: In, La, Ti, O. In other modes they can be derived from formulas.">
@@ -622,12 +637,12 @@ function Submission() {
             extra="When exceeded, the search stops and returns the best result found so far, marked as incomplete. Leave blank for no limit.">
             <InputNumber min={5} max={720} style={{ width: '100%' }} />
           </Form.Item>
-          <EstimateAlert estimate={estimate} loading={estimating} prefilter={watchedPrefilter !== false} />
+          <FormNote><EstimateAlert estimate={estimate} loading={estimating} prefilter={watchedPrefilter !== false} /></FormNote>
           <Form.Item label="Instrument profile" name="instrument_profile"
             tooltip="For XRDML, DARA applies the closest bundled profile from the recorded instrument and detector. Always confirm unusual slit or optic setups.">
             <Select showSearch optionFilterProp="label" options={instrumentNames.map(name => ({ label: instrumentDetails[name] ? `${instrumentDetails[name].label} — ${instrumentDetails[name].verified ? 'operator verified' : 'unverified'}` : name, value: name }))} />
           </Form.Item>
-          <div style={{marginBottom:16}}>
+          <div className="dara-form-note" style={{marginBottom:16}}>
             <InstrumentManager onRegistered={profile => {
               setInstrumentNames(previous => [...previous, profile.id]);
               setInstrumentDetails(previous => ({...previous,[profile.id]:profile}));
@@ -637,7 +652,7 @@ function Submission() {
               message={`${instrumentDetails[selectedInstrument].label} — ${instrumentDetails[selectedInstrument].verified ? 'verification declared by ' + instrumentDetails[selectedInstrument].verified_by : 'not verified against a standard'}`}
               description={<>{instrumentDetails[selectedInstrument].geometry} · {instrumentDetails[selectedInstrument].radiation}<br />{instrumentDetails[selectedInstrument].notes}</>} /> : null}
           </div>
-          <RefinementControlsEditor value={refinementControls} onChange={setRefinementControls} />
+          <FormNote><RefinementControlsEditor value={refinementControls} onChange={setRefinementControls} /></FormNote>
           <Form.Item label="Synchrotron" name="synchrotron" valuePropName="checked">
             <Switch onChange={checked => {
               setSynchrotron(checked);
@@ -697,9 +712,9 @@ function Submission() {
               <Button icon={<UploadOutlined />}>Select CIF files</Button>
             </Upload>
           </Form.Item>
-          <Form.Item className="center" wrapperCol={{ span: 24 }}>
+          <div className="dara-form-note center" style={{ marginBottom: 24 }}>
             <Button type="primary" size="large" onClick={onSubmit} disabled={spinning || loadingClone} loading={spinning}>Submit</Button>
-          </Form.Item>
+          </div>
         </Form>
       </Container>
     </Layout>

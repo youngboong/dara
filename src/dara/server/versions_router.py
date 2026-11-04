@@ -67,9 +67,10 @@ def _wavelength(document):
 
 
 def _version_entry(record: dict) -> dict:
+    from dara.server.api_router import unexplained_count
+
     summary = record.get("summary") or {}
     quality = summary.get("fit_quality") or {}
-    counts = (summary.get("peak_diagnostics") or {}).get("counts") or {}
     return {
         "version": record["version"],
         "label": record.get("label"),
@@ -80,7 +81,7 @@ def _version_entry(record: dict) -> dict:
         "phases": summary.get("phases") or record.get("phases") or [],
         "phase_stems": record.get("phases") or [],
         "weight_percent": summary.get("weight_percent") or {},
-        "n_unexplained": counts.get("missing"),
+        "n_unexplained": unexplained_count(summary.get("peak_diagnostics")),
         "cautions_count": len(summary.get("cautions") or []),
         "elapsed_s": record.get("elapsed_s"),
         "controls": record.get("controls"),
@@ -101,9 +102,12 @@ def _original_entry(task: dict, document=None) -> dict:
     unexplained = None
     if document is not None:
         try:
-            from dara.server.api_router import _peak_diagnostics
+            from dara.server.api_router import _classified_peak_diagnostics, unexplained_count
 
-            unexplained = _peak_diagnostics(document.final_result)["counts"]["missing"]
+            # same definition as the task card: significant + minor peaks
+            unexplained = unexplained_count(_classified_peak_diagnostics(
+                document, document.final_result, hint_mode="off"
+            ))
         except Exception:  # noqa: BLE001
             unexplained = None
     return {
@@ -152,17 +156,74 @@ def _baseline_stale(task: dict, records: list[dict]) -> bool:
 
 
 # --------------------------------------------------------------------------- versions
+async def _document_or_none(task: dict):
+    """Decoded document (cached after the first call), or ``None`` when it cannot be loaded."""
+    try:
+        return await quick_refine.load_document(task["uuid"])
+    except Exception:  # noqa: BLE001 - the listing works without it (no v1 peak count)
+        logger.debug("Could not load the document of %s", task.get("uuid"), exc_info=True)
+        return None
+
+
+def _resolve_origin(record: dict, by_number: dict[int, dict]) -> dict | None:
+    """``origin`` with a base that still exists.
+
+    Older full fits recorded the quick check they replaced as their base, and the quick check
+    is deleted when the full fit is stored. A base pointing at a deleted version is replaced by
+    that version's own base (followed through chains); what the replaced quick check added or
+    removed is carried over. ``by_number`` maps version numbers to records, tombstones included.
+    """
+    origin = record.get("origin")
+    if not isinstance(origin, dict):
+        return origin
+    resolved = dict(origin)
+    seen: set[int] = set()
+    while True:
+        try:
+            selection = versions.parse_selection(resolved.get("base"))
+        except HTTPException:
+            return resolved
+        if not versions.is_version(selection):
+            return resolved
+        number = selection[1]
+        base = by_number.get(number)
+        if base is not None and not base.get("deleted"):
+            return resolved
+        if number in seen or base is None:
+            resolved["base"] = "best"
+            return resolved
+        seen.add(number)
+        previous = base.get("origin") or {}
+        if record.get("replaces") == number:
+            for field in ("added", "removed"):
+                merged = list(previous.get(field) or [])
+                merged += [stem for stem in resolved.get(field) or [] if stem not in merged]
+                resolved[field] = merged
+        base_of_base = previous.get("base")
+        resolved["base"] = "best" if base_of_base is None or base_of_base == "" else base_of_base
+
+
+def _version_records(task_uuid: str) -> tuple[list[dict], dict[int, dict]]:
+    """Live version records and a number -> record map that includes tombstones."""
+    stored = versions.list_versions(task_uuid, include_deleted=True)
+    by_number = {item.get("index"): item for item in stored}
+    return [item for item in stored if not item.get("deleted")], by_number
+
+
 @router.get("/task/{task_id}/versions")
 async def list_task_versions(task_id: int):
     task = _completed_task(task_id)
     quick_refine.maybe_warm(task)
-    document = quick_refine._DOCUMENTS.peek(task["uuid"])
-    records = versions.list_versions(task["uuid"])
+    # Load (not just peek at) the document so v1 gets its unexplained-peak count on a cold server.
+    document = await _document_or_none(task)
+    records, by_number = _version_records(task["uuid"])
     return {
         "task_id": task_id,
         "adopted": _adopted(task),
         "baseline_stale": _baseline_stale(task, records),
-        "versions": [_original_entry(task, document)] + [_version_entry(r) for r in records],
+        "versions": [_original_entry(task, document)] + [
+            {**_version_entry(r), "origin": _resolve_origin(r, by_number)} for r in records
+        ],
     }
 
 
@@ -172,15 +233,18 @@ async def get_task_version(task_id: int, number: int):
     if number < 1:
         raise HTTPException(404, "Version not found")
     if number == 1:
-        entry = _original_entry(task, quick_refine._DOCUMENTS.peek(task["uuid"]))
+        entry = _original_entry(task, await _document_or_none(task))
         return {**entry, "effective_phase_params": None, "final_result": None, "use_task_payload": True}
     record = versions.load_version(task["uuid"], number, light=True)
+    _, by_number = _version_records(task["uuid"])
     return {
         **_version_entry(record),
+        "origin": _resolve_origin(record, by_number),
         "effective_phase_params": record.get("effective_phase_params"),
         "refinement_params": record.get("refinement_params"),
         "final_result": record.get("summary"),
     }
+
 
 
 @router.delete("/task/{task_id}/versions/{number}")
@@ -267,8 +331,10 @@ def _task_payload(task: dict, document) -> dict:
 
 
 def _lite(selection, meta: dict, summary: dict) -> dict:
+    from dara.server.api_router import _phase_identity, unexplained_count
+
     quality = summary.get("fit_quality") or {}
-    counts = (summary.get("peak_diagnostics") or {}).get("counts") or {}
+    weights = summary.get("weight_percent") or {}
     return {
         "sel": versions.format_selection(selection),
         "label": meta.get("label"),
@@ -276,9 +342,12 @@ def _lite(selection, meta: dict, summary: dict) -> dict:
         "rwp": _finite(summary.get("rwp", quality.get("rwp"))),
         "gof": _finite(quality.get("gof")),
         "chi_squared": _finite(quality.get("chi_squared")),
-        "weight_percent": summary.get("weight_percent") or {},
+        "weight_percent": weights,
+        # reduced formula + space group per phase, so the UI lines up the same compound
+        # refined from different database records
+        "phase_identity": {name: _phase_identity(name) for name in weights},
         "mass_balance": summary.get("mass_balance"),
-        "n_unexplained": counts.get("missing"),
+        "n_unexplained": unexplained_count(summary.get("peak_diagnostics")),
         "cautions": summary.get("cautions") or [],
     }
 
@@ -291,15 +360,24 @@ def _side_summary(task, document, selection, meta, refinement) -> dict:
         for entry in payload.get("all_results", []):
             if entry.get("source_index") == selection:
                 return entry
-        # a duplicate hypothesis folded into another displayed entry
-        from dara.server.api_router import _fit_quality, _peak_diagnostics
+        # a hypothesis merged into another displayed entry (other phase order or database record)
+        from dara.server.api_router import (
+            _classified_peak_diagnostics, _counts_like, _fit_quality, _phase_refinement_details,
+            _weight_percent, fit_cautions,
+        )
 
+        # the same cautions as a displayed entry gets in summarize_document
+        quality = _fit_quality(refinement)
+        diagnostics = _classified_peak_diagnostics(document, refinement, hint_mode="off")
         return {
             "rwp": refinement.lst_data.rwp,
-            "fit_quality": _fit_quality(refinement),
-            "peak_diagnostics": _peak_diagnostics(refinement),
-            "weight_percent": {},
-            "cautions": [],
+            "fit_quality": quality,
+            "peak_diagnostics": diagnostics,
+            "weight_percent": _weight_percent(refinement),
+            "cautions": fit_cautions(
+                quality, _phase_refinement_details(refinement), diagnostics,
+                counts_like=_counts_like(document),
+            ),
         }
     record = meta["record"]
     return record.get("summary") or {}
