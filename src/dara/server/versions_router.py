@@ -73,7 +73,7 @@ def _version_entry(record: dict) -> dict:
     quality = summary.get("fit_quality") or {}
     return {
         "version": record["version"],
-        "label": record.get("label"),
+        "label": versions.display_label(record),
         "origin": record.get("origin"),
         "created_at": record.get("created_at"),
         "rwp": summary.get("rwp"),

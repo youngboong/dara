@@ -42,6 +42,19 @@ def is_quick_check(record: dict | None) -> bool:
     return bool(record) and record.get("refine_mode") == "fast"
 
 
+_REFINED_FROM_RE = re.compile(r"^All phases refined( \(from v\d+\))?$")
+
+
+def display_label(record: dict | None) -> str | None:
+    """Stored label, except the old "All phases refined (from vN)": vN is the quick check that
+    was removed once refined, so it is shown as what that quick check did instead."""
+    label = (record or {}).get("label")
+    if not label or not _REFINED_FROM_RE.match(label):
+        return label
+    added = [stem.split("_")[0] or stem for stem in ((record.get("origin") or {}).get("added") or [])]
+    return f"Added {', '.join(added)} · all phases refined" if added else "All phases refined"
+
+
 def parse_selection(value: Any):
     """Normalise a selection to ``"best"``, a candidate ``int`` or ``("version", n)``."""
     if value is None:
@@ -229,7 +242,7 @@ def resolve_refinement(document, task, selection):
     refs = version_reference_map(document, record)
     return version_refinement(record), {
         "kind": "version",
-        "label": record.get("label") or f"Version {number}",
+        "label": display_label(record) or f"Version {number}",
         "cifs": [refs[stem] for stem in record.get("phases") or [] if stem in refs],
         "refinement_params": record.get("refinement_params") or {},
         "phase_params": record.get("phase_params"),

@@ -31,7 +31,7 @@ import { searchOptionsText } from '../components/resultsList.mjs';
 import {
   BASELINE_LABEL, QUICK_CHECK_HINT, REFINE_ALL_FIRST, alternativeOfVerdict, availableComparisonBase, baselineRequest,
   deltaStrip, deltaText, displayedCandidateOf,
-  formulaOfPhase, isQuickCheck, needsBaseline, parseSelection, plotQuery, refineAllBase, refineAllRequest, removeRequest,
+  formulaOfPhase, isQuickCheck, needsBaseline, parseSelection, plotQuery, refineAllRequest, removeRequest,
   referenceVariants, replacementOf, runText, selectOptionGroups, selectionLabel, versionGone, versionReadyText,
 } from '../components/versions.mjs';
 
@@ -837,7 +837,7 @@ function TaskDetail({ data, task_id }) {
   };
   // Fast Add-phase versions keep the base phases fixed; this makes the full fit (which replaces the
   // quick check) and compares it with the quick check's own base.
-  const refineAll = n => runQuick(refineAllRequest(n), { afterDone: 'compare', base: refineAllBase(store.versions, n) });
+  const refineAll = n => runQuick(refineAllRequest(n, store.versions));
   const quickCheck = versionData?.refine_mode === 'fast';
   const addHint = (hint, target) => runQuick({
     phases: [target], origin: 'add_hint', label: `Added ${hint.formula || hint.phase}`,
@@ -852,7 +852,7 @@ function TaskDetail({ data, task_id }) {
         <Button size="small" onClick={() => setPlotId(otherSet.source_index)}>{`View candidate ${otherSet.candidate_number ?? otherSet.source_index + 1}`}</Button>
       </Tooltip> : null}
       {displayedPhases.length >= 2 ? <Tooltip title="Remove, refine, compare">
-        <Button size="small" disabled={quick.busy} onClick={() => runQuick(removeRequest(row.phase), { afterDone: 'compare' })}>Remove</Button>
+        <Button size="small" disabled={quick.busy} onClick={() => runQuick(removeRequest(row.phase))}>Remove</Button>
       </Tooltip> : null}
     </Space>;
   };
@@ -1089,7 +1089,7 @@ function TaskDetail({ data, task_id }) {
             </Tooltip>
             <PhaseSelectionButton taskId={task_id} phases={displayedPhases} renderPhase={renderReference} busy={quick.busy}
               disabledReason={quickCheck ? REFINE_ALL_FIRST : null}
-              onSubmit={request => runQuick(request, { afterDone: 'compare' })} />
+              onSubmit={request => runQuick(request)} />
             <Tooltip title={quickCheck ? REFINE_ALL_FIRST : 'Background polynomial and excluded 2θ intervals'}>
               <span><Button disabled={quick.busy || quickCheck} onClick={() => setBackgroundOpen(true)}>Background…</Button></span>
             </Tooltip>

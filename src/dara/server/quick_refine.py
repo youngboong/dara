@@ -637,6 +637,16 @@ def _short_name(stem: str) -> str:
     return stem.split("_")[0] or stem
 
 
+def record_label(request: QuickRefineRequest, base_version: dict | None) -> str:
+    """Label of the new version. A full fit of a quick check repeats what the quick check did,
+    because the quick check itself is removed and must not be named."""
+    if request.origin == "refine_all" and not request.label and base_version:
+        quick = (versions.display_label(base_version) or "").strip()
+        if quick and not quick.endswith("all phases refined"):
+            return f"{quick} · all phases refined"
+    return default_label(request)
+
+
 def default_label(request: QuickRefineRequest) -> str:
     if request.label:
         return request.label.strip()
@@ -1059,7 +1069,7 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
     effective_final = {stem: effective[stem] for stem in plan.stems}
     record_out = {
         "job_id": job.job_id,
-        "label": default_label(request),
+        "label": record_label(request, base_version),
         "origin": record_origin(request.origin, selection, plan, base_version, replaces),
         "phases": plan.stems,
         "cifs": new_cifs,

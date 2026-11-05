@@ -312,9 +312,19 @@ export function isQuickCheck(versions = [], sel) {
   return (versions || []).some(item => item.version === parsed.version && item.refine_mode === 'fast');
 }
 
-/** Quick-refine body that refines every phase of version `n` again (the full fit of a quick check). */
-export function refineAllRequest(n) {
-  return { base: `version:${n}`, origin: 'refine_all', label: `All phases refined (from v${n})` };
+/**
+ * Quick-refine body that refines every phase of quick check `n` again (its full fit). The quick
+ * check is removed once refined, so the label repeats what it did instead of naming it.
+ */
+export function refineAllRequest(n, versions = []) {
+  const quickLabel = (versions || []).find(item => item.version === n)?.label;
+  return { base: `version:${n}`, origin: 'refine_all', label: refinedLabel(quickLabel) };
+}
+
+/** "Added Fe2O3" -> "Added Fe2O3 · all phases refined"; plain "All phases refined" without one. */
+export function refinedLabel(quickLabel) {
+  const text = String(quickLabel || '').replace(/\s*·\s*all phases refined$/i, '').trim();
+  return text ? `${text} · all phases refined` : 'All phases refined';
 }
 
 export const QUICK_CHECK_HINT = 'Quick check — base phases kept fixed; Rwp and wt% are approximate.';

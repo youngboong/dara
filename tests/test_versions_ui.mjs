@@ -268,7 +268,8 @@ assert.equal(isQuickCheck(quickRows, 'version:2'), true);
 assert.equal(isQuickCheck(quickRows, 'version:3'), false);
 assert.equal(isQuickCheck(quickRows, 'best'), false);
 assert.equal(isQuickCheck(quickRows, 0), false);
-assert.deepEqual(refineAllRequest(2), { base: 'version:2', origin: 'refine_all', label: 'All phases refined (from v2)' });
+assert.deepEqual(refineAllRequest(2, [{ version: 2, label: 'Added Fe2O3' }]), { base: 'version:2', origin: 'refine_all', label: 'Added Fe2O3 · all phases refined' });
+assert.equal(refineAllRequest(2).label, 'All phases refined');
 
 // the adopted-fit select never offers a quick check
 {

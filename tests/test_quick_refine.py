@@ -974,7 +974,8 @@ def test_add_phase_is_a_fast_quick_check_and_refine_all_makes_the_full_fit(monke
     assert stored[3]["refine_mode"] == "fast" and stored[3]["fixed_phases"] == [base_stem]
     assert stored[3]["iteration_cap"] == 15
     assert stored[4]["refine_mode"] == "full" and stored[4]["origin"]["kind"] == "refine_all"
-    assert stored[4]["label"] == "All phases refined"
+    # The quick check is removed once refined, so the label repeats what it did (no "from v3").
+    assert stored[4]["label"] == f"{stored[3]['label']} · all phases refined"
     assert "eps2" not in (stored[3]["refinement_params"] or {})  # the fixed value is not inherited
     # The full fit supersedes the quick check it was made from: v3 is deleted, v4 says so.
     assert stored[3]["deleted"] is True and stored[4]["replaces"] == 3
@@ -1153,3 +1154,15 @@ def test_added_phases_keep_a_narrow_lattice_window():
         phases=[{"ref": "C"}], origin="add_hint", controls=RefinementControls(lattice="refine")
     )
     assert quick_refine.narrow_lattice_stems(explicit, plan, base) == []
+
+
+def test_old_refine_all_labels_do_not_name_the_removed_quick_check():
+    from dara.server import versions
+
+    old = {"label": "All phases refined (from v9)", "origin": {"kind": "refine_all",
+           "added": ["Fe2O3_167_(cod_1011267)-0"]}}
+    assert versions.display_label(old) == "Added Fe2O3 · all phases refined"
+    assert versions.display_label({"label": "All phases refined (from v2)", "origin": {}}) == "All phases refined"
+    assert versions.display_label({"label": "Removed TiO2"}) == "Removed TiO2"
+    plain = {"label": "All phases refined", "origin": {"added": ["Bi4O7_2_(cod_9009777)-0"]}}
+    assert versions.display_label(plain) == "Added Bi4O7 · all phases refined"
