@@ -15,8 +15,8 @@ assert.equal(unresolvable.text, 'Not resolvable');
 assert.match(unresolvable.tooltip, /larger than this instrument can resolve/);
 
 const stale = crystalliteSizeCell({ grain_sizes: [], crystallite_size_status: 'stale' });
-assert.equal(stale.text, '—');
-assert.equal(stale.tooltip, "Not determined in this run. Re-run 'Baseline (current code)' in Versions.");
+assert.equal(stale.text, 'Re-run Baseline');
+assert.match(stale.tooltip, /Baseline \(current code\)/);
 
 assert.equal(crystalliteSizeCell({ grain_sizes: [], crystallite_size_status: 'not_refined' }).text, 'Not refined');
 // summaries stored before the status existed

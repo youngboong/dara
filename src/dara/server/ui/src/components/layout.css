@@ -51,3 +51,36 @@ code {
   width: 100%;
   max-width: none;
 }
+
+/* Candidate details: bordered cards, at most two per row, and one when a card would be narrower
+   than 640 px (or than the page). Cards never shrink their content letter by letter. */
+.dara-candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, max(640px, calc((100% - 12px) / 2))), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.dara-candidate-card {
+  min-width: 0;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dara-candidate-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fafafa;
+  border-bottom: 1px solid #f0f0f0;
+  border-radius: 8px 8px 0 0;
+}
+
+.dara-candidate-card-body {
+  padding: 0 12px 8px;
+  overflow-wrap: anywhere;
+}

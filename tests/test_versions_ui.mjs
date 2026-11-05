@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   adoptedTag, codCodeFromStem, deltaStrip, deltaText, etaText, formatSelection, isQuickCheck, progressLabel, refineAllRequest, parseSelection,
-  plotQuery, refSourceForHint, removeRequest, selectionLabel, swapRequest,
-  alternativeOfVerdict, formatSpacegroup, spacegroupOfPhase, swapKind,
+  plotQuery, refSourceForHint, removeRequest, selectionLabel,
+  alternativeOfVerdict, formatSpacegroup, spacegroupOfPhase,
   progressView, runText, existingPhase, refineAllBase, versionReadyText, versionGone, replacementOf,
   availableComparisonBase, weightRows,
   BASELINE_LABEL, backgroundRequest, displayedCandidateOf, referenceVariants, baselineRequest, baselineVersion, comparisonBase, isMissingEndpoint, needsBaseline, selectOptionGroups, selectedPhasesRequest,
@@ -85,48 +85,17 @@ assert.equal(refSourceForHint({ phase: 'Fe3O4_227_(cod_)-0', source: 'candidate'
 assert.equal(refSourceForHint({ source: 'cod' }), null);
 assert.equal(refSourceForHint(null), null);
 
-// --- swap / remove ----------------------------------------------------------------------------
-const taskResults = [
-  { source_index: 0, phases: [['CaF2_225_(cod_1)-0'], ['CaCO3_167_(cod_2)-0'], ['Cr2O3_167_(cod_3)-0']],
-    phase_metadata: { 'CaCO3_167_(cod_2)-0': { spacegroup_symbol: 'R-3c' } } },
-  { source_index: 1, phases: [['CaF2_225_(cod_1)-0'], ['C9F8_2_(cod_4)-None'], ['Cr2O3_167_(cod_3)-0'], ['CaCO3_14_(cod_5)-1']],
-    phase_metadata: { 'CaCO3_14_(cod_5)-1': { spacegroup_symbol: 'P2_1/c' } } },
-  { source_index: 2, phases: [['CaF2_225_(cod_1)-0'], ['Cr2O3_167_(cod_3)-0'], ['CaCO3_14_(cod_5)-1']] },
-];
-const taskBase = ['CaF2_225_(cod_1)-0', 'CaCO3_167_(cod_2)-0', 'Cr2O3_167_(cod_3)-0'];
-const baseMeta = { 'CaCO3_167_(cod_2)-0': { spacegroup_symbol: 'R-3c' } };
-
-// structure_model_alternative (task 18 shape): add only the same-compound phase of the other
-// space group from candidate 2, never its unrelated C9F8.
+// --- alternatives / remove -------------------------------------------------------------------
+// structure_model_alternative (task 18 shape) and alternative (different phase set): both are stored
+// candidates; the phase table only links to them.
 const modelAlt = { candidate_number: 2, source_index: 1, spacegroup_number: 14, own_spacegroup_number: 167, polymorph: true };
-const modelSwap = swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, modelAlt, taskResults, taskBase, baseMeta);
-assert.deepEqual(modelSwap, {
-  phases: [{ ref: 'CaCO3_14_(cod_5)-1', source: 'task' }], remove: ['CaCO3_167_(cod_2)-0'],
-  origin: 'swap', label: 'Swapped CaCO3 (R-3c) for CaCO3 (P2₁/c)',
-});
-const finalSet = new Set(taskBase.filter(n => !modelSwap.remove.includes(n)).concat(modelSwap.phases.map(p => p.ref)));
-assert.deepEqual([...finalSet].sort(), ['CaF2_225_(cod_1)-0', 'CaCO3_14_(cod_5)-1', 'Cr2O3_167_(cod_3)-0'].sort());
-assert.ok(modelSwap.label.length <= 120);
-assert.equal(swapKind(modelAlt), 'model');
-// without symbols the label falls back to space-group numbers
-assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, modelAlt, [{ source_index: 1, phases: taskResults[1].phases }], taskBase).label,
-  'Swapped CaCO3 (SG 167) for CaCO3 (SG 14)');
-// the candidate does not hold the target space group, or it is already present -> nothing to do
-assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, { ...modelAlt, spacegroup_number: 62 }, taskResults, taskBase), null);
-assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, modelAlt, taskResults, [...taskBase, 'CaCO3_14_(cod_5)-1']), null);
-assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, { ...modelAlt, source_index: 99 }, taskResults, taskBase), null);
-
-// alternative (different phase set): no re-refinement request, the candidate is only viewed
 const setAlt = { candidate_number: 3, source_index: 2, rwp: 11.9, delta_rwp: 0.4, replaced_by: ['Calcite'] };
-assert.equal(swapKind(setAlt), 'phase_set');
-assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, setAlt, taskResults, taskBase), null);
-assert.equal(swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, { candidate_number: 2, source_index: 1 }, taskResults, taskBase), null);
 assert.equal(spacegroupOfPhase('CaCO3_167_(cod_1)-0'), 167);
 assert.equal(spacegroupOfPhase('MyUpload'), null);
 assert.equal(formatSpacegroup('P2_1/c', 14), 'P2₁/c');
 assert.equal(formatSpacegroup(null, 14), 'SG 14');
 
-// the API nests the alternatives under verdict.evidence (regression: the Swap button never showed)
+// the API nests the alternatives under verdict.evidence (regression: the alternative was never found)
 assert.deepEqual(alternativeOfVerdict({ level: 'ambiguous', evidence: { alternative: null, structure_model_alternative: modelAlt } }), modelAlt);
 assert.deepEqual(alternativeOfVerdict({ evidence: { alternative: setAlt, structure_model_alternative: modelAlt } }), modelAlt);
 assert.deepEqual(alternativeOfVerdict({ evidence: { alternative: setAlt, structure_model_alternative: null } }), setAlt);
@@ -134,7 +103,6 @@ assert.equal(alternativeOfVerdict({ evidence: { alternative: null, structure_mod
 assert.equal(alternativeOfVerdict({ level: 'confident' }), null);
 assert.equal(alternativeOfVerdict(undefined), null);
 assert.deepEqual(alternativeOfVerdict({ alternative: setAlt }), setAlt, 'flat legacy shape still works');
-assert.equal(swapRequest({ phase: 'B' }, null, taskResults, []), null);
 assert.deepEqual(removeRequest('B_2_(mp-2)-0'),
   { phases: [], remove: ['B_2_(mp-2)-0'], origin: 'remove', label: 'Remove B' });
 
@@ -271,18 +239,6 @@ assert.deepEqual(groups.map(g => g.label), ['Best fit', 'Candidates', 'Versions'
 assert.deepEqual(groups[1].options.map(o => o.value), [4, 1]);
 assert.deepEqual(groups[2].options.map(o => o.value), ['version:2', 'version:3']);
 assert.deepEqual(selectOptionGroups([], [{ version: 1 }]).map(g => g.label), ['Best fit', 'Candidates']);
-
-// --- end to end on the shape of task 18 (verdict -> evidence -> swap request) -------------------
-{
-  const verdict = { level: 'ambiguous', label: 'Ambiguous', reasons: ['x'], evidence: {
-    presence_fraction: 1, alternative: null, structure_model_alternative: modelAlt, hamilton: null } };
-  const found = alternativeOfVerdict(verdict);
-  assert.ok(found, 'the Swap button needs the alternative from verdict.evidence');
-  const body = swapRequest({ phase: 'CaCO3_167_(cod_2)-0' }, found, taskResults, taskBase, baseMeta);
-  const next = taskBase.filter(name => !body.remove.includes(name)).concat(body.phases.map(item => item.ref));
-  assert.deepEqual(next.sort(), ['CaCO3_14_(cod_5)-1', 'CaF2_225_(cod_1)-0', 'Cr2O3_167_(cod_3)-0']);
-  assert.equal(body.label, 'Swapped CaCO3 (R-3c) for CaCO3 (P2₁/c)');
-}
 
 // --- "Select phases" checklist -> quick re-refinement body ------------------------------------
 {

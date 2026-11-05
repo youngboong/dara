@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  EXPORT_FORMATS, displacementTag, evidenceLines, exportHref, figureHref, selectionQuery, levelRank, overallAlertType, overallColor, reasonsText, reasonsWithoutPeaks,
+  EXPORT_FORMATS, displacementTag, evidenceLines, exportHref, figureHref, selectionQuery, levelRank, overallAlertType, overallColor, reasonsText,
   missingCell, screeningTags, unexplainedSummary, unexplainedTooltipLines, verdictColor,
 } from '../src/dara/server/ui/src/components/confidence.mjs';
 
@@ -23,12 +23,12 @@ assert.ok(levelRank('confident') < levelRank('ambiguous') && levelRank('ambiguou
 assert.ok(levelRank('expert') < levelRank(undefined));
 assert.deepEqual(reasonsText({ reasons: ['a', 'b'] }), ['a', 'b']);
 assert.deepEqual(reasonsText(undefined), []);
-assert.deepEqual(reasonsWithoutPeaks({ reasons: [
+// the banner lists every reason, the peak ones included (the diagnostics row only counts peaks)
+assert.deepEqual(reasonsText({ reasons: [
   'Weak evidence for X (2.0 wt%).',
   '2 significant unexplained peaks at 21.00°, 30.00° (largest 4.0% of the strongest peak).',
-  '1 minor unexplained peak (1.0% of the strongest peak) does not affect the verdict.',
   '1 weak peak matches a Cu Kβ line of a strong reflection.',
-] }), ['Weak evidence for X (2.0 wt%).']);
+] }).length, 3);
 
 // --- evidence lines --------------------------------------------------------------
 const evidence = {

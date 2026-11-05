@@ -3,7 +3,7 @@ import { Alert, Button, Dropdown, Space, Tag, Tooltip } from 'antd';
 import { DownloadOutlined, DownOutlined } from '@ant-design/icons';
 import {
   EXPORT_FORMATS, displacementTag, evidenceLines, exportHref, figureHref, overallAlertType,
-  overallColor, reasonsText, reasonsWithoutPeaks, screeningTags, verdictColor,
+  overallColor, reasonsText, screeningTags, verdictColor,
 } from './confidence.mjs';
 
 import { API } from './QuickRefineProgress';
@@ -13,12 +13,11 @@ const lines = values => <div style={{ whiteSpace: 'pre-line' }}>{values.join('\n
 
 /**
  * Overall banner at the top of a completed result; nothing for tasks without confidence data.
- * `omitPeakReasons` leaves out the unexplained-peak reasons where a peak-diagnostics row shows them.
  */
-export function ConfidenceBanner({ confidence, action = null, omitPeakReasons = false, style = null }) {
+export function ConfidenceBanner({ confidence, action = null, style = null }) {
   const overall = confidence?.overall;
   if (!overall?.level) return null;
-  const reasons = omitPeakReasons ? reasonsWithoutPeaks(overall) : reasonsText(overall);
+  const reasons = reasonsText(overall);
   return <Alert
     style={{ marginBottom: 16, ...style }}
     showIcon

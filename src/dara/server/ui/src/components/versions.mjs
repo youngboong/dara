@@ -194,65 +194,14 @@ export function formatSpacegroup(symbol, number) {
 
 const clip = text => (text.length > MAX_LABEL ? `${text.slice(0, MAX_LABEL - 1)}…` : text);
 
-function headsOf(result) {
-  const heads = [];
-  for (const group of result?.phases || []) {
-    const head = Array.isArray(group) ? group[0] : group;
-    if (head && !heads.includes(head)) heads.push(head);
-  }
-  return heads;
-}
-
-const structureKey = name => `${formulaOfPhase(name)}\u0000${spacegroupOfPhase(name) ?? '?'}`;
-
-/**
- * Which swap the confidence evidence describes: `'model'` for `structure_model_alternative`
- * (same compound, other space group) and `'phase_set'` for `alternative` (a candidate that
- * explains the pattern with another set of phases).
- */
-export function swapKind(alternative) {
-  return finite(alternative?.spacegroup_number) ? 'model' : 'phase_set';
-}
-
 /**
  * The evidence object offered for a phase verdict. The API nests it under `verdict.evidence`;
- * a structure-model alternative (smaller change) wins over a phase-set alternative.
+ * a structure-model alternative (same compound, other space group) wins over a phase-set
+ * alternative. Either one is a stored candidate with its own fit, so the UI only links to it.
  */
 export function alternativeOfVerdict(verdict) {
   const evidence = verdict?.evidence || verdict;
   return evidence?.structure_model_alternative || evidence?.alternative || null;
-}
-
-/**
- * Quick-refine body for a same-formula model swap (`null` when it cannot be built, and for a
- * different phase set - that is viewed as a stored candidate instead, see `swapKind`).
- *
- * `structure_model_alternative` (same compound, other space group): add only the alternative
- * candidate's phase of that compound with `spacegroup_number` and remove the clicked phase;
- * nothing else of the candidate is touched.
- *
- * `metadata` is the displayed result's `phase_metadata` (space-group symbols for the label).
- */
-export function swapRequest(row, alternative, allResults = [], basePhases = [], metadata = {}) {
-  if (!row?.phase || !alternative) return null;
-  if (swapKind(alternative) !== 'model') return null;
-  const sourceIndex = alternative.source_index;
-  const result = (allResults || []).find((item, i) => (item.source_index ?? i) === sourceIndex);
-  if (!result) return null;
-  const base = [...new Set(basePhases || [])];
-  const heads = headsOf(result);
-  const symbolOf = (name, meta) => formatSpacegroup(meta?.[name]?.spacegroup_symbol, spacegroupOfPhase(name));
-  const formula = formulaOfPhase(row.phase);
-  const target = Number(alternative.spacegroup_number);
-  const head = heads.find(name => formulaOfPhase(name) === formula
-    && spacegroupOfPhase(name) === target && !base.includes(name));
-  if (!head) return null;
-  return {
-    phases: [{ ref: head, source: 'task' }],
-    remove: [row.phase],
-    origin: 'swap',
-    label: clip(`Swapped ${formula} (${symbolOf(row.phase, metadata)}) for ${formula} (${symbolOf(head, result.phase_metadata)})`),
-  };
 }
 
 /**

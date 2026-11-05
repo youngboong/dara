@@ -15,8 +15,8 @@ const STATUS_TEXT = {
     tooltip: 'Peak broadening reached the upper bound of the refinement window; crystallites are very small and the size could not be determined.',
   },
   stale: {
-    text: '—',
-    tooltip: "Not determined in this run. Re-run 'Baseline (current code)' in Versions.",
+    text: 'Re-run Baseline',
+    tooltip: "Not determined by the DARA version that ran this task. Run 'Baseline (current code)' in Versions to get the size.",
   },
 };
 

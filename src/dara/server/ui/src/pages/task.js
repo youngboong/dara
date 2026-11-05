@@ -32,7 +32,7 @@ import {
   BASELINE_LABEL, QUICK_CHECK_HINT, REFINE_ALL_FIRST, alternativeOfVerdict, availableComparisonBase, baselineRequest,
   deltaStrip, deltaText, displayedCandidateOf,
   formulaOfPhase, isQuickCheck, needsBaseline, parseSelection, plotQuery, refineAllBase, refineAllRequest, removeRequest,
-  referenceVariants, replacementOf, runText, selectOptionGroups, selectionLabel, swapKind, swapRequest, versionGone, versionReadyText,
+  referenceVariants, replacementOf, runText, selectOptionGroups, selectionLabel, versionGone, versionReadyText,
 } from '../components/versions.mjs';
 
 const { Text } = Typography;
@@ -842,17 +842,13 @@ function TaskDetail({ data, task_id }) {
   const addHint = (hint, target) => runQuick({
     phases: [target], origin: 'add_hint', label: `Added ${hint.formula || hint.phase} (hint)`,
   });
-  // The API nests the alternatives under `verdict.evidence`.
+  // The API nests the alternatives under `verdict.evidence`; an alternative is a stored candidate.
   const alternativeOf = phase => alternativeOfVerdict(displayedResult?.confidence?.phases?.[phase]);
   const rowActions = row => {
     const alternative = alternativeOf(row.phase);
-    const swap = alternative ? swapRequest({ phase: row.phase }, alternative, data.all_results, displayedPhases, displayedResult?.phase_metadata) : null;
-    const otherSet = alternative && swapKind(alternative) === 'phase_set' && alternative.source_index != null ? alternative : null;
+    const otherSet = alternative?.source_index != null ? alternative : null;
     return <Space size="small" wrap>
-      {swap ? <Tooltip title="Swap structure model, refine, compare">
-        <Button size="small" disabled={quick.busy} onClick={() => runQuick(swap, { afterDone: 'compare' })}>Swap</Button>
-      </Tooltip> : null}
-      {otherSet ? <Tooltip title={`Show candidate ${otherSet.candidate_number ?? otherSet.source_index + 1}`}>
+      {otherSet ?<Tooltip title={`Show candidate ${otherSet.candidate_number ?? otherSet.source_index + 1}`}>
         <Button size="small" onClick={() => setPlotId(otherSet.source_index)}>{`View candidate ${otherSet.candidate_number ?? otherSet.source_index + 1}`}</Button>
       </Tooltip> : null}
       {displayedPhases.length >= 2 ? <Tooltip title="Remove, refine, compare">
@@ -935,7 +931,7 @@ function TaskDetail({ data, task_id }) {
       {/* Confidence banner and review side by side on wide screens, stacked below 1200 px. */}
       <Row gutter={[16, 12]} className="dara-summary-row" style={{ marginBottom: 12 }}>
         {hasBanner ? <Col xs={24} xl={12}>
-          <ConfidenceBanner confidence={data.final_result?.confidence} omitPeakReasons style={{ marginBottom: 0 }}
+          <ConfidenceBanner confidence={data.final_result?.confidence} style={{ marginBottom: 0 }}
             action={significantPeaks(data.final_result?.peak_diagnostics).length
               ? <Button size="small" icon={<SearchOutlined />} onClick={() => { openDrawerWithFit.current = true; setPlotId(null); }}>
                 Find phases for the unexplained peaks
@@ -1036,43 +1032,45 @@ function TaskDetail({ data, task_id }) {
         </Tooltip>
         <Switch checked={showAlternatives} onChange={setShowAlternatives} size="small" style={{ marginLeft: 8 }} />
       </div>
-      {/* One candidate per full-width row; the label column keeps a fixed share at every width. */}
-      <Descriptions bordered column={2} size='small'>
+      {/* Candidate cards: two per row on wide screens, one when a card would drop below 640 px. */}
+      <div className="dara-candidate-grid">
         {
           data.all_results.map((result, index) => {
             const resultIndex = result.source_index ?? index;
             return (
-              <Descriptions.Item key={index} span={2} labelStyle={{ width: "25%" }} label={<>
-                <Space size="small" wrap>
-                  <span>{`Candidate ${index + 1}`}</span>
-                  <Tag color={index === 0 ? "green" : "blue"}>
-                    {`${result.is_final_refined ? "Final " : ""}Rwp ${result.rwp} %`}
-                  </Tag>
-                  {result.is_final_refined && Number(result.screening_rwp) !== Number(result.rwp) ? (
-                    <Tooltip title="Fast restricted refinement used to rank candidate phase sets before the final refinement.">
-                      <Tag>{`Screening Rwp ${result.screening_rwp} %`}</Tag>
+              <div key={index} className="dara-candidate-card">
+                <div className="dara-candidate-card-head">
+                  <Space size="small" wrap>
+                    <strong>{`Candidate ${index + 1}`}</strong>
+                    <Tag color={index === 0 ? "green" : "blue"}>
+                      {`${result.is_final_refined ? "Final " : ""}Rwp ${result.rwp} %`}
+                    </Tag>
+                    {result.is_final_refined && Number(result.screening_rwp) !== Number(result.rwp) ? (
+                      <Tooltip title="Fast restricted refinement used to rank candidate phase sets before the final refinement.">
+                        <Tag>{`Screening Rwp ${result.screening_rwp} %`}</Tag>
+                      </Tooltip>
+                    ) : null}
+                    <PeakDiagnosticTags diagnostics={result.peak_diagnostics} />
+                  </Space>
+                  <Space size="small">
+                    <Button type="primary" size="small" icon={<LineChartOutlined />}
+                      onMouseEnter={() => preloadPlot(task_id, resultIndex)} onFocus={() => preloadPlot(task_id, resultIndex)}
+                      onClick={() => setPlotId(resultIndex)}>View fit</Button>
+                    <Tooltip title="Download (ZIP)">
+                      <DownloadButton taskId={task_id} resultIndex={resultIndex} type="text" size="small" shape="circle"
+                        aria-label={`Download candidate ${index + 1}`} icon={<DownloadOutlined />} />
                     </Tooltip>
-                  ) : null}
-                  {index === 0 && result.is_final_refined ? <Tag color="gold">Best</Tag> : null}
-                  <PeakDiagnosticTags diagnostics={result.peak_diagnostics} />
-                </Space>
-                <Space size="small" style={{ marginTop: 6, display: 'flex' }}>
-                  <Button type="primary" size="small" icon={<LineChartOutlined />}
-                    onMouseEnter={() => preloadPlot(task_id, resultIndex)} onFocus={() => preloadPlot(task_id, resultIndex)}
-                    onClick={() => setPlotId(resultIndex)}>View fit</Button>
-                  <Tooltip title="Download (ZIP)">
-                    <DownloadButton taskId={task_id} resultIndex={resultIndex} type="text" size="small" shape="circle"
-                      aria-label={`Download candidate ${index + 1}`} icon={<DownloadOutlined />} />
-                  </Tooltip>
-                </Space>
-              </>}>
-                <PhaseList phases={result.phases} highlighted_phases={result.highlighted_phases} grouped_phases={result.grouped_phases} show_alternatives={showAlternatives} weight_percent={result.weight_percent} phase_metadata={result.phase_metadata} />
-                <MergedReferenceList items={referenceVariants(result)} show={showAlternatives} taskId={task_id} onView={setPlotId} />
-              </Descriptions.Item>
+                  </Space>
+                </div>
+                <div className="dara-candidate-card-body">
+                  <PhaseList phases={result.phases} highlighted_phases={result.highlighted_phases} grouped_phases={result.grouped_phases} show_alternatives={showAlternatives} weight_percent={result.weight_percent} phase_metadata={result.phase_metadata} />
+                  <MergedReferenceList items={referenceVariants(result)} show={showAlternatives} taskId={task_id} onView={setPlotId} />
+                </div>
+              </div>
             );
           })
         }
-      </Descriptions>
+      </div>
       {/* The Add phase drawer sits beside the fit instead of covering the plot. */}
       <Modal title={modalTitle} open={plot_id !== undefined} onCancel={() => setPlotId(undefined)} footer={null}
         width={drawerShown ? `calc(100vw - ${DRAWER_WIDTH} - 48px)` : 'calc(100vw - 32px)'}
