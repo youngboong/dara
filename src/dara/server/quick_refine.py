@@ -84,6 +84,13 @@ QUICK_REFINE_ITMAX = 25
 # look like the best match. The result is a quick check: "Refine all phases" makes the full fit.
 FAST_ADD_ITMAX = 15
 FAST_ORIGINS = ("add_hint", "add_peak_search")
+# A phase added by hand is usually a trace with a few visible peaks, and its lattice drifts
+# onto the misfit of the major phases. Task 9 (hematite at the observed 33.44/35.89 deg):
+# +-2 % moved (104) to 34.11 deg (3.1 wt%, peaks still unexplained); +-0.5 % still ended at
+# the window edge in "Refine all phases"; the database lattice fits both peaks (unexplained
+# 3 -> 1). It stays at the database lattice in this and every later version unless the user
+# sets the lattice control.
+ADDED_PHASE_LATTICE_RANGE = "fixed"
 _FIXED_KEYS = ("A", "B", "C", "ALPHA", "BETA", "GAMMA", "k1", "k2", "B1")
 
 _STAGES = ("Queued", "Preparing inputs", "BGMN refinement", "Peak diagnostics", "Storing version", "Done")
@@ -875,10 +882,13 @@ def fit_key(stems: list[str], cif_texts: dict, *, refine_mode: str, base, phase_
     """Digest of everything that decides a re-refinement's result (de-duplication of versions).
 
     A quick check also depends on the fit it starts from (its base phases are held there).
-    The refinement code date makes an identical request re-run after a refinement upgrade.
+    The refinement code date makes an identical request re-run after a refinement upgrade;
+    ``peaks`` marks results whose stored peak list may predate a parsing fix (quick checks
+    before 2026-11-05 lost the fixed EPS2 correction).
     """
     payload = {
         "code": REFINEMENT_CODE_DATE,
+        "peaks": 2,
         "phases": sorted(stems),
         "cifs": {stem: _sha1(cif_texts[stem]) for stem in sorted(stems)},
         "refine_mode": refine_mode,
@@ -969,6 +979,9 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
         refinement_params=refinement_params,
     )
     effective = spec.effective_phase_params()
+    narrow = narrow_lattice_stems(request, plan, base_version)
+    for stem in narrow:
+        effective[stem] = {**effective[stem], "lattice_range": ADDED_PHASE_LATTICE_RANGE}
     fast = is_fast(request)
     cif_texts = {stem: str(cif) for stem, cif in plan.cifs.items()}
     key = fit_key(
@@ -1072,6 +1085,7 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
         "n_threads": run_kwargs["refinement_params"].get("n_threads"),
         "fit_key": key,
         "replaces": replaces,
+        "narrow_lattice_stems": narrow,
         # "fast": the base phases were held at the base fit (see FAST_ADD_ITMAX); "full" otherwise.
         "refine_mode": "fast" if fast else "full",
         "fixed_phases": fixed_stems,
@@ -1097,6 +1111,18 @@ def _run_job(job: QuickJob, record: dict, raw: dict | None, base_version: dict |
     }
     _update(job, stage="Storing version", timings=timings)
     return record_out
+
+
+def narrow_lattice_stems(request, plan, base_version) -> list[str]:
+    """Phases added by hand (now or in an ancestor version) that keep the narrow lattice window.
+
+    An explicit lattice control from the user applies to every phase instead.
+    """
+    if request.controls is not None and request.controls.lattice != "inherit":
+        return []
+    inherited = set((base_version or {}).get("narrow_lattice_stems") or [])
+    added = set(plan.added) if request.origin in FAST_ORIGINS else set()
+    return sorted((inherited | added) & set(plan.stems))
 
 
 def _spec_overrides(spec) -> dict:

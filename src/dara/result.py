@@ -318,7 +318,8 @@ def get_result(control_file: Path) -> RefinementResult:
         result = {
             "lst_data": lst_data,
             "plot_data": parse_dia(dia_path, phase_names=phase_names),
-            "peak_data": parse_par(par_path, phase_names=phase_names),
+            "peak_data": parse_par(par_path, phase_names=phase_names,
+                                   fixed_eps=fixed_eps_from_control(sav_text)),
             "refinement_metrics": RefinementMetrics(rwp=lst_data.rwp),
         }
 
@@ -526,11 +527,24 @@ def parse_dia(dia_path: Path, phase_names: list[str]) -> DiaResult:
     return DiaResult(**data)
 
 
-def parse_par(par_file: Path, phase_names: list[str]) -> pd.DataFrame:
+def fixed_eps_from_control(sav_text: str) -> dict:
+    """EPS1/EPS2 held fixed in a BGMN control file (``EPS2=-0.0027``, not ``PARAM[..]=EPS2=``)."""
+    fixed = {}
+    for name in ("EPS1", "EPS2"):
+        match = re.search(rf"^{name}=([+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)\s*$", sav_text, re.MULTILINE)
+        if match:
+            fixed[name] = float(match.group(1))
+    return fixed
+
+
+def parse_par(par_file: Path, phase_names: list[str], fixed_eps: dict | None = None) -> pd.DataFrame:
     """
     Get the parameters from the .par file (hkl).
 
     Only work for Cu K alpha!!!
+
+    BGMN writes EPS1/EPS2 into the .par header only when they are refined; a value held
+    fixed in the control file is passed in ``fixed_eps`` ({"EPS1": v, "EPS2": v}).
     """
 
     def _make_dataframe(peak_list) -> pd.DataFrame:
@@ -573,8 +587,8 @@ def parse_par(par_file: Path, phase_names: list[str]) -> pd.DataFrame:
         return _make_dataframe(peak_list)
 
     # parse some global parameters
-    eps1 = re.search(r"EPS1=(\d+(\.\d+)?)", content[0])
-    eps2 = re.search(r"EPS2=([+-]?\d+(\.\d+)?)", content[0])
+    eps1 = re.search(r"EPS1=([+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)", content[0])
+    eps2 = re.search(r"EPS2=([+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)", content[0])
     pol = re.search(r"POL=(\d+(\.\d+)?)", content[0])
     wavelength = re.search(r"LAMBDA=(\S+)", content[0])
     if not wavelength:
@@ -582,8 +596,9 @@ def parse_par(par_file: Path, phase_names: list[str]) -> pd.DataFrame:
     if not wavelength:
         raise ValueError("Cannot find the wavelength from the .par file")
 
-    eps1 = float(eps1.group(1)) if eps1 else 0.0
-    eps2 = float(eps2.group(1)) if eps2 else 0.0
+    fixed_eps = fixed_eps or {}
+    eps1 = float(eps1.group(1)) if eps1 else fixed_eps.get("EPS1", 0.0)
+    eps2 = float(eps2.group(1)) if eps2 else fixed_eps.get("EPS2", 0.0)
     pol = float(pol.group(1)) if pol else 1.0
     wavelength = get_wavelength(wavelength.group(1))
     peak_num = int(peak_num.group(1))

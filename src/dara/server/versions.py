@@ -33,7 +33,7 @@ LIGHT_FIELDS = [
     "uuid", "index", "task_index", "version", "deleted", "created_at", "label", "origin",
     "phases", "controls", "background", "phase_params", "overrides", "refinement_params",
     "effective_phase_params", "elapsed_s", "bgmn_s", "summary", "refine_mode", "iteration_cap",
-    "fixed_phases", "n_threads", "fit_key", "replaces",
+    "fixed_phases", "n_threads", "fit_key", "replaces", "narrow_lattice_stems",
 ]
 
 

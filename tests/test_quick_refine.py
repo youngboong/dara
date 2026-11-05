@@ -963,7 +963,9 @@ def test_add_phase_is_a_fast_quick_check_and_refine_all_makes_the_full_fit(monke
     assert [Path(p).stem for p in fast_run["phases"]] == [base_stem, references[1].filename]
     base_text, new_text = texts[1]
     assert "A=0.5501" in base_text and "PARAM=A=" not in base_text
-    assert "PARAM=A=" in new_text
+    # The added phase keeps its database lattice (ADDED_PHASE_LATTICE_RANGE); its scale is refined.
+    assert "PARAM=A=" not in new_text and "GEWICHT" in new_text
+    assert stored_narrow(env) == {3: [references[1].filename], 4: [references[1].filename]}
     assert full_run["refinement_params"]["itmax"] == quick_refine.QUICK_REFINE_ITMAX
     assert "eps2" not in full_run["refinement_params"] or isinstance(full_run["refinement_params"]["eps2"], str)
     assert [Path(p).stem for p in full_run["phases"]] == [base_stem, references[1].filename]
@@ -984,6 +986,11 @@ def test_add_phase_is_a_fast_quick_check_and_refine_all_makes_the_full_fit(monke
     assert stored[4]["origin"]["base"] == "version:2"
     assert stored[4]["origin"]["added"] == [references[1].filename]
     assert stored[4]["origin"]["removed"] == []
+
+
+def stored_narrow(env) -> dict:
+    return {r["version"]: r.get("narrow_lattice_stems") for r in env["versions"].query({"uuid": TASK_UUID})
+            if r.get("narrow_lattice_stems")}
 
 
 def test_refine_all_only_starts_from_a_quick_check(monkeypatch, env):
@@ -1127,3 +1134,22 @@ def test_quick_check_versions_cannot_be_adopted_or_reported(monkeypatch):
     assert refused.value.status_code == 409 and "Refine all phases" in refused.value.detail
     for selection in ("version:3", "version:4", "best", 0):
         review_router._refuse_quick_check(task, selection)  # full fits, older versions and v1 pass
+
+
+def test_added_phases_keep_a_narrow_lattice_window():
+    from dara.refinement_controls import RefinementControls
+
+    plan = quick_refine.PhasePlan(["A", "B", "C"], {}, [], ["C"], [])
+    add = quick_refine.QuickRefineRequest(phases=[{"ref": "C"}], origin="add_hint")
+    assert quick_refine.narrow_lattice_stems(add, plan, None) == ["C"]
+    # Refine all and later edits inherit it from the base version; removed phases drop out.
+    refine_all = quick_refine.QuickRefineRequest(origin="refine_all")
+    base = {"narrow_lattice_stems": ["C", "gone"]}
+    assert quick_refine.narrow_lattice_stems(refine_all, plan, base) == ["C"]
+    # A manual edit adds nothing new; an explicit lattice control wins over the narrow window.
+    manual = quick_refine.QuickRefineRequest(phases=[{"ref": "C"}], origin="manual")
+    assert quick_refine.narrow_lattice_stems(manual, plan, None) == []
+    explicit = quick_refine.QuickRefineRequest(
+        phases=[{"ref": "C"}], origin="add_hint", controls=RefinementControls(lattice="refine")
+    )
+    assert quick_refine.narrow_lattice_stems(explicit, plan, base) == []
