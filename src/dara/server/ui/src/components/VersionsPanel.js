@@ -4,7 +4,7 @@ import { EllipsisOutlined } from '@ant-design/icons';
 import { EXPORT_FORMATS, exportHref } from './confidence.mjs';
 import { downloadReport } from './ResultWorkflows';
 import { API, NOT_AVAILABLE, requestJson } from './QuickRefineProgress';
-import { BASELINE_LABEL, QUICK_CHECK_HINT, REFINE_ALL_FIRST, comparisonBase, formulaOfPhase } from './versions.mjs';
+import { BASELINE_LABEL, QUICK_CHECK_HINT, REFINE_ALL_FIRST, comparisonBase, phaseLabels, versionLabel } from './versions.mjs';
 
 const { Text } = Typography;
 
@@ -80,9 +80,9 @@ function createdText(value) {
   return Number.isNaN(date.getTime()) ? String(value) : `Created ${date.toLocaleString('en-US')}`;
 }
 
-function phaseSummary(phases = []) {
+function phaseSummary(phases = [], symbolOf = () => null) {
   if (!phases.length) return '—';
-  return <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{phases.join('\n')}</div>}><span>{phases.map(formulaOfPhase).join(', ')}</span></Tooltip>;
+  return <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{phases.join('\n')}</div>}><span>{phaseLabels(phases, symbolOf).join(', ')}</span></Tooltip>;
 }
 
 function originTag(row) {
@@ -91,7 +91,7 @@ function originTag(row) {
   return <Tag color={ORIGIN_COLOR[kind] || 'default'}>{ORIGIN_LABEL[kind] || kind || '—'}</Tag>;
 }
 
-export default function VersionsPanel({ taskId, store, review, onView, onCompare, onRefineAll, refineBusy = false, extra }) {
+export default function VersionsPanel({ taskId, store, review, onView, onCompare, onRefineAll, refineBusy = false, extra, symbolOf = () => null }) {
   const { versions, available, loading, error, remove } = store;
   const [deleting, setDeleting] = React.useState(null);
   if (available === false) return null;
@@ -118,13 +118,13 @@ export default function VersionsPanel({ taskId, store, review, onView, onCompare
     { title: 'Version', dataIndex: 'version', width: 90, render: (n, row) => <Tooltip title={createdText(row.created_at)}>
       <span>{isAdoptedRow(n) ? <span style={{ color: '#faad14' }} aria-label="Adopted">★ </span> : null}{`v${n}`}</span>
     </Tooltip> },
-    { title: 'Label', dataIndex: 'label', render: (label, row) => (row.version === 1 ? 'Best fit' : label || '—') },
+    { title: 'Label', dataIndex: 'label', render: (label, row) => (row.version === 1 ? 'Best fit' : versionLabel(row, versions, symbolOf) || '—') },
     { title: 'Origin', key: 'origin', render: (_, row) => <Space size={4} wrap>
       {originTag(row)}
       {row.refine_mode === 'fast' ? <Tooltip title={QUICK_CHECK_HINT}><Tag color="gold">Quick check</Tag></Tooltip> : null}
     </Space> },
     { title: 'Rwp (%)', dataIndex: 'rwp', render: value => fixed(value) },
-    { title: 'Phases', dataIndex: 'phases', render: phaseSummary },
+    { title: 'Phases', dataIndex: 'phases', render: (phases, row) => phaseSummary(phases, name => row.phase_symbols?.[name] ?? symbolOf(name)) },
     { title: 'Unexplained', dataIndex: 'n_unexplained', render: value => (value == null ? '—' : value) },
     { title: 'Actions', key: 'actions', render: (_, row) => {
       const sel = row.version === 1 ? 'best' : `version:${row.version}`;

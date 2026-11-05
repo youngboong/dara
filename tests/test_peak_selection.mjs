@@ -115,3 +115,26 @@ assert.equal(isSlowCandidate({ n_lines: 653 }), true);   // Bi4O7, P-1: 146 s
 assert.equal(isSlowCandidate({ n_lines: 283 }), false);  // NaP5: 37 s
 assert.equal(isSlowCandidate({}), false);                // older servers send no count
 console.log('slow candidate flag ok');
+
+// --- audit fixes: click position, single-peak strength, ordering --------------------------------
+import { peakFromPlotClick, compareCandidates, CANDIDATES_SHOWN } from '../src/dara/server/ui/src/components/peakSelection.mjs';
+{
+  // A stale hovered point (Shift+click right after a mouse move) loses to the 2θ under the mouse.
+  const stale = { points: [{ curveNumber: 0, x: 35.0 }], cursorX: 35.5 };
+  assert.equal(peakFromPlotClick(plot, stale), 35.42, 'cursor 2θ snaps to the missing marker');
+  assert.equal(peakFromPlotClick(plot, { points: [{ curveNumber: 0, x: 35.07 }] }), 35.1, 'no cursorX: hovered point');
+  assert.equal(peakFromPlotClick(plot, { points: [{ curveNumber: 2, x: 35 }] }), null, 'other curves are ignored without cursorX');
+  assert.equal(peakFromPlotClick(plot, { points: [{ curveNumber: 2, x: 35 }], cursorX: 35.12 }), 35.1, 'cursorX works on any curve');
+  assert.equal(peakFromPlotClick(plot, { points: [] }), null);
+
+  // One clicked peak is never a strong match.
+  assert.equal(matchStrength({ score: 1, matched: [35.9], n_strong: 6, strong_unobserved: 0 }).label, 'Possible match');
+  assert.equal(matchStrength({ score: 1, matched: [35.9], n_strong: 6, strong_unobserved: 3 }).label, 'Weak match');
+  assert.equal(matchStrength({ score: 1, matched: [35.9, 43.1], n_strong: 6, strong_unobserved: 0 }).label, 'Strong match');
+  assert.equal(matchStrength({ score: 0.5, matched: [35.9], n_strong: 6, strong_unobserved: 0 }).label, 'Weak match');
+
+  const list = [{ ref: 'a', score: 1, n_strong: 10, strong_unobserved: 5 }, { ref: 'b', score: 0.5 }, { ref: 'c', score: 1, n_strong: 10, strong_unobserved: 0 }];
+  assert.deepEqual([...list].sort(compareCandidates).map(item => item.ref), ['c', 'a', 'b']);
+  assert.equal(CANDIDATES_SHOWN, 8);
+  console.log('peak click position and strength ok');
+}

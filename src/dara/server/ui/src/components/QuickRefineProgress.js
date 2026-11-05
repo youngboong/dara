@@ -171,9 +171,12 @@ export function useQuickRefine(taskId, { onVersion } = {}) {
   const cancel = React.useCallback(async () => {
     const id = job?.job_id;
     if (!id) return;
+    // BGMN can take a few seconds to stop: show it at once until the server reports the end.
+    setJob(previous => (previous?.job_id === id ? { ...previous, cancelling: true } : previous));
     try {
       await postJson(`/quick-jobs/${id}/cancel`, {});
     } catch (error) {
+      setJob(previous => (previous?.job_id === id ? { ...previous, cancelling: false } : previous));
       message.error(error.message);
     }
   }, [job]);
@@ -205,9 +208,9 @@ export default function QuickRefineProgress({ job, onCancel, onDismiss, style })
   return <Alert type="info" showIcon style={{ marginBottom: 12, ...style }}
     message={<Space wrap>
       <strong>{progressLabel(job.label) || 'Re-refining'}</strong>
-      <span>{view.stage}</span>
-      {view.time ? <span>{view.time}</span> : null}
-      {note && view.basis ? <Tooltip title={view.basis}>{note}</Tooltip> : note}
+      <span>{job.cancelling ? 'Cancelling…' : view.stage}</span>
+      {view.time && !job.cancelling ? <span>{view.time}</span> : null}
+      {job.cancelling ? null : note && view.basis ? <Tooltip title={view.basis}>{note}</Tooltip> : note}
     </Space>}
     description={<Space style={{ width: '100%' }} align="center">
       <div style={{ width: 'min(520px, 60vw)' }}>
@@ -215,6 +218,6 @@ export default function QuickRefineProgress({ job, onCancel, onDismiss, style })
           ? <Progress percent={view.percent} size="small" status="active" showInfo={false} />
           : <Progress percent={100} size="small" status="active" showInfo={false} strokeColor="#91caff" />}
       </div>
-      <Button size="small" onClick={onCancel} disabled={!job.job_id}>Cancel</Button>
+      <Button size="small" onClick={onCancel} disabled={!job.job_id || job.cancelling} loading={Boolean(job.cancelling)}>Cancel</Button>
     </Space>} />;
 }

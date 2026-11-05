@@ -373,3 +373,109 @@ console.log('missing bases ok');
   assert.equal(new Set(two.map(row => row.key)).size, 3);
   console.log('fit comparison weight rows ok');
 }
+
+// --- audit fixes: labels, deltas, deep link, alternative link, phase options ---------------------
+import {
+  addedLabel, alternativeLink, deltaBaseText, fitFromSearch, phaseLabels, searchWithFit, versionLabel, versionPhaseOptions,
+} from '../src/dara/server/ui/src/components/versions.mjs';
+{
+  // ±0.00 instead of −0.00 / +0.00
+  assert.equal(deltaText({ a: 1.3, b: 1.296, delta: -0.004, digits: 2 }), '1.30 → 1.30 (±0.00)');
+  assert.equal(deltaText({ a: 1.3, b: 1.304, delta: 0.004, digits: 2 }), '1.30 → 1.30 (±0.00)');
+  assert.equal(deltaText({ a: 1.3, b: 1.29, delta: -0.01, digits: 2 }), '1.30 → 1.29 (−0.01)');
+
+  // the base of the delta strip is named
+  const results = [{ source_index: 0, rwp: 3, merged_results: [{ source_index: 1, differing_phases: ['X_1_(cod_5)-0'] }] }, { source_index: 2, rwp: 4 }];
+  assert.equal(deltaBaseText('best'), 'vs best fit:');
+  assert.equal(deltaBaseText('version:2'), 'vs v2:');
+  assert.equal(deltaBaseText(2, results), 'vs candidate 2:');
+  assert.equal(deltaBaseText(1, results), 'vs candidate 1 (other reference):');
+
+  // a merged result is not "candidate 2"
+  const merged = alternativeLink({ candidate_number: 2, source_index: 1 }, results, null);
+  assert.equal(merged.text, 'View candidate 1 (other reference)');
+  assert.equal(merged.title, 'Show Candidate 1 · other reference (cod_5)');
+  assert.equal(merged.sel, 1);
+  assert.equal(alternativeLink({ source_index: 2 }, results, null).text, 'View candidate 2');
+  assert.equal(alternativeLink({ source_index: 2 }, results, 2), null, 'the fit already shown');
+  assert.equal(alternativeLink({ candidate_number: 3 }, results, null), null);
+
+  // same formula twice
+  const versions = [{ version: 1, phases: ['TiO2_136_(cod_1)-0'] }, { version: 11, label: 'Added Fe2O3 · all phases refined', phases: ['Fe2O3_167_(cod_2)-0'], origin: { added: ['Fe2O3_167_(cod_2)-0'] } }];
+  assert.equal(addedLabel('Fe2O3', { symbol: 'R-3m', ref: 'Fe2O3_166_(cod_3)-0' }, { displayedPhases: ['TiO2_136_(cod_1)-0'], versions }), 'Added Fe2O3 (R-3m)');
+  assert.equal(addedLabel('Fe2O3', { ref: 'Fe2O3_166_(cod_3)-0' }, { versions }), 'Added Fe2O3 (SG 166)');
+  assert.equal(addedLabel('Fe3O4', { symbol: 'Fd-3m', ref: 'Fe3O4_227_(cod_4)-0' }, { displayedPhases: ['TiO2_136_(cod_1)-0'], versions }), 'Added Fe3O4');
+  const twins = [...versions, { version: 14, label: 'Added Fe2O3 · all phases refined', origin: { added: ['Fe2O3_166_(cod_3)-0'] } }];
+  assert.equal(versionLabel(twins[1], twins), 'Added Fe2O3 · all phases refined (SG 167)');
+  assert.equal(versionLabel(twins[2], twins), 'Added Fe2O3 · all phases refined (SG 166)');
+  assert.equal(versionLabel(versions[1], versions), 'Added Fe2O3 · all phases refined', 'unique labels stay as they are');
+  assert.equal(selectionLabel('version:14', { versions: twins }), 'v14 — Added Fe2O3 · all phases refined (SG 166)');
+  assert.deepEqual(phaseLabels(['Bi2O3_14_(cod_1)-0', 'Nb16.8O42_1_(cod_2)-0', 'Bi2O3_15_(cod_3)-0']),
+    ['Bi2O3 (SG 14)', 'Nb16.8O42', 'Bi2O3 (SG 15)']);
+  const y2o3 = weightRows({ weight_percent: { 'Y2O3_206_(cod_1)-0': 90 } }, { weight_percent: { 'Y2O3_199_(cod_2)-0': 88 } },
+    name => (name.includes('206') ? 'Ia-3' : 'I2_13'));
+  assert.deepEqual(y2o3.map(row => row.formula), ['Y2O3 (Ia-3)', 'Y2O3 (I2₁3)']);
+
+  // deep link of the fit view
+  assert.equal(fitFromSearch('?id=9'), undefined);
+  assert.equal(fitFromSearch('?id=9&fit=best'), null);
+  assert.equal(fitFromSearch('?id=9&fit=version:12'), 'version:12');
+  assert.equal(fitFromSearch('?id=9&fit=version%3A12'), 'version:12');
+  assert.equal(fitFromSearch('?id=9&fit=3'), 3);
+  assert.equal(fitFromSearch('?id=9&fit=version:1'), null);
+  assert.equal(fitFromSearch('?id=9&fit=nonsense'), undefined);
+  assert.equal(searchWithFit('?id=9', 'version:12'), '?id=9&fit=version:12');
+  assert.equal(searchWithFit('?id=9&fit=3', null), '?id=9&fit=best');
+  assert.equal(searchWithFit('?id=9&fit=3', undefined), '?id=9');
+  assert.equal(searchWithFit('?id=9', 0), '?id=9&fit=0');
+
+  // "Select phases" also offers COD references added in versions
+  assert.deepEqual(versionPhaseOptions(['A_1_(x)-0'], [{ version: 1 }, { version: 3, origin: { added: ['Fe2O3_166_(cod_9001)-0', 'Lib_1_(lib)-0'] } }]),
+    [{ ref: 'A_1_(x)-0', source: 'task' }, { ref: 'Fe2O3_166_(cod_9001)-0', source: 'cod:9001' }]);
+  const withCod = selectedPhasesRequest({ current: ['A_1_(x)-0'], selected: ['A_1_(x)-0', 'Fe2O3_166_(cod_9001)-0'],
+    available: ['A_1_(x)-0', 'Fe2O3_166_(cod_9001)-0'], sources: { 'Fe2O3_166_(cod_9001)-0': 'cod:9001' } });
+  assert.deepEqual(withCod.phases, [{ ref: 'Fe2O3_166_(cod_9001)-0', source: 'cod:9001' }]);
+  console.log('audit label, delta, deep link and phase option fixes ok');
+}
+
+// --- follow-ups: repeated formulas in deltas and labels, stored-# wording, symbol lookup ----------
+import { phaseSymbolLookup } from '../src/dara/server/ui/src/components/versions.mjs';
+{
+  const symbols = phaseSymbolLookup({
+    metadata: [{ 'Fe2O3_167_(cod_2)-0': { spacegroup_symbol: 'R-3c' } }, null],
+    symbols: [{ 'Fe2O3_166_(cod_3)-0': 'R-3m', 'Fe2O3_167_(cod_2)-0': 'ignored' }, undefined],
+  });
+  assert.equal(symbols('Fe2O3_167_(cod_2)-0'), 'R-3c', 'metadata first');
+  assert.equal(symbols('Fe2O3_166_(cod_3)-0'), 'R-3m');
+  assert.equal(symbols('nope'), null);
+
+  // two Fe2O3 rows in the delta strip are told apart
+  const strip = deltaStrip({ weight_percent: { 'TiO2_136_(cod_1)-0': 70, 'Fe2O3_167_(cod_2)-0': 30 } },
+    { weight_percent: { 'TiO2_136_(cod_1)-0': 68, 'Fe2O3_167_(cod_2)-0': 29, 'Fe2O3_166_(cod_3)-0': 3 } }, symbols);
+  assert.deepEqual(strip.filter(row => row.key.startsWith('wt:')).map(row => row.label),
+    ['TiO2 wt%', 'Fe2O3 (R-3c) wt%', 'Fe2O3 (R-3m) wt%']);
+  assert.deepEqual(deltaStrip({ weight_percent: { 'Fe2O3_167_(cod_2)-0': 1 } }, { weight_percent: { 'Fe2O3_166_(cod_3)-0': 1 } })
+    .filter(row => row.key.startsWith('wt:')).map(row => row.label), ['Fe2O3 (SG 167) wt%', 'Fe2O3 (SG 166) wt%']);
+
+  // the Select phases label does not repeat a formula
+  const selected = selectedPhasesRequest({ current: ['TiO2_136_(cod_1)-0', 'Fe2O3_167_(cod_2)-0'],
+    selected: ['TiO2_136_(cod_1)-0', 'Fe2O3_167_(cod_2)-0', 'Fe2O3_166_(cod_3)-0'],
+    available: ['TiO2_136_(cod_1)-0', 'Fe2O3_167_(cod_2)-0', 'Fe2O3_166_(cod_3)-0'], symbolOf: symbols });
+  assert.equal(selected.label, 'Selected phases: TiO2, Fe2O3 (R-3c), Fe2O3 (R-3m)');
+
+  // a member that only differs in phase order is "stored #N", like mergedLabel
+  const order = [{ source_index: 0, rwp: 3, merged_results: [{ source_index: 4, differing_phases: [] }] }];
+  assert.equal(alternativeLink({ source_index: 4 }, order, null).text, 'View candidate 1 (stored #5)');
+  assert.equal(alternativeLink({ source_index: 4 }, order, null).title, 'Show Candidate 1 (stored #5)');
+  assert.equal(deltaBaseText(4, order), 'vs candidate 1 (stored #5):');
+
+  // version rows carry their own symbols; a lookup fills in the rest
+  const rows = [
+    { version: 11, label: 'Added Fe2O3', origin: { added: ['Fe2O3_167_(cod_2)-0'] }, phase_symbols: { 'Fe2O3_167_(cod_2)-0': 'R-3c' } },
+    { version: 14, label: 'Added Fe2O3', origin: { added: ['Fe2O3_166_(cod_3)-0'] } },
+  ];
+  assert.equal(versionLabel(rows[0], rows), 'Added Fe2O3 (R-3c)');
+  assert.equal(versionLabel(rows[1], rows), 'Added Fe2O3 (SG 166)');
+  assert.equal(versionLabel(rows[1], rows, symbols), 'Added Fe2O3 (R-3m)');
+  console.log('follow-up label fixes ok');
+}

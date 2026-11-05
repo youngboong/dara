@@ -82,6 +82,16 @@ export function mergedLabel(number, member) {
     : `Candidate ${number} (stored #${member.source_index + 1})`;
 }
 
+/**
+ * Short suffix for a result merged into a displayed candidate, worded like `mergedLabel`:
+ * ` (other reference)` when it used other database records, ` (stored #N)` when only the phase
+ * order differs; empty for the displayed row itself.
+ */
+function memberSuffix(member) {
+  if (!member) return '';
+  return member.differing_phases?.length ? ' (other reference)' : ` (stored #${member.source_index + 1})`;
+}
+
 /** `mergedLabel` for a merged result; null for a displayed row. */
 function memberLabel(found) {
   return found?.member ? mergedLabel(found.number, found.member) : null;
@@ -101,9 +111,32 @@ export function selectionLabel(sel, data = {}) {
   if (parsed) {
     const version = (data.versions || []).find(item => item.version === parsed.version);
     if (!version && versionGone(data.versions, parsed)) return `v${parsed.version} (deleted)`;
-    return `v${parsed.version}${version?.label ? ` — ${version.label}` : ''}`;
+    return `v${parsed.version}${version?.label ? ` — ${versionLabel(version, data.versions)}` : ''}`;
   }
   return '';
+}
+
+/**
+ * Fit view state of a task page address (`?id=9&fit=version:12`): `undefined` (closed, or an
+ * invalid value), `null` (best fit), a candidate source index or `'version:n'`.
+ */
+export function fitFromSearch(search) {
+  const value = new URLSearchParams(search || '').get('fit');
+  if (value === null) return undefined;
+  const parsed = parseSelection(value);
+  if (parsed === null) return undefined;
+  if (parsed === 'best') return null;
+  return typeof parsed === 'number' ? parsed : `version:${parsed.version}`;
+}
+
+/** `search` with `fit` set to the open fit (`plotId` as in `fitFromSearch`) or removed. */
+export function searchWithFit(search, plotId) {
+  const params = new URLSearchParams(search || '');
+  params.delete('fit');
+  const value = plotId === undefined ? null : plotId === null ? 'best' : formatSelection(plotId);
+  // Written by hand: URLSearchParams would encode `version:12` as `version%3A12`.
+  const text = [params.toString(), value === null ? '' : `fit=${value}`].filter(Boolean).join('&');
+  return text ? `?${text}` : '';
 }
 
 /** Query string for `/task/{id}/plot`. */
@@ -157,7 +190,20 @@ export function spacegroupOfPhase(name) {
  * identity in a fit are paired with the other fit's by weight and numbered (`Fe2O3 #2`).
  * `a`/`b` are fit-compare sides (`{weight_percent, phase_identity}`).
  */
-export function weightRows(a, b) {
+export function weightRows(a, b, symbolOf = () => null) {
+  const rows = identityRows(a, b);
+  // Two compounds with one formula (polymorphs: Y2O3 Ia-3 and I2₁3) get their space group.
+  const keysOf = new Map();
+  rows.forEach(row => keysOf.set(row.base, (keysOf.get(row.base) || new Set()).add(row.group)));
+  return rows.map(({ base, group, ...row }) => {
+    if (keysOf.get(base).size < 2) return row;
+    const name = row.names[0];
+    const sg = formatSpacegroup(symbolOf(name), spacegroupOfPhase(name));
+    return sg === '?' ? row : { ...row, formula: row.formula.replace(base, `${base} (${sg})`) };
+  });
+}
+
+function identityRows(a, b) {
   const groups = new Map();
   [['a', a], ['b', b]].forEach(([side, fit]) => {
     const identity = fit?.phase_identity || {};
@@ -177,6 +223,8 @@ export function weightRows(a, b) {
       const names = [...new Set([group.a[i]?.name, group.b[i]?.name].filter(Boolean))];
       return {
         key: size > 1 ? `${key}#${i + 1}` : key,
+        base: formulaOfPhase(names[0]),
+        group: key,
         formula: `${formulaOfPhase(names[0])}${size > 1 ? ` #${i + 1}` : ''}`,
         names,
         a: group.a[i]?.value ?? null,
@@ -195,6 +243,61 @@ export function formatSpacegroup(symbol, number) {
 const clip = text => (text.length > MAX_LABEL ? `${text.slice(0, MAX_LABEL - 1)}…` : text);
 
 /**
+ * Formulas of a phase list, with the space group appended to a formula that occurs more than once
+ * (`Bi2O3 (SG 14), Nb16.8O42, Bi2O3 (SG 15)`). `symbolOf(name)` may supply the symbol.
+ */
+export function phaseLabels(phases = [], symbolOf = () => null) {
+  const formulas = (phases || []).map(formulaOfPhase);
+  return (phases || []).map((name, i) => (formulas.filter(f => f === formulas[i]).length > 1
+    ? `${formulas[i]} (${formatSpacegroup(symbolOf(name), spacegroupOfPhase(name))})` : formulas[i]));
+}
+
+/**
+ * `name -> space-group symbol` from phase metadata maps (`{name: {spacegroup_symbol}}`, as in
+ * task results and version fits) and symbol maps (`{name: 'R-3c'}`, the `phase_symbols` of
+ * version rows and fit-compare sides); `null` when unknown (labels then fall back to `SG n`).
+ */
+export function phaseSymbolLookup({ metadata = [], symbols = [] } = {}) {
+  const map = new Map();
+  (metadata || []).forEach(block => Object.entries(block || {}).forEach(([name, value]) => {
+    if (value?.spacegroup_symbol && !map.has(name)) map.set(name, value.spacegroup_symbol);
+  }));
+  (symbols || []).forEach(block => Object.entries(block || {}).forEach(([name, symbol]) => {
+    if (symbol && !map.has(name)) map.set(name, symbol);
+  }));
+  return name => map.get(name) ?? null;
+}
+
+/**
+ * Label of version row `item`; when another version has the same label (older versions named
+ * only the formula they added), the added references' space groups are appended.
+ */
+export function versionLabel(item, versions = [], symbolOf = () => null) {
+  const label = item?.label || '';
+  const added = item?.origin?.added || [];
+  const twin = label && added.length && (versions || []).some(other => other !== item
+    && other.version !== item.version && other.label === label);
+  if (!twin) return label;
+  const groups = added.map(ref => formatSpacegroup(item.phase_symbols?.[ref] ?? symbolOf(ref), spacegroupOfPhase(ref)))
+    .filter(sg => sg !== '?');
+  return groups.length ? `${label} (${groups.join(', ')})` : label;
+}
+
+/**
+ * Label of a version that adds one phase: `Added Fe2O3`, or `Added Fe2O3 (R-3m)` when that
+ * formula is already in the displayed fit or in another version (otherwise two versions read
+ * the same). `spacegroup` = `{symbol, number}`; `ref` is the added reference name.
+ */
+export function addedLabel(formula, { symbol = null, number = null, ref = null } = {}, { displayedPhases = [], versions = [] } = {}) {
+  const name = String(formula || formulaOfPhase(ref) || '');
+  const known = new Set([...(displayedPhases || []),
+    ...(versions || []).flatMap(item => [...(item.phases || []), ...(item.origin?.added || [])])].map(formulaOfPhase));
+  const clash = known.has(name) || (ref && known.has(formulaOfPhase(ref)));
+  const group = clash ? formatSpacegroup(symbol, number ?? spacegroupOfPhase(ref)) : '?';
+  return clip(`Added ${name}${group !== '?' ? ` (${group})` : ''}`);
+}
+
+/**
  * The evidence object offered for a phase verdict. The API nests it under `verdict.evidence`;
  * a structure-model alternative (same compound, other space group) wins over a phase-set
  * alternative. Either one is a stored candidate with its own fit, so the UI only links to it.
@@ -205,11 +308,27 @@ export function alternativeOfVerdict(verdict) {
 }
 
 /**
+ * Link from a phase verdict's alternative (a stored candidate) to its fit: `{sel, text, title}`,
+ * or `null` when there is none or it is the fit already shown (`displayed`). The server's
+ * `candidate_number` is a stored index + 1 for results merged into a displayed candidate, so the
+ * label comes from the displayed candidates (`Candidate 1 · other reference (cod_…)`).
+ */
+export function alternativeLink(alternative, allResults = [], displayed = null) {
+  const index = alternative?.source_index;
+  if (!Number.isInteger(index) || index < 0) return null;
+  if (formatSelection(displayed) === index) return null;
+  const found = displayedCandidateOf(allResults, index);
+  const title = selectionLabel(index, { all_results: allResults }).split(' — ')[0];
+  const text = found ? `View candidate ${found.number}${memberSuffix(found.member)}` : `View stored result #${index + 1}`;
+  return { sel: index, text, title: `Show ${title}` };
+}
+
+/**
  * Quick-refine body for the "Select phases" checklist: adds the checked references that are not in
  * the displayed fit and removes the displayed ones that were unchecked (only references that were
  * offered in the checklist). `null` when nothing changes or nothing would be left.
  */
-export function selectedPhasesRequest({ current = [], selected = [], available = [], controls = null, defaultControls = null }) {
+export function selectedPhasesRequest({ current = [], selected = [], available = [], controls = null, defaultControls = null, sources = {}, symbolOf = () => null }) {
   const have = new Set(current);
   const want = new Set(selected);
   const offered = new Set(available);
@@ -219,15 +338,32 @@ export function selectedPhasesRequest({ current = [], selected = [], available =
   const changedControls = controls && JSON.stringify(controls) !== JSON.stringify(defaultControls) ? controls : null;
   if (!add.length && !remove.length && !changedControls) return null;
   if (have.size - remove.length + add.length < 1) return null;
-  const names = [...have].filter(name => !remove.includes(name)).concat(add).map(formulaOfPhase);
+  // Formulas, with the space group when one repeats ("TiO2, Fe2O3 (R-3c), Fe2O3 (R-3m)").
+  const names = phaseLabels([...have].filter(name => !remove.includes(name)).concat(add), symbolOf);
   const body = {
-    phases: add.map(ref => ({ ref, source: 'task' })),
+    phases: add.map(ref => ({ ref, source: sources[ref] || 'task' })),
     remove,
     origin: 'manual',
     label: clip(add.length || remove.length ? `Selected phases: ${names.join(', ')}` : 'Changed refinement controls'),
   };
   if (changedControls) body.controls = changedControls;
   return body;
+}
+
+/**
+ * References offered in "Select phases" besides the task's own: the displayed fit's phases (they
+ * resolve from the base fit) and COD references added by any version (fetched from the COD cache
+ * again). Library references of other versions are left out: their library id is not stored.
+ * Returns `[{ref, source}]` without duplicates.
+ */
+export function versionPhaseOptions(displayedPhases = [], versions = []) {
+  const out = new Map();
+  (displayedPhases || []).forEach(ref => out.set(ref, 'task'));
+  (versions || []).filter(item => item.version > 1).forEach(item => (item.origin?.added || []).forEach(ref => {
+    const code = codCodeFromStem(ref);
+    if (code && !out.has(ref)) out.set(ref, `cod:${code}`);
+  }));
+  return [...out].map(([ref, source]) => ({ ref, source }));
 }
 
 /** Quick-refine body that drops one phase. */
@@ -253,7 +389,7 @@ function unexplainedCount(summary) {
 }
 
 /** Metric deltas next -> base. `better` = lower (for residual-style metrics, and for wt% never). */
-export function deltaStrip(base, next) {
+export function deltaStrip(base, next, symbolOf = () => null) {
   const rows = METRICS.map(({ key, label, digits, read }) => {
     const a = read(base);
     const b = read(next);
@@ -264,13 +400,30 @@ export function deltaStrip(base, next) {
   });
   const wa = base?.weight_percent || {};
   const wb = next?.weight_percent || {};
-  for (const phase of [...new Set([...Object.keys(wa), ...Object.keys(wb)])]) {
+  const phases = [...new Set([...Object.keys(wa), ...Object.keys(wb)])];
+  // A formula that occurs twice (Fe2O3 R-3c and R-3m) gets its space group, as in phaseLabels.
+  const labels = phaseLabels(phases, symbolOf);
+  for (const [i, phase] of phases.entries()) {
     const a = finite(wa[phase]) ? Number(wa[phase]) : null;
     const b = finite(wb[phase]) ? Number(wb[phase]) : null;
-    rows.push({ key: `wt:${phase}`, label: `${formulaOfPhase(phase)} wt%`, phase, a, b, digits: 2,
+    rows.push({ key: `wt:${phase}`, label: `${labels[i]} wt%`, phase, a, b, digits: 2,
       delta: a !== null && b !== null ? b - a : null, better: false });
   }
   return rows;
+}
+
+/**
+ * Lead text of a version's delta strip naming what it is compared with: `vs v2:` (the baseline
+ * or the version it was made from), `vs best fit:` or `vs candidate 2:`.
+ */
+export function deltaBaseText(base, allResults = []) {
+  const parsed = parseSelection(base);
+  if (parsed === null || parsed === 'best') return 'vs best fit:';
+  if (typeof parsed === 'number') {
+    const found = displayedCandidateOf(allResults, parsed);
+    return `vs ${found ? `candidate ${found.number}${memberSuffix(found.member)}` : `stored result #${parsed + 1}`}:`;
+  }
+  return `vs v${parsed.version}:`;
 }
 
 /** Text for a delta row such as `7.10 → 6.20 (−0.90)`. */
@@ -278,8 +431,10 @@ export function deltaText(row) {
   const d = row.digits ?? 2;
   const arrow = `${fixed(row.a, d)} → ${fixed(row.b, d)}`;
   if (row.delta === null || row.delta === undefined) return arrow;
-  const sign = row.delta > 0 ? '+' : row.delta < 0 ? '−' : '±';
-  return `${arrow} (${sign}${Math.abs(row.delta).toFixed(d)})`;
+  // The sign follows the rounded value: a change below the shown precision is "±0.00", not "−0.00".
+  const magnitude = Math.abs(row.delta).toFixed(d);
+  const sign = Number(magnitude) === 0 ? '±' : row.delta > 0 ? '+' : '−';
+  return `${arrow} (${sign}${magnitude})`;
 }
 
 /**
@@ -446,7 +601,7 @@ export function selectOptionGroups(allResults = [], versions = [], { adoptable =
       options: shown.map(item => (legacy(item)
         ? { value: `version:${item.version}`, label: `v${item.version} (quick check)`, disabled: true }
         : { value: `version:${item.version}`,
-          label: `v${item.version} — ${item.label || 'Re-refinement'}${finite(item.rwp) ? ` — Rwp ${Number(item.rwp).toFixed(2)}%` : ''}` })) }] : []),
+          label: `v${item.version} — ${versionLabel(item, versions) || 'Re-refinement'}${finite(item.rwp) ? ` — Rwp ${Number(item.rwp).toFixed(2)}%` : ''}` })) }] : []),
     ...(gone.length ? [{ label: 'Deleted', options: gone }] : []),
   ];
 }

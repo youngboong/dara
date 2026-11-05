@@ -2,7 +2,9 @@ import React from 'react';
 import { Alert, Button, Drawer, List, Space, Spin, Tag, Tooltip, Typography } from 'antd';
 import { NOT_AVAILABLE, postJson } from './QuickRefineProgress';
 import { existingPhase, formatSelection, formulaOfPhase, refSourceForHint } from './versions.mjs';
-import { autoMatchStrength, collectHints, hintText, isSlowCandidate, matchStrength, significantPeaks } from './peakSelection.mjs';
+import {
+  CANDIDATES_SHOWN, autoMatchStrength, collectHints, compareCandidates, hintText, isSlowCandidate, matchStrength, significantPeaks,
+} from './peakSelection.mjs';
 
 const { Text } = Typography;
 const POOLS = ['candidate', 'input', 'library', 'cod'];
@@ -11,7 +13,8 @@ const MAX_RETRIES = 20; // the COD pool can take ~1 min to load the first time
 const AUTO_SHOWN = 5;
 
 /** Drawer width; the fit view leaves this much room on the right while the drawer is open. */
-export const DRAWER_WIDTH = 'min(480px, 40vw)';
+// A third of the screen at most, so the plot keeps two thirds on a 1366 px screen.
+export const DRAWER_WIDTH = 'min(460px, max(340px, 32vw))';
 
 const SOURCE_LABEL = { task: 'This task', library: 'Library', cod: 'COD' };
 
@@ -22,7 +25,7 @@ function sourceKind(source) {
 function mergeCandidates(previous, incoming) {
   const byRef = new Map(previous.map(item => [`${item.source}|${item.ref}`, item]));
   for (const item of incoming) byRef.set(`${item.source}|${item.ref}`, item);
-  return [...byRef.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  return [...byRef.values()].sort(compareCandidates);
 }
 
 const peakList = peaks => peaks.map(peak => `${Number(peak).toFixed(2)}°`).join(', ');
@@ -85,6 +88,10 @@ function ExistingMark({ existing, onOpenVersion }) {
 
 function CandidateList({ search, peaks, limit, previewRef, onPreview, onAdd, busy, emptyText, strengthOf = matchStrength, list = '', existingOf, onOpenVersion }) {
   const { candidates, loading, pending, error } = search;
+  // The rest of a long list ("+N more") is shown on request; a new peak selection collapses it.
+  const [expanded, setExpanded] = React.useState(false);
+  const peaksKey = (peaks || []).join(',');
+  React.useEffect(() => setExpanded(false), [peaksKey]);
   if (error) return <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />;
   if (loading) {
     return <Space direction="vertical" style={{ width: '100%', padding: 24, textAlign: 'center' }}>
@@ -93,7 +100,7 @@ function CandidateList({ search, peaks, limit, previewRef, onPreview, onAdd, bus
     </Space>;
   }
   if (!candidates.length) return <Text type="secondary">{emptyText}{pending ? ' Still searching COD…' : ''}</Text>;
-  const shown = limit ? candidates.slice(0, limit) : candidates;
+  const shown = limit && !expanded ? candidates.slice(0, limit) : candidates;
   return <>
     {pending ? <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Still searching COD…</Text> : null}
     <List dataSource={shown} rowKey={item => `${item.source}|${item.ref}`} renderItem={candidate => {
@@ -120,7 +127,7 @@ function CandidateList({ search, peaks, limit, previewRef, onPreview, onAdd, bus
             <Tooltip title={candidate.ref}><strong>{candidateFormula(candidate)}</strong></Tooltip>
             {candidate.spacegroup_symbol ? <Text type="secondary">{candidate.spacegroup_symbol}{candidate.spacegroup_number ? ` (No. ${candidate.spacegroup_number})` : ''}</Text> : null}
             <Tag>{SOURCE_LABEL[sourceKind(candidate.source)] || candidate.source}</Tag>
-            {strength ? <Tooltip title="Strong: explains the selected peaks with no contradicting reflection. Possible: explains several peaks with few contradictions; add it and compare the fits. Weak: only some peaks overlap, often by chance.">
+            {strength ? <Tooltip title="Strong: explains two or more selected peaks with no contradicting reflection. Possible: explains the peaks with few contradictions; add it and compare the fits. One peak alone is at most possible: many references have a line there. Weak: only some peaks overlap, often by chance.">
               <Tag color={strength.color}>{strength.label}</Tag>
             </Tooltip> : null}
             {isSlowCandidate(candidate) ? <Tooltip title={`${candidate.n_lines} reflections — may take minutes`}>
@@ -133,7 +140,9 @@ function CandidateList({ search, peaks, limit, previewRef, onPreview, onAdd, bus
           </Text>} />
       </List.Item>;
     }} />
-    {limit && candidates.length > limit ? <Text type="secondary">{`+${candidates.length - limit} weaker matches`}</Text> : null}
+    {limit && candidates.length > limit ? <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setExpanded(value => !value)}>
+      {expanded ? 'Show fewer' : `+${candidates.length - limit} more`}
+    </Button> : null}
   </>;
 }
 
@@ -189,7 +198,7 @@ export default function PeakCandidatesDrawer({
     </div> : null}
     <Typography.Title level={5}>{peaks?.length ? `Clicked peaks ${peakList(peaks)}` : 'Clicked peaks'}</Typography.Title>
     {peaks?.length
-      ? <CandidateList list="clicked" search={clicked} peaks={peaks} emptyText="No reference matched the selected peaks." {...listProps} />
+      ? <CandidateList list="clicked" search={clicked} peaks={peaks} limit={CANDIDATES_SHOWN} emptyText="No reference matched the selected peaks." {...listProps} />
       : <Text type="secondary">Click peaks in the plot (Shift+click adds).</Text>}
   </Drawer>;
 }

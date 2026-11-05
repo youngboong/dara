@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Checkbox, InputNumber, Modal, Popover, Space, Typography } from 'antd';
+import { Button, Checkbox, InputNumber, message, Modal, Popover, Space, Tooltip, Typography } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { backgroundRequest } from './versions.mjs';
 
@@ -16,8 +16,12 @@ function EditorForm({ busy, getView, onSubmit, baseDegree }) {
   const setRange = (index, position, value) => setRanges(previous => previous.map((range, i) => (i === index
     ? (position === 0 ? [value, range[1]] : [range[0], value]) : range)));
   const useCurrentView = () => {
+    // `getView` returns null unless the plot is zoomed into part of the pattern.
     const view = getView?.();
-    if (!view) return;
+    if (!view) {
+      message.info('Zoom into the hump first');
+      return;
+    }
     const [lo, hi] = [Math.min(...view), Math.max(...view)];
     setRanges(previous => [...previous, [Number(lo.toFixed(2)), Number(hi.toFixed(2))]]);
   };
@@ -48,7 +52,9 @@ function EditorForm({ busy, getView, onSubmit, baseDegree }) {
         <div style={{ marginTop: 6 }}>
           <Space wrap>
             <Button size="small" icon={<PlusOutlined />} onClick={() => setRanges(previous => [...previous, [null, null]])}>Add interval</Button>
-            <Button size="small" onClick={useCurrentView} disabled={!getView}>Use current view</Button>
+            <Tooltip title="Adds the zoomed 2θ window; zoom into the hump first">
+              <Button size="small" onClick={useCurrentView} disabled={!getView}>Use current view</Button>
+            </Tooltip>
           </Space>
         </div>
       </div>

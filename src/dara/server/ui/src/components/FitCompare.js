@@ -5,7 +5,9 @@ import { InfoCircleOutlined } from '@ant-design/icons';
 import usePlotView, { NAVIGATION_CONFIG, NAVIGATION_DRAGMODE, NAVIGATION_HELP } from './usePlotView';
 import { addDSpacingHover } from './plotNavigation.mjs';
 import { NOT_AVAILABLE, requestJson } from './QuickRefineProgress';
-import { QUICK_CHECK_HINT, REFINE_ALL_FIRST, formatSelection, isQuickCheck, selectOptionGroups, selectionLabel, weightRows } from './versions.mjs';
+import {
+  QUICK_CHECK_HINT, REFINE_ALL_FIRST, formatSelection, isQuickCheck, phaseSymbolLookup, selectOptionGroups, selectionLabel, weightRows,
+} from './versions.mjs';
 
 const Plot = Loadable({ loader: () => import('./RefinementPlotly'), loading: () => <Spin /> });
 
@@ -65,7 +67,9 @@ export default function FitCompare({ taskId, a, b, open, onClose, onAdoptB, adop
   const quickA = isQuickCheck(versions, selA) || data?.a?.refine_mode === 'fast';
   const quickB = isQuickCheck(versions, selB) || data?.b?.refine_mode === 'fast';
   // one row per compound: the same phase from another database record shares it
-  const weights = data ? weightRows(data.a, data.b) : [];
+  const symbolOf = phaseSymbolLookup({ metadata: allResults.map(result => result.phase_metadata),
+    symbols: [data?.a?.phase_symbols, data?.b?.phase_symbols, ...versions.map(item => item.phase_symbols)] });
+  const weights = data ? weightRows(data.a, data.b, symbolOf) : [];
   const massBalance = data && (data.a?.mass_balance?.level || data.b?.mass_balance?.level);
   const rows = data ? [
     { key: 'rwp', metric: 'Rwp (%)', a: fixed(data.a?.rwp), b: fixed(data.b?.rwp) },

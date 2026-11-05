@@ -29,6 +29,35 @@ function dataXBounds(gd) {
   return lo < hi ? [lo, hi] : null;
 }
 
+/** `{xa, px}` of the main 2θ axis under a client position inside either panel, or `null`. */
+function plotAreaTarget(gd, clientX, clientY) {
+  const full = gd?._fullLayout;
+  if (!full?.xaxis) return null;
+  const rect = gd.getBoundingClientRect();
+  const px = clientX - rect.left;
+  const py = clientY - rect.top;
+  const xa = full.xaxis;
+  if (px < xa._offset || px > xa._offset + xa._length) return null;
+  for (const name of ['yaxis', 'yaxis2']) {
+    const ya = full[name];
+    if (ya && py >= ya._offset && py <= ya._offset + ya._length) return { xa, px: px - xa._offset };
+  }
+  return null;
+}
+
+/**
+ * 2θ under the mouse of a click, or `null`. Peak selection uses this instead of the hovered
+ * point: Plotly's hover is throttled and picks the closest point in 2-D, so right after the mouse
+ * moved it can still name the previous peak (or a point of another curve).
+ */
+export function cursorTwoTheta(gd, mouseEvent) {
+  if (!mouseEvent || !Number.isFinite(mouseEvent.clientX)) return null;
+  const target = plotAreaTarget(gd, mouseEvent.clientX, mouseEvent.clientY);
+  if (!target) return null;
+  const x = Number(target.xa.p2l(target.px));
+  return Number.isFinite(x) ? x : null;
+}
+
 // Mouse navigation for XRD plots (see plotNavigation.mjs): Plotly draws the left-drag zoom
 // box (layout dragmode 'zoom'); 2θ panning, the wheel and the range clamp are handled here,
 // because Plotly's own pan and scroll zoom neither stop at the data nor use a fixed step.
@@ -41,20 +70,7 @@ function attachNavigation(gd, boundsRef) {
   const hasX2 = () => Boolean(gd._fullLayout?.xaxis2);
   const currentRange = () => finiteRange(gd._fullLayout?.xaxis?.range);
 
-  const inPlotArea = (clientX, clientY) => {
-    const full = gd._fullLayout;
-    if (!full?.xaxis) return null;
-    const rect = gd.getBoundingClientRect();
-    const px = clientX - rect.left;
-    const py = clientY - rect.top;
-    const xa = full.xaxis;
-    if (px < xa._offset || px > xa._offset + xa._length) return null;
-    for (const name of ['yaxis', 'yaxis2']) {
-      const ya = full[name];
-      if (ya && py >= ya._offset && py <= ya._offset + ya._length) return { xa, px: px - xa._offset };
-    }
-    return null;
-  };
+  const inPlotArea = (clientX, clientY) => plotAreaTarget(gd, clientX, clientY);
 
   // One relayout per animation frame: wheel and drag events come faster than Plotly redraws.
   // The timer is a fallback for pages that get no animation frames (hidden or throttled).
@@ -99,8 +115,10 @@ function attachNavigation(gd, boundsRef) {
     const { moved, button } = drag;
     stopDrag();
     // Shift+click (several peaks) must still reach the plot: Plotly never saw this mousedown,
-    // so emit its click event with the hovered points, as Plotly itself does.
-    if (!moved && button === 0 && gd._hoverdata?.length) gd.emit('plotly_click', { points: gd._hoverdata, event });
+    // so emit its click event. The 2θ comes from the mouse position: `gd._hoverdata` can still
+    // hold the previously hovered peak when the click follows a quick mouse move.
+    const cursorX = !moved && button === 0 ? cursorTwoTheta(gd, event) : null;
+    if (cursorX !== null) gd.emit('plotly_click', { points: gd._hoverdata || [], event, cursorX });
   }
 
   const onDown = event => {
@@ -167,13 +185,19 @@ function attachNavigation(gd, boundsRef) {
  * Plotly scatter plot with the DARA navigation. `xBounds` is the measured 2θ range that zoom
  * and pan stay inside (default: the extent of the plotted data).
  */
-export default function RefinementPlotly({ onInitialized, xBounds = null, ...props }) {
+export default function RefinementPlotly({ onInitialized, onClick, xBounds = null, ...props }) {
   const detach = React.useRef(null);
+  const graph = React.useRef(null);
   const boundsRef = React.useRef(xBounds);
   boundsRef.current = xBounds;
   React.useEffect(() => () => { if (detach.current) detach.current(); }, []);
-  return <Plot {...props} onInitialized={(figure, gd) => {
+  // Every click event carries `cursorX`, the 2θ under the mouse (see cursorTwoTheta).
+  const handleClick = onClick ? event => onClick({
+    ...event, cursorX: Number.isFinite(event?.cursorX) ? event.cursorX : cursorTwoTheta(graph.current, event?.event),
+  }) : undefined;
+  return <Plot {...props} onClick={handleClick} onInitialized={(figure, gd) => {
     if (detach.current) detach.current();
+    graph.current = gd;
     detach.current = attachNavigation(gd, boundsRef);
     if (onInitialized) onInitialized(figure, gd);
   }} />;

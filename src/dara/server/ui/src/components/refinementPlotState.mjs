@@ -71,13 +71,80 @@ function intensityStats(plot, isShown, xRange) {
   return { maximum, minimum, smallestPositive };
 }
 
+/**
+ * Plot title with the pattern name: the server titles the figure after BGMN's working file
+ * (`xrd_data.xy (Rwp=2.96%)`), so the name part is replaced and the Rwp kept.
+ */
+export function patternTitle(title, name) {
+  const text = typeof title === 'string' ? title : title?.text;
+  if (!name || typeof text !== 'string') return title;
+  const rwp = / \(Rwp=[^)]*\)$/.exec(text);
+  const next = `${name}${rwp ? rwp[0] : ''}`;
+  return typeof title === 'string' ? next : { ...title, text: next };
+}
+
+/** Largest share of the measured 2θ range that "Use current view" may exclude. */
+export const MAX_EXCLUDED_SHARE = 0.9;
+
+/**
+ * 2θ window offered as an excluded interval ("Use current view"): only a real zoom, never the
+ * whole pattern. `null` without a zoom or when the window covers more than 90 % of the
+ * measured range (excluding it would leave almost nothing to fit).
+ */
+export function exclusionViewRange(xRange, fullRange) {
+  const view = finiteRange(xRange);
+  if (!view) return null;
+  const [lo, hi] = [Math.min(...view), Math.max(...view)];
+  const full = finiteRange(fullRange);
+  if (full && hi - lo > MAX_EXCLUDED_SHARE * Math.abs(full[1] - full[0])) return null;
+  return [lo, hi];
+}
+
 // Below this plot width the legend column gets smaller text and only the room it needs
 // (the server reserves 290 px, which leaves too little for the pattern at 1280 px).
 export const COMPACT_LEGEND_WIDTH = 1400;
+// Below this plot width the legend is drawn in rows under the plot instead of beside it.
+export const LEGEND_BELOW_WIDTH = 1200;
+// Legend rows under a narrow plot: one row is about 22 px at font size 10, and an entry about
+// 40 px (symbol and gap) plus 6 px per character.
+export const LEGEND_ROW_PX = 22;
+const LEGEND_FONT_SIZE = 10;
+const LEGEND_ENTRY_PX = 40;
+const LEGEND_CHAR_PX = 6;
+const LEGEND_GAP_PX = 10; // between the 2θ title and the first legend row
+
+/** Text of a legend entry without HTML tags (`TiFe<sub>2</sub>O<sub>5</sub>` -> `TiFe2O5`). */
+const legendText = name => String(name ?? '').replace(/<[^>]*>/g, '');
+
+/**
+ * Rows a horizontal legend needs for `data` in `width` px: the entries Plotly shows (a trace with
+ * `showlegend: false` has none, a legend group appears once) packed left to right.
+ */
+export function legendRowCount(data = [], width = 0) {
+  const seen = new Set();
+  const widths = [];
+  (data || []).forEach(trace => {
+    if (trace?.showlegend === false) return;
+    if (trace?.legendgroup) {
+      if (seen.has(trace.legendgroup)) return;
+      seen.add(trace.legendgroup);
+    }
+    widths.push(LEGEND_ENTRY_PX + LEGEND_CHAR_PX * legendText(trace?.name).length);
+  });
+  if (!widths.length) return 0;
+  const room = Math.max(Number(width) || 0, 200);
+  let rows = 1;
+  let used = 0;
+  widths.forEach(entry => {
+    if (used > 0 && used + entry > room) { rows += 1; used = 0; }
+    used += entry;
+  });
+  return rows;
+}
 
 export function buildRefinementView(plot, {
   selection = {}, showDiagnostics = true, showPhaseProfiles = true,
-  showReflections = true, scale = 'linear', yRange = null, xRange = null, fitY = true, plotWidth = null,
+  showReflections = true, scale = 'linear', yRange = null, xRange = null, fitY = true, plotWidth = null, title = null,
 } = {}) {
   plot = withDSpacing(plot);
   const baseLayout = cloneLayout(plot.layout);
@@ -177,10 +244,23 @@ export function buildRefinementView(plot, {
   const xaxis = { ...baseLayout.xaxis, showticklabels: true, title: { text: '' } };
   if (xView) Object.assign(xaxis, { range: [...xView], autorange: false });
   const layout = { ...baseLayout, annotations, yaxis, xaxis };
+  if (title) layout.title = patternTitle(layout.title, title);
   if (layout.xaxis2 && xView) Object.assign(layout.xaxis2, { range: [...xView], autorange: false });
   // The residual intensity never zooms: a box there is a 2θ band.
   if (layout.yaxis2) layout.yaxis2 = { ...layout.yaxis2, fixedrange: true };
-  if (Number.isFinite(plotWidth) && plotWidth > 0 && plotWidth < COMPACT_LEGEND_WIDTH) {
+  const narrow = Number.isFinite(plotWidth) && plotWidth > 0;
+  if (narrow && plotWidth < LEGEND_BELOW_WIDTH) {
+    // Narrow plot (1366 px screen with the Add phase drawer open): a legend column would take a
+    // third of the 2θ axis, so the legend goes in rows under the plot.
+    // The bottom margin grows by the legend rows, and the legend sits at the bottom of the figure
+    // (container coordinates), so it stays under the 2θ title and is never clipped.
+    const margin = layout.margin || {};
+    const rows = legendRowCount(data, plotWidth - (Number(margin.l) || 0) - 24);
+    const bottom = Number.isFinite(Number(margin.b)) ? Number(margin.b) : 65;
+    layout.margin = { ...margin, r: 24, b: bottom + LEGEND_GAP_PX + rows * LEGEND_ROW_PX };
+    layout.legend = { ...(layout.legend || {}), orientation: 'h', xref: 'paper', x: 0, xanchor: 'left',
+      yref: 'container', y: 0, yanchor: 'bottom', font: { ...(layout.legend?.font || {}), size: LEGEND_FONT_SIZE } };
+  } else if (narrow && plotWidth < COMPACT_LEGEND_WIDTH) {
     // Plotly widens the right margin to the legend's own width when it needs more.
     layout.margin = { ...(layout.margin || {}), r: 24 };
     layout.legend = { ...(layout.legend || {}), font: { ...(layout.legend?.font || {}), size: 10 }, itemwidth: 30 };

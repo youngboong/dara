@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 import threading
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -66,6 +67,29 @@ def _wavelength(document):
     return _wavelength_angstrom((getattr(document, "search_kwargs", None) or {}).get("wavelength"))
 
 
+_SPACEGROUP_IN_NAME = re.compile(r"^.+?_(\d+)_\(")
+
+
+def phase_symbols(*name_lists) -> dict[str, str]:
+    """Space-group symbol of each reference name (``Fe2O3_167_(cod_1)-0`` -> ``R-3c``).
+
+    Lets the UI tell two phases with one formula apart without loading every version.
+    """
+    from dara.plot import spacegroup_symbol
+
+    out: dict[str, str] = {}
+    for names in name_lists:
+        for name in names or []:
+            match = _SPACEGROUP_IN_NAME.match(str(name))
+            if not match or name in out:
+                continue
+            try:
+                out[name] = spacegroup_symbol(int(match.group(1)))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
 def _version_entry(record: dict) -> dict:
     from dara.server.api_router import unexplained_count
 
@@ -91,6 +115,9 @@ def _version_entry(record: dict) -> dict:
         "iteration_cap": record.get("iteration_cap"),
         "replaces": record.get("replaces"),
         "deletable": True,
+        "phase_symbols": phase_symbols(
+            summary.get("phases"), record.get("phases"), (record.get("origin") or {}).get("added")
+        ),
     }
 
 
@@ -130,6 +157,7 @@ def _original_entry(task: dict, document=None) -> dict:
         "iteration_cap": None,
         "replaces": None,
         "deletable": False,
+        "phase_symbols": phase_symbols(names),
     }
 
 
@@ -346,6 +374,8 @@ def _lite(selection, meta: dict, summary: dict) -> dict:
         # reduced formula + space group per phase, so the UI lines up the same compound
         # refined from different database records
         "phase_identity": {name: _phase_identity(name) for name in weights},
+        # space-group symbols, so two rows with one formula can be labelled (Y2O3 Ia-3 / I2_13)
+        "phase_symbols": phase_symbols(weights),
         "mass_balance": summary.get("mass_balance"),
         "n_unexplained": unexplained_count(summary.get("peak_diagnostics")),
         "cautions": summary.get("cautions") or [],

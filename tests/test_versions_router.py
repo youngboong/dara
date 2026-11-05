@@ -587,3 +587,16 @@ def test_fit_compare_sides_carry_phase_identities():
     weights = {"Bi2O3_14_(cod_9012546)-0": 50.0, "Bi2O3_14_(cod_1010004)-0": 50.0}
     lite = versions_router._lite(0, {}, {"weight_percent": weights})
     assert lite["phase_identity"] == dict.fromkeys(weights, "Bi2O3_14")
+
+
+def test_versions_and_compare_sides_carry_space_group_symbols():
+    # two Fe2O3 polymorphs must be labelled R-3c / R-3m in the UI, not "SG 167" / "SG 166"
+    entry = versions_router._version_entry({
+        "version": 3, "phases": ["TiO2_136_(cod_1)-0", "Fe2O3_166_(cod_2)-0"],
+        "origin": {"added": ["Fe2O3_166_(cod_2)-0"]},
+        "summary": {"phases": ["TiO2_136_(cod_1)-0", "Fe2O3_166_(cod_2)-0"]},
+    })
+    assert entry["phase_symbols"] == {"TiO2_136_(cod_1)-0": "P4_2/mnm", "Fe2O3_166_(cod_2)-0": "R-3m"}
+    lite = versions_router._lite(0, {}, {"weight_percent": {"Fe2O3_167_(cod_3)-0": 10.0, "odd name": 5.0}})
+    assert lite["phase_symbols"] == {"Fe2O3_167_(cod_3)-0": "R-3c"}
+    assert versions_router.phase_symbols(None, ["X_999_(cod_1)-0"]) == {}

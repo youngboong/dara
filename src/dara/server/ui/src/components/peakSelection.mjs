@@ -48,6 +48,18 @@ export function peakFromClick(plot, traceName, x) {
   return round2(best === null ? clicked : xs[best]);
 }
 
+/**
+ * Peak of a plot click event. The 2θ under the mouse (`cursorX`, set by RefinementPlotly) wins
+ * over the hovered point, which can be stale or belong to another curve; it is snapped like a
+ * click on "Observed". Events without it fall back to the clicked point.
+ */
+export function peakFromPlotClick(plot, event) {
+  if (Number.isFinite(event?.cursorX)) return peakFromClick(plot, 'Observed', event.cursorX);
+  const point = event?.points?.[0];
+  const trace = point ? plot?.data?.[point.curveNumber] : null;
+  return trace ? peakFromClick(plot, trace.name, point.x) : null;
+}
+
 /** Plain click replaces the selection, shift+click adds or removes (max 10); sorted ascending. */
 export function updatePeakSelection(current, peak, { shift = false, max = MAX_SELECTED_PEAKS } = {}) {
   if (!Number.isFinite(peak)) return current || [];
@@ -80,7 +92,8 @@ export function previewTrace(sticks, peakHeight, { floor = 0, name = 'Preview ti
     x.push(tt, tt, null);
     y.push(floor, Math.max(floor, (Math.max(rel, 0) / 100) * peakHeight), null);
   }
-  return { type: 'scatter', mode: 'lines', name, x, y, connectgaps: false, hoverinfo: 'skip',
+  // No legend entry: a temporary overlay must not add a legend row (and move the plot).
+  return { type: 'scatter', mode: 'lines', name, x, y, connectgaps: false, hoverinfo: 'skip', showlegend: false,
     line: { color: '#722ed1', width: 2 }, meta: 'preview' };
 }
 
@@ -150,17 +163,42 @@ function contradiction(candidate) {
   return strong > 0 ? (Number(candidate?.strong_unobserved) || 0) / strong : 0;
 }
 
+/** Number of selected peaks a candidate explains (`matched`), or `null` when not reported. */
+function matchedCount(candidate) {
+  return Array.isArray(candidate?.matched) ? candidate.matched.length : null;
+}
+
 /**
  * Plain-language strength of a candidate for the peaks the user selected. "Strong" needs a high
- * score (1 = every selected peak) and few of its own strong reflections missing from the data.
+ * score (1 = every selected peak), at least two matched peaks and few of its own strong
+ * reflections missing from the data. One peak is never strong evidence: dozens of references
+ * have a reflection within the matching tolerance of any single 2θ (one clicked spinel peak
+ * matched 21 references), so a 1/1 match is at most "Possible" and only when the reference's
+ * strong lines are present in the data; otherwise it is "Weak".
  */
 export function matchStrength(candidate) {
   const value = Number(candidate?.score);
   if (!Number.isFinite(value)) return null;
-  if (value >= 0.75 && contradiction(candidate) <= 0.15) return { label: 'Strong match', color: 'green' };
+  const clean = contradiction(candidate) <= 0.15;
+  const matched = matchedCount(candidate);
+  if (matched !== null && matched < 2) {
+    return value >= 0.75 && clean ? { label: 'Possible match', color: 'gold' } : { label: 'Weak match', color: 'default' };
+  }
+  if (value >= 0.75 && clean) return { label: 'Strong match', color: 'green' };
   if (value > 0.5) return { label: 'Possible match', color: 'gold' };
   return { label: 'Weak match', color: 'default' };
 }
+
+/**
+ * Order of a candidate list: highest score first; among equal scores, the reference with fewer
+ * of its own strong reflections missing from the data (for one clicked peak most scores are 1).
+ */
+export function compareCandidates(a, b) {
+  return (Number(b?.score) || 0) - (Number(a?.score) || 0) || contradiction(a) - contradiction(b);
+}
+
+/** Rows of a candidate list shown before "+N more". */
+export const CANDIDATES_SHOWN = 8;
 
 /**
  * Strength of a candidate from the automatic search over all significant peaks. Those peaks

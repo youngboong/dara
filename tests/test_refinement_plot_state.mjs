@@ -112,3 +112,53 @@ console.log('Legend selection, compact rows, nonnegative ticks, toolbar persiste
   assert.equal(sized.layout.height, 760); // source layout untouched
   console.log('layout follows the container size ok');
 }
+
+// --- audit fixes: exclusion window, pattern title, legend under a narrow plot ---------------------
+import { exclusionViewRange, patternTitle, LEGEND_BELOW_WIDTH } from '../src/dara/server/ui/src/components/refinementPlotState.mjs';
+{
+  assert.equal(exclusionViewRange(null, [10, 100]), null, 'no zoom: nothing to exclude');
+  assert.equal(exclusionViewRange([9.9, 100.09], [9.9, 100.09]), null, 'the whole pattern is refused');
+  assert.equal(exclusionViewRange([12, 95], [10, 100]), null, 'more than 90 % is refused');
+  assert.deepEqual(exclusionViewRange([30, 20], [10, 100]), [20, 30]);
+  assert.deepEqual(exclusionViewRange([20, 30], null), [20, 30]);
+
+  assert.equal(patternTitle('xrd_data.xy (Rwp=2.96%)', 'Fe2O3_1000C.xrdml'), 'Fe2O3_1000C.xrdml (Rwp=2.96%)');
+  assert.deepEqual(patternTitle({ text: 'xrd_data.xy (Rwp=2.96%)', x: 0.5 }, 'P'), { text: 'P (Rwp=2.96%)', x: 0.5 });
+  assert.equal(patternTitle('xrd_data.xy (Rwp=2.96%)', null), 'xrd_data.xy (Rwp=2.96%)');
+  const titled = buildRefinementView({ ...plot, layout: { ...plot.layout, title: { text: 'xrd_data.xy (Rwp=1.00%)' } } }, { title: 'S1' });
+  assert.equal(titled.layout.title.text, 'S1 (Rwp=1.00%)');
+
+  const below = buildRefinementView({ ...plot, layout: { ...plot.layout, margin: { l: 155, r: 290 } } }, { plotWidth: LEGEND_BELOW_WIDTH - 1 });
+  assert.equal(below.layout.legend.orientation, 'h');
+  assert.equal(below.layout.margin.r, 24);
+  const beside = buildRefinementView({ ...plot, layout: { ...plot.layout, margin: { l: 155, r: 290 } } }, { plotWidth: LEGEND_BELOW_WIDTH });
+  assert.notEqual(beside.layout.legend?.orientation, 'h');
+  console.log('exclusion window, title and legend placement ok');
+}
+
+// --- legend under a narrow plot: rows reserve bottom margin, legend anchored at the figure bottom --
+import { legendRowCount, LEGEND_ROW_PX } from '../src/dara/server/ui/src/components/refinementPlotState.mjs';
+{
+  const base = ['Observed', 'Calculated', 'Background', 'Difference', 'Missing peaks', 'Extra peaks', 'Intensity mismatch']
+    .map(name => ({ name, x: [20, 30], y: [1, 2] }));
+  const phases = n => Array.from({ length: n }, (_, i) => [
+    { name: `Ph${i}<sub>2</sub>O<sub>3</sub> · Cmcm (12.34 wt%)`, meta: 'phase-profile', legendgroup: `P${i}`, x: [20, 30], y: [1, 2], visible: 'legendonly' },
+    { name: `Ph${i} ticks`, meta: 'reflection', legendgroup: `P${i}`, showlegend: false, x: [20, 30], y: [0, 0], marker: { color: 'red' }, visible: 'legendonly' },
+  ]).flat();
+  assert.equal(legendRowCount([], 800), 0);
+  assert.equal(legendRowCount([{ name: 'A' }, { name: 'B', showlegend: false }], 800), 1, 'hidden entries take no room');
+  assert.equal(legendRowCount([{ name: 'A', legendgroup: 'g' }, { name: 'A2', legendgroup: 'g' }], 50), 1, 'a group is one entry');
+  const few = legendRowCount([...base, ...phases(2)], 500);
+  const many = legendRowCount([...base, ...phases(6)], 500);
+  assert.ok(many > few, `more phases need more rows (${few} -> ${many})`);
+  assert.ok(legendRowCount([...base, ...phases(6)], 300) >= many, 'a narrower plot needs at least as many rows');
+  for (const [n, width] of [[4, 880], [6, 880], [4, 640], [6, 640]]) {
+    const view = buildRefinementView({ ...plot, data: [...base, ...phases(n)], layout: { ...plot.layout, margin: { l: 155, r: 290, b: 65 } } }, { plotWidth: width });
+    const rows = legendRowCount(view.data, width - 155 - 24);
+    assert.equal(view.layout.margin.b, 65 + 10 + rows * LEGEND_ROW_PX, `${n} phases at ${width} px reserve every legend row`);
+    assert.equal(view.layout.legend.yref, 'container');
+    assert.equal(view.layout.legend.y, 0);
+    assert.equal(view.layout.legend.yanchor, 'bottom');
+  }
+  console.log('legend rows reserve bottom margin ok');
+}

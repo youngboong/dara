@@ -100,7 +100,7 @@ export function ReviewPanel({ data, review, versions = [], style = null }) {
  * "Select phases…" button and checklist modal. The checked phases are submitted through the quick
  * re-refinement path (`onSubmit(request)`), which stores a new version of the same task.
  */
-export function PhaseSelectionButton({ taskId, phases = [], renderPhase, busy = false, onSubmit, disabledReason = null, ...props }) {
+export function PhaseSelectionButton({ taskId, phases = [], extraPhases = [], symbolOf, renderPhase, busy = false, onSubmit, disabledReason = null, ...props }) {
   const [visible, setVisible] = React.useState(false);
   const [available, setAvailable] = React.useState([]);
   const [selected, setSelected] = React.useState([]);
@@ -113,12 +113,15 @@ export function PhaseSelectionButton({ taskId, phases = [], renderPhase, busy = 
     setControls(DEFAULT_CONTROLS);
     try {
       const body = await responseJson(await fetch(`${API}/task/${taskId}/phase-options`));
-      setAvailable(body.phases);
-      setSelected(phases.filter(phase => body.phases.includes(phase)));
+      // Phases added in versions (not stored with the task) are offered too.
+      const offered = [...new Set([...body.phases, ...extraPhases.map(item => item.ref)])];
+      setAvailable(offered);
+      setSelected(phases.filter(phase => offered.includes(phase)));
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   };
-  const request = selectedPhasesRequest({ current: phases, selected, available, controls, defaultControls: DEFAULT_CONTROLS });
+  const sources = Object.fromEntries(extraPhases.map(item => [item.ref, item.source]));
+  const request = selectedPhasesRequest({ current: phases, selected, available, controls, defaultControls: DEFAULT_CONTROLS, sources, symbolOf });
   const submit = () => {
     if (!request) return;
     setVisible(false);
@@ -133,7 +136,7 @@ export function PhaseSelectionButton({ taskId, phases = [], renderPhase, busy = 
       okButtonProps={{ disabled: loading || !request || selected.length > 20 }}>
       <Typography.Paragraph type="secondary">
         Checked phases are refined together as a new version.{' '}
-        <Tooltip title="Uses the stored references of this task; the original result is kept. Check one reference per phase: equivalent CIFs are not extra components.">
+        <Tooltip title="Uses the stored references of this task and the COD references added in its versions; the original result is kept. Check one reference per phase: equivalent CIFs are not extra components.">
           <InfoCircleOutlined />
         </Tooltip>
       </Typography.Paragraph>

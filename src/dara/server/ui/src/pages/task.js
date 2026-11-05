@@ -6,7 +6,7 @@ import { DeleteOutlined, DownloadOutlined, InfoCircleOutlined, LineChartOutlined
 import Loadable from 'react-loadable'
 import parse from 'html-react-parser';
 import {STATE_COLOR} from './results';
-import { buildRefinementView, isTraceSelected, legendKey } from '../components/refinementPlotState.mjs';
+import { buildRefinementView, exclusionViewRange, isTraceSelected, legendKey } from '../components/refinementPlotState.mjs';
 import { viewChangeFromRelayout } from '../components/plotNavigation.mjs';
 import { NAVIGATION_CONFIG, NAVIGATION_DRAGMODE } from '../components/usePlotView';
 import { formatParameterWithEsd, latticeParameterRows } from '../components/latticeParameters.mjs';
@@ -25,14 +25,14 @@ import BackgroundEditor from '../components/BackgroundEditor';
 import useKeyboardShortcuts, { FIT_MODAL_CLASS, HELP_MODAL_CLASS } from '../components/useKeyboardShortcuts';
 import { MOUSE_HELP, SHORTCUT_HELP } from '../components/keyboardShortcuts.mjs';
 import {
-  collectHints, hintsPending, observedPeak, peakFromClick, peakShapes, phaseGroupNames, previewTrace, significantPeaks, updatePeakSelection,
+  collectHints, hintsPending, observedPeak, peakFromPlotClick, peakShapes, phaseGroupNames, previewTrace, significantPeaks, updatePeakSelection,
 } from '../components/peakSelection.mjs';
 import { searchOptionsText } from '../components/resultsList.mjs';
 import {
-  BASELINE_LABEL, QUICK_CHECK_HINT, REFINE_ALL_FIRST, alternativeOfVerdict, availableComparisonBase, baselineRequest,
-  deltaStrip, deltaText, displayedCandidateOf,
+  BASELINE_LABEL, QUICK_CHECK_HINT, REFINE_ALL_FIRST, addedLabel, alternativeLink, alternativeOfVerdict, availableComparisonBase, baselineRequest, comparisonBase,
+  deltaBaseText, deltaStrip, deltaText, displayedCandidateOf, fitFromSearch, phaseSymbolLookup, searchWithFit,
   formulaOfPhase, isQuickCheck, needsBaseline, parseSelection, plotQuery, refineAllRequest, removeRequest,
-  referenceVariants, replacementOf, runText, selectOptionGroups, selectionLabel, versionGone, versionReadyText,
+  referenceVariants, replacementOf, runText, selectOptionGroups, selectionLabel, spacegroupOfPhase, versionGone, versionPhaseOptions, versionReadyText,
 } from '../components/versions.mjs';
 
 const { Text } = Typography;
@@ -216,7 +216,7 @@ function preloadPlot(taskId, plotId) {
 
 
 const RefinementPlot = React.forwardRef(function RefinementPlot({
-  task_id, plot_id, excludedRanges = [], peaks = [], onPeakClick, previewSticks = null, onGroups,
+  task_id, plot_id, excludedRanges = [], peaks = [], onPeakClick, previewSticks = null, onGroups, title = null,
 }, ref) {
   const [plot, setPlot] = React.useState(undefined);
   const [error, setError] = React.useState('');
@@ -263,7 +263,8 @@ const RefinementPlot = React.forwardRef(function RefinementPlot({
       setSelection(previous => ({ ...previous, [key]: !isTraceSelected(trace, index, previous) }));
       setYRange(null);
     },
-    getViewRange: () => latest.current.xRange || latest.current.plot?.layout?.xaxis?.range || null,
+    // Only a real zoom: the unzoomed range would exclude the whole pattern.
+    getViewRange: () => exclusionViewRange(latest.current.xRange, latest.current.plot?.layout?.xaxis?.range),
   }), []);
   React.useEffect(() => {
     setPlot(undefined);
@@ -283,7 +284,7 @@ const RefinementPlot = React.forwardRef(function RefinementPlot({
   if (error) return <Alert type="error" showIcon message={error} />;
   if (!plot) return <Spin />;
   const view = buildRefinementView(plot, {
-    selection, showDiagnostics, showPhaseProfiles, showReflections, scale, yRange, xRange, fitY, plotWidth,
+    selection, showDiagnostics, showPhaseProfiles, showReflections, scale, yRange, xRange, fitY, plotWidth, title,
   });
   const toggleLegend = event => {
     const index = event.curveNumber;
@@ -308,10 +309,7 @@ const RefinementPlot = React.forwardRef(function RefinementPlot({
   };
   const handleClick = event => {
     if (!onPeakClick) return;
-    const point = event?.points?.[0];
-    const trace = point ? plot.data[point.curveNumber] : null;
-    if (!trace) return;
-    const peak = peakFromClick(plot, trace.name, point.x);
+    const peak = peakFromPlotClick(plot, event);
     if (peak !== null) onPeakClick(peak, Boolean(event.event?.shiftKey));
   };
   const data = previewSticks?.length
@@ -613,13 +611,27 @@ function normalizePlotId(value) {
   return typeof parsed === 'number' ? parsed : `version:${parsed.version}`;
 }
 
-function DeltaStrip({ rows }) {
+const phaseSetKey = phases => [...new Set((phases || []).map(name => `${formulaOfPhase(name)}_${spacegroupOfPhase(name)}`))].sort().join('|');
+
+/** Tooltip of a candidate card that only has a screening fit. */
+function screeningCardTooltip(result, finalResult) {
+  const quality = result.fit_quality || {};
+  const range = quality.two_theta_min != null && quality.two_theta_max != null
+    ? ` (2θ ${formatMetric(quality.two_theta_min, 0)}–${formatMetric(quality.two_theta_max, 0)}°)` : '';
+  const sameAsBest = finalResult?.phases?.length && phaseSetKey(result.highlighted_phases) === phaseSetKey(finalResult.phases);
+  return `Fast restricted refinement${range} used to rank candidate phase sets; its Rwp and wt% are not final.${sameAsBest
+    ? ` The best fit is the final refinement of these phases (Rwp ${formatMetric(finalResult.fit_quality?.rwp ?? finalResult.rwp)} %).` : ''}`;
+}
+
+function DeltaStrip({ rows, lead = 'vs best fit:' }) {
   const shown = rows.filter(row => row.a !== null || row.b !== null);
   if (!shown.length) return null;
+  // A change that rounds to zero is not colored as better or worse.
+  const visible = row => row.delta !== null && Number(Math.abs(row.delta).toFixed(row.digits ?? 2)) !== 0;
   return <div style={{ marginBottom: 8 }}>
     <Space wrap size={[4, 4]}>
-      <Text type="secondary">vs base:</Text>
-      {shown.map(row => <Tag key={row.key} color={row.delta === null || row.key.startsWith('wt:') ? 'default' : row.better ? 'green' : row.delta > 0 ? 'orange' : 'default'}>
+      <Text type="secondary">{lead}</Text>
+      {shown.map(row => <Tag key={row.key} color={!visible(row) || row.key.startsWith('wt:') ? 'default' : row.better ? 'green' : row.delta > 0 ? 'orange' : 'default'}>
         {`${row.label} ${deltaText(row)}`}
       </Tag>)}
     </Space>
@@ -662,8 +674,16 @@ function InstrumentText({ details }) {
 }
 
 function TaskDetail({ data, task_id }) {
-  const [plot_id, setPlotIdRaw] = React.useState(undefined);
+  // The open fit is mirrored in the address (`?id=9&fit=version:12`): a reload or a new tab
+  // opens the same fit.
+  const [plot_id, setPlotIdRaw] = React.useState(() => fitFromSearch(typeof window === 'undefined' ? '' : window.location.search));
   const setPlotId = React.useCallback(value => setPlotIdRaw(normalizePlotId(value)), []);
+  React.useEffect(() => {
+    const next = searchWithFit(window.location.search, plot_id);
+    if (next !== window.location.search) {
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${next}${window.location.hash}`);
+    }
+  }, [plot_id]);
   const [showAlternatives, setShowAlternatives] = React.useState(false);
   const store = useVersions(task_id);
   const columns = useDescriptionColumns();
@@ -747,9 +767,18 @@ function TaskDetail({ data, task_id }) {
   const referenceMetadata = Object.assign({}, data.final_result.phase_metadata,
     ...data.all_results.map(result => result.phase_metadata));
   const renderReference = reference => <PhaseIdentity reference={reference} metadata={referenceMetadata[reference]} />;
+  // Space-group symbols for labels that repeat a formula: task references, opened version fits
+  // and the symbols the versions list carries for every version phase.
+  const symbolOf = phaseSymbolLookup({
+    metadata: [referenceMetadata, ...Object.values(versionDetails).map(body => body?.final_result?.phase_metadata)],
+    symbols: store.versions.map(item => item.phase_symbols),
+  });
 
   const currentSel = plot_id === null || plot_id === undefined ? 'best' : plot_id;
   const versionNumber = typeof plot_id === 'string' ? (parseSelection(plot_id)?.version ?? null) : null;
+  // A version opened from the address is only loaded once the versions list says it exists:
+  // a deleted one is replaced (effect above) without a 404 from /plot or /versions/N first.
+  const versionPending = versionNumber !== null && (store.loading || versionGone(store.versions, plot_id));
   const versionData = versionNumber ? versionDetails[versionNumber] : null;
   // Deltas against 'best' use the baseline version (same code as the new version) when it exists;
   // a base that is gone (replaced quick check, deleted version) falls back to the best fit.
@@ -757,6 +786,7 @@ function TaskDetail({ data, task_id }) {
   const baseParsed = effectiveBase !== null ? parseSelection(effectiveBase) : null;
   const baseVersionNumber = baseParsed && typeof baseParsed === 'object' ? baseParsed.version : null;
   React.useEffect(() => {
+    if (versionPending) return undefined;
     const wanted = [versionNumber, baseVersionNumber].filter(n => n && !versionDetails[n]);
     if (!wanted.length) return undefined;
     let active = true;
@@ -770,7 +800,7 @@ function TaskDetail({ data, task_id }) {
         });
     });
     return () => { active = false; };
-  }, [task_id, versionNumber, baseVersionNumber, versionDetails]);
+  }, [task_id, versionNumber, baseVersionNumber, versionDetails, versionPending]);
   // "Find phases for the unexplained peaks" opens the fit and the drawer together.
   const openDrawerWithFit = React.useRef(false);
   React.useEffect(() => {
@@ -798,7 +828,7 @@ function TaskDetail({ data, task_id }) {
     return versionDetails[parsed.version]?.final_result;
   };
   const baseSummary = versionData ? findSummary(effectiveBase) : null;
-  const deltaRows = versionData?.final_result && baseSummary ? deltaStrip(baseSummary, versionData.final_result) : [];
+  const deltaRows = versionData?.final_result && baseSummary ? deltaStrip(baseSummary, versionData.final_result, symbolOf) : [];
   const displayedPhases = displayedResult ? (displayedResult.highlighted_phases || displayedResult.phases || []) : [];
   // Explicit background polynomial degree of the displayed fit (null: BGMN chooses it).
   const baseDegree = versionNumber ? (versionData?.background?.degree ?? null)
@@ -840,16 +870,17 @@ function TaskDetail({ data, task_id }) {
   const refineAll = n => runQuick(refineAllRequest(n, store.versions));
   const quickCheck = versionData?.refine_mode === 'fast';
   const addHint = (hint, target) => runQuick({
-    phases: [target], origin: 'add_hint', label: `Added ${hint.formula || hint.phase}`,
+    phases: [target], origin: 'add_hint',
+    label: addedLabel(hint.formula || formulaOfPhase(hint.phase), { symbol: hint.spacegroup_symbol ?? symbolOf(hint.phase), number: hint.spacegroup_number, ref: hint.phase },
+      { displayedPhases, versions: store.versions }),
   });
   // The API nests the alternatives under `verdict.evidence`; an alternative is a stored candidate.
   const alternativeOf = phase => alternativeOfVerdict(displayedResult?.confidence?.phases?.[phase]);
   const rowActions = row => {
-    const alternative = alternativeOf(row.phase);
-    const otherSet = alternative?.source_index != null ? alternative : null;
+    const link = alternativeLink(alternativeOf(row.phase), data.all_results, plot_id);
     return <Space size="small" wrap>
-      {otherSet ?<Tooltip title={`Show candidate ${otherSet.candidate_number ?? otherSet.source_index + 1}`}>
-        <Button size="small" onClick={() => setPlotId(otherSet.source_index)}>{`View candidate ${otherSet.candidate_number ?? otherSet.source_index + 1}`}</Button>
+      {link ? <Tooltip title={link.title}>
+        <Button size="small" onClick={() => setPlotId(link.sel)}>{link.text}</Button>
       </Tooltip> : null}
       {displayedPhases.length >= 2 ? <Tooltip title="Remove, refine, compare">
         <Button size="small" disabled={quick.busy} onClick={() => runQuick(removeRequest(row.phase))}>Remove</Button>
@@ -857,10 +888,12 @@ function TaskDetail({ data, task_id }) {
     </Space>;
   };
 
+  // A click only changes the selection, never the layout: opening or closing the drawer here
+  // would resize the plot under the cursor between the click and the next Shift+click. The
+  // drawer opens with "Show candidates" (and an open drawer follows the selection).
   const onPeakClick = (peak, shift) => {
     const next = updatePeakSelection(peaksRef.current, peak, { shift });
     setPeaks(next);
-    setDrawerOpen(next.length > 0);
     if (!next.length) setPreview(null);
   };
   const [suggestionCount, setSuggestionCount] = React.useState(0);
@@ -870,11 +903,14 @@ function TaskDetail({ data, task_id }) {
     setPreview(null);
     runQuick({
       phases: [{ ref: candidate.ref, source: candidate.source }], origin: 'add_peak_search',
-      label: `Added ${candidate.formula || formulaOfPhase(candidate.ref)}`,
+      label: addedLabel(candidate.formula || formulaOfPhase(candidate.ref),
+        { symbol: candidate.spacegroup_symbol ?? symbolOf(candidate.ref), number: candidate.spacegroup_number, ref: candidate.ref },
+        { displayedPhases, versions: store.versions }),
     });
   };
   // A quick check is changed only through "Refine all phases"; the drawer stays closed on it.
   const drawerShown = drawerOpen && plot_id !== undefined && !quickCheck;
+  const peakClicksOn = quickShown && !quickCheck;
 
   const options = [
     'best',
@@ -902,6 +938,12 @@ function TaskDetail({ data, task_id }) {
   const [backgroundOpen, setBackgroundOpen] = React.useState(false);
   const firstOtherCandidate = data.all_results.length
     ? (data.all_results[1] ?? data.all_results[0]).source_index ?? (data.all_results.length > 1 ? 1 : 0) : null;
+  // "Compare…" in the fit view: a version against the fit its deltas use, a candidate against
+  // the best fit, the best fit against the next candidate. Overlays the fit view.
+  const compareFromFit = plot_id === undefined ? null
+    : versionNumber ? { a: effectiveBase ?? comparisonBase('best', store.versions, versionNumber), b: currentSel }
+      : plot_id === null ? (firstOtherCandidate === null ? null : { a: 'best', b: firstOtherCandidate })
+        : { a: 'best', b: currentSel };
   const reportBlocked = review.loading || review.error ? 'unavailable' : review.dirty ? 'save the review first' : null;
   const downloadZip = () => downloadResultArchive(task_id)
     .then(() => message.success('Result ZIP downloaded.'))
@@ -988,7 +1030,7 @@ function TaskDetail({ data, task_id }) {
       <h3 style={{ marginTop: 16 }}>Phases (best fit)</h3>
       <PhaseRefinementTable phases={data.final_result.phases} metadata={data.final_result.phase_metadata} details={data.final_result.phase_details} confidence={data.final_result.confidence} />
       <VersionsPanel taskId={task_id} store={store} review={review}
-        onView={setPlotId} onCompare={(a, b) => setCompare({ a, b })} onRefineAll={quickShown ? refineAll : null} refineBusy={quick.busy}
+        onView={setPlotId} onCompare={(a, b) => setCompare({ a, b })} symbolOf={symbolOf} onRefineAll={quickShown ? refineAll : null} refineBusy={quick.busy}
         extra={quickShown ? <QuickRefineProgress job={quick.job} onCancel={quick.cancel} onDismiss={quick.dismiss} /> : null} />
       <ResultTitleContainer>
         <Space wrap align="baseline">
@@ -1042,9 +1084,11 @@ function TaskDetail({ data, task_id }) {
                 <div className="dara-candidate-card-head">
                   <Space size="small" wrap>
                     <strong>{`Candidate ${index + 1}`}</strong>
-                    <Tag color={index === 0 ? "green" : "blue"}>
-                      {`${result.is_final_refined ? "Final " : ""}Rwp ${result.rwp} %`}
-                    </Tag>
+                    {result.is_final_refined ? <Tag color={index === 0 ? "green" : "blue"}>{`Final Rwp ${result.rwp} %`}</Tag>
+                      // A screening fit (restricted range, fast) must not read like the final numbers.
+                      : <Tooltip title={screeningCardTooltip(result, data.final_result)}>
+                        <Tag>{`Screening Rwp ${result.rwp} %`}</Tag>
+                      </Tooltip>}
                     {result.is_final_refined && Number(result.screening_rwp) !== Number(result.rwp) ? (
                       <Tooltip title="Fast restricted refinement used to rank candidate phase sets before the final refinement.">
                         <Tag>{`Screening Rwp ${result.screening_rwp} %`}</Tag>
@@ -1088,6 +1132,7 @@ function TaskDetail({ data, task_id }) {
               </Badge>
             </Tooltip>
             <PhaseSelectionButton taskId={task_id} phases={displayedPhases} renderPhase={renderReference} busy={quick.busy}
+              extraPhases={versionPhaseOptions(displayedPhases, store.versions)} symbolOf={symbolOf}
               disabledReason={quickCheck ? REFINE_ALL_FIRST : null}
               onSubmit={request => runQuick(request)} />
             <Tooltip title={quickCheck ? REFINE_ALL_FIRST : 'Background polynomial and excluded 2θ intervals'}>
@@ -1099,6 +1144,9 @@ function TaskDetail({ data, task_id }) {
           </> : null}
           {displayedResult ? <DownloadMenu taskId={task_id} selection={currentSel} label="Download this fit"
             blocked={quickCheck ? REFINE_ALL_FIRST : null} reportBlocked={reportBlocked} /> : null}
+          {compareFromFit ? <Tooltip title="Compare this fit with its base; A and B can be changed in the comparison">
+            <Button onClick={() => setCompare(compareFromFit)}>Compare…</Button>
+          </Tooltip> : null}
         </Space>
         {quickShown ? <QuickRefineProgress job={quick.job} onCancel={quick.cancel} onDismiss={quick.dismiss} /> : null}
         {versionError ? <Alert type="error" showIcon message={versionError} style={{ marginBottom: 12 }} /> : null}
@@ -1106,24 +1154,27 @@ function TaskDetail({ data, task_id }) {
         {displayedResult ? <>
           {quickCheck ? <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={QUICK_CHECK_HINT}
             action={quickShown ? <Button size="small" type="primary" disabled={quick.busy} onClick={() => refineAll(versionNumber)}>Refine all phases</Button> : null} /> : null}
-          {versionNumber ? <DeltaStrip rows={deltaRows} /> : null}
+          {versionNumber ? <DeltaStrip rows={deltaRows} lead={deltaBaseText(effectiveBase, data.all_results)} /> : null}
           <Space size="small" wrap style={{ marginBottom: 12 }}>
             <FitQualitySummary quality={displayedResult.fit_quality} />
             <OverallTag confidence={displayedResult.confidence} />
             <DisplacementTag confidence={displayedResult.confidence} />
           </Space>
         </> : null}
-        {peaks.length ? <Space wrap style={{ marginBottom: 8 }}>
-          <Text type="secondary">Selected peaks:</Text>
-          {peaks.map(peak => <Tag key={peak} closable color="volcano"
-            onClose={event => { event.preventDefault(); onPeakClick(peak, true); }}>{`${peak.toFixed(2)}°`}</Tag>)}
-          <Button size="small" onClick={() => setDrawerOpen(true)}>Show candidates</Button>
-          <Button size="small" onClick={clearPeaks}>Clear</Button>
-        </Space> : null}
-        <RefinementPlot ref={plotRef} task_id={task_id} plot_id={plot_id}
+        {/* One fixed-height row, so selecting a peak never moves the plot. */}
+        {peakClicksOn ? <div style={{ height: 32, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto', whiteSpace: 'nowrap' }}>
+          {peaks.length ? <>
+            <Text type="secondary">Selected peaks:</Text>
+            {peaks.map(peak => <Tag key={peak} closable color="volcano" style={{ marginInlineEnd: 0 }}
+              onClose={event => { event.preventDefault(); onPeakClick(peak, true); }}>{`${peak.toFixed(2)}°`}</Tag>)}
+            <Button size="small" type={drawerShown ? 'default' : 'primary'} onClick={() => setDrawerOpen(true)}>Show candidates</Button>
+            <Button size="small" onClick={clearPeaks}>Clear</Button>
+          </> : <Text type="secondary">Click a peak to search references for it (Shift+click adds more).</Text>}
+        </div> : null}
+        <RefinementPlot ref={plotRef} task_id={task_id} plot_id={versionPending ? undefined : plot_id} title={data.task_label}
           excludedRanges={[...excludedRanges, ...(versionData?.background?.excluded_ranges || [])]}
           peaks={peaks} previewSticks={preview?.sticks || null} onGroups={setPhaseGroups}
-          onPeakClick={quickShown && !quickCheck ? onPeakClick : undefined} />
+          onPeakClick={peakClicksOn ? onPeakClick : undefined} />
         {displayedResult ? <>
           <Divider />
           <PhaseRefinementTable phases={displayedPhases}
@@ -1134,7 +1185,7 @@ function TaskDetail({ data, task_id }) {
       </Modal>
       <PeakCandidatesDrawer taskId={task_id} sel={currentSel} peaks={peaks} open={drawerShown}
         diagnostics={displayedResult?.peak_diagnostics} onAddHint={(hint, target) => { setDrawerOpen(false); addHint(hint, target); }}
-        active={plot_id !== undefined && !quickCheck} onSuggestions={setSuggestionCount}
+        active={plot_id !== undefined && !versionPending && !quickCheck} onSuggestions={setSuggestionCount}
         displayedPhases={displayedPhases} versions={store.versions} onOpenVersion={n => setPlotId(n === 1 ? null : `version:${n}`)}
         onClose={() => setDrawerOpen(false)} onPreview={setPreview} previewRef={preview?.key} onAdd={addCandidate} busy={quick.busy} />
       <FitCompare taskId={task_id} a={compare?.a} b={compare?.b} open={Boolean(compare)} onClose={() => setCompare(null)}
