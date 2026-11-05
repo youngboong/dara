@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import Layout from '../components/Layout';
-import { Alert, Badge, Button, Descriptions, Divider, Grid, List, message, Modal, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Badge, Button, Col, Descriptions, Divider, Grid, List, message, Modal, Row, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd';
 import { DeleteOutlined, DownloadOutlined, InfoCircleOutlined, LineChartOutlined, SearchOutlined } from '@ant-design/icons';
 import Loadable from 'react-loadable'
 import parse from 'html-react-parser';
@@ -462,7 +462,12 @@ function PhaseList({ phases, highlighted_phases, grouped_phases, show_alternativ
             </Space>}
             description={
               <div className='phases-container'>
-                <div><Text type="secondary" style={{ fontSize: '0.86em', overflowWrap: 'anywhere' }}>{selectedPhase}</Text></div>
+                <div>
+                  <Text type="secondary">Selected reference: </Text>
+                  <Tooltip title="Name format: formula_space group_(database ID)-energy above hull. 'None' means that energy metadata is unavailable.">
+                    <code className="highlight" style={{ overflowWrap: 'anywhere' }}>{selectedPhase}</code>
+                  </Tooltip>
+                </div>
                 {alternatives.length ? (
                   show_alternatives ? (
                     <div>
@@ -471,7 +476,7 @@ function PhaseList({ phases, highlighted_phases, grouped_phases, show_alternativ
                         <span key={phase}>{alternativeIndex ? " | " : ""}<code className="no-highlight">{phase}</code></span>
                       ))}
                     </div>
-                  ) : <Text type="secondary">{`+ ${alternatives.length} alternative CIF${alternatives.length === 1 ? "" : "s"}`}</Text>
+                  ) : <Text type="secondary">{`+ ${alternatives.length} alternative matching CIF reference${alternatives.length === 1 ? "" : "s"} hidden`}</Text>
                 ) : null}
               </div>
             }
@@ -926,12 +931,20 @@ function TaskDetail({ data, task_id }) {
           ]} /></span>
         </Tooltip>
       </TitleContriner>
-      <Divider />
-      <ConfidenceBanner confidence={data.final_result?.confidence} omitPeakReasons action={significantPeaks(data.final_result?.peak_diagnostics).length
-        ? <Button size="small" icon={<SearchOutlined />} onClick={() => { openDrawerWithFit.current = true; setPlotId(null); }}>
-          Find phases for the unexplained peaks
-        </Button> : null} />
-      <ReviewPanel data={data} review={review} versions={store.versions} />
+      <Divider style={{ margin: '12px 0' }} />
+      {/* Confidence banner and review side by side on wide screens, stacked below 1200 px. */}
+      <Row gutter={[16, 12]} className="dara-summary-row" style={{ marginBottom: 12 }}>
+        {hasBanner ? <Col xs={24} xl={12}>
+          <ConfidenceBanner confidence={data.final_result?.confidence} omitPeakReasons style={{ marginBottom: 0 }}
+            action={significantPeaks(data.final_result?.peak_diagnostics).length
+              ? <Button size="small" icon={<SearchOutlined />} onClick={() => { openDrawerWithFit.current = true; setPlotId(null); }}>
+                Find phases for the unexplained peaks
+              </Button> : null} />
+        </Col> : null}
+        <Col xs={24} xl={hasBanner ? 12 : 24}>
+          <ReviewPanel data={data} review={review} versions={store.versions} style={{ marginBottom: 0 }} />
+        </Col>
+      </Row>
       <Descriptions bordered column={columns} size='small'>
         <Descriptions.Item label="Pattern file">{data.task_label}</Descriptions.Item>
         <Descriptions.Item label="Analysis mode">{ANALYSIS_MODE[data.analysis_mode] || data.analysis_mode || (data.use_rxn_predictor ? "Reaction check" : "Phase identification")}</Descriptions.Item>
@@ -950,7 +963,7 @@ function TaskDetail({ data, task_id }) {
         </Descriptions.Item>
       </Descriptions>
       <FitCautions cautions={data.final_result.cautions} besideBanner={hasBanner} />
-      <details style={{ marginTop: 12 }}>
+      <details style={{ marginTop: 8 }}>
         <summary>Analysis settings</summary>
         <Descriptions bordered column={columns} size='small' style={{ marginTop: 8 }}>
           <Descriptions.Item label="Temperature">{data.temperature || "None"}</Descriptions.Item>
@@ -976,14 +989,14 @@ function TaskDetail({ data, task_id }) {
           <Descriptions.Item label="Hypothesis search" span={columns}><SearchSummary summary={searchSummary} /></Descriptions.Item>
         </Descriptions>
       </details>
-      <h3 style={{ marginTop: 20 }}>Phases (best fit)</h3>
+      <h3 style={{ marginTop: 16 }}>Phases (best fit)</h3>
       <PhaseRefinementTable phases={data.final_result.phases} metadata={data.final_result.phase_metadata} details={data.final_result.phase_details} confidence={data.final_result.confidence} />
       <VersionsPanel taskId={task_id} store={store} review={review}
         onView={setPlotId} onCompare={(a, b) => setCompare({ a, b })} onRefineAll={quickShown ? refineAll : null} refineBusy={quick.busy}
         extra={quickShown ? <QuickRefineProgress job={quick.job} onCancel={quick.cancel} onDismiss={quick.dismiss} /> : null} />
       <ResultTitleContainer>
         <Space wrap align="baseline">
-          <h3 style={{ marginTop: 16 }}>{`Candidates (${data.all_results.length})`}</h3>
+          <h3 style={{ marginTop: 8 }}>{`Candidates (${data.all_results.length})`}</h3>
           {data.duplicate_results_removed > 0 ? <Tooltip title="Results with the same phases (same formula and space group) reached in another order or with other database records. Only the best-Rwp copy is listed; polymorphs stay separate.">
             <Text type="secondary">{`${data.duplicate_results_removed} equivalent result${data.duplicate_results_removed === 1 ? '' : 's'} merged`}</Text>
           </Tooltip> : null}
@@ -991,7 +1004,7 @@ function TaskDetail({ data, task_id }) {
         <Button disabled={firstOtherCandidate === null}
           onClick={() => setCompare({ a: 'best', b: firstOtherCandidate })}>Compare fits</Button>
       </ResultTitleContainer>
-      <Table size="small" pagination={false} scroll={{ x: 'max-content' }} tableLayout="auto" style={{ marginTop: 8, marginBottom: 24 }}
+      <Table size="small" pagination={false} scroll={{ x: 'max-content' }} tableLayout="auto" style={{ marginTop: 4, marginBottom: 12 }}
         rowKey="source_index"
         dataSource={data.all_results.map((item, index) => ({ ...item, candidate_number: index + 1, source_index: item.source_index ?? index }))}
         columns={[
@@ -1014,7 +1027,7 @@ function TaskDetail({ data, task_id }) {
             sorter: (a,b) => levelRank(a.confidence?.overall?.level)-levelRank(b.confidence?.overall?.level),
             render: (_,row) => <OverallTag confidence={row.confidence} /> },
           { title: 'No. of phases', sorter: (a,b) => a.highlighted_phases.length-b.highlighted_phases.length, render: (_,row) => row.highlighted_phases.length },
-          { title: 'Actions', render: (_,row) => <Space><Button size="small" onMouseEnter={() => preloadPlot(task_id, row.source_index)} onFocus={() => preloadPlot(task_id, row.source_index)} onClick={() => setPlotId(row.source_index)}>View fit</Button><Tooltip title="Download (ZIP)"><DownloadButton taskId={task_id} resultIndex={row.source_index} size="small" icon={<DownloadOutlined />} aria-label={`Download candidate ${row.candidate_number}`} /></Tooltip></Space> },
+          { title: 'Actions', render: (_,row) => <Space><Button type="primary" size="small" icon={<LineChartOutlined />} onMouseEnter={() => preloadPlot(task_id, row.source_index)} onFocus={() => preloadPlot(task_id, row.source_index)} onClick={() => setPlotId(row.source_index)}>View fit</Button><Tooltip title="Download (ZIP)"><DownloadButton taskId={task_id} resultIndex={row.source_index} size="small" icon={<DownloadOutlined />} aria-label={`Download candidate ${row.candidate_number}`} /></Tooltip></Space> },
         ]} />
       <div style={{ marginBottom: 8 }}>
         Show alternative CIFs
@@ -1023,19 +1036,36 @@ function TaskDetail({ data, task_id }) {
         </Tooltip>
         <Switch checked={showAlternatives} onChange={setShowAlternatives} size="small" style={{ marginLeft: 8 }} />
       </div>
-      <Descriptions bordered column={{ xs: 1, sm: 1, md: 1, lg: 1, xl: 2, xxl: 2 }} size='small'>
+      {/* One candidate per full-width row; the label column keeps a fixed share at every width. */}
+      <Descriptions bordered column={2} size='small'>
         {
           data.all_results.map((result, index) => {
+            const resultIndex = result.source_index ?? index;
             return (
-              <Descriptions.Item key={index} labelStyle={{ width: "16%" }} label={<Space size="small" wrap>
-                <span>{`Candidate ${index + 1}`}</span>
-                <Tag color={index === 0 ? "green" : "blue"}>{`Rwp ${result.rwp} %`}</Tag>
-                {result.is_final_refined && Number(result.screening_rwp) !== Number(result.rwp) ? (
-                  <Tooltip title="Fast restricted refinement used to rank candidate phase sets before the final refinement.">
-                    <Tag>{`Screening ${result.screening_rwp} %`}</Tag>
+              <Descriptions.Item key={index} span={2} labelStyle={{ width: "25%" }} label={<>
+                <Space size="small" wrap>
+                  <span>{`Candidate ${index + 1}`}</span>
+                  <Tag color={index === 0 ? "green" : "blue"}>
+                    {`${result.is_final_refined ? "Final " : ""}Rwp ${result.rwp} %`}
+                  </Tag>
+                  {result.is_final_refined && Number(result.screening_rwp) !== Number(result.rwp) ? (
+                    <Tooltip title="Fast restricted refinement used to rank candidate phase sets before the final refinement.">
+                      <Tag>{`Screening Rwp ${result.screening_rwp} %`}</Tag>
+                    </Tooltip>
+                  ) : null}
+                  {index === 0 && result.is_final_refined ? <Tag color="gold">Best</Tag> : null}
+                  <PeakDiagnosticTags diagnostics={result.peak_diagnostics} />
+                </Space>
+                <Space size="small" style={{ marginTop: 6, display: 'flex' }}>
+                  <Button type="primary" size="small" icon={<LineChartOutlined />}
+                    onMouseEnter={() => preloadPlot(task_id, resultIndex)} onFocus={() => preloadPlot(task_id, resultIndex)}
+                    onClick={() => setPlotId(resultIndex)}>View fit</Button>
+                  <Tooltip title="Download (ZIP)">
+                    <DownloadButton taskId={task_id} resultIndex={resultIndex} type="text" size="small" shape="circle"
+                      aria-label={`Download candidate ${index + 1}`} icon={<DownloadOutlined />} />
                   </Tooltip>
-                ) : null}
-              </Space>}>
+                </Space>
+              </>}>
                 <PhaseList phases={result.phases} highlighted_phases={result.highlighted_phases} grouped_phases={result.grouped_phases} show_alternatives={showAlternatives} weight_percent={result.weight_percent} phase_metadata={result.phase_metadata} />
                 <MergedReferenceList items={referenceVariants(result)} show={showAlternatives} taskId={task_id} onView={setPlotId} />
               </Descriptions.Item>

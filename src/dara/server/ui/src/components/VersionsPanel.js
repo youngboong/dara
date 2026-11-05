@@ -162,7 +162,7 @@ export default function VersionsPanel({ taskId, store, review, onView, onCompare
       </Space>;
     } },
   ];
-  return <section aria-label="Result versions" style={{ marginTop: 20, marginBottom: 20 }}>
+  return <section aria-label="Result versions" style={{ marginTop: 16, marginBottom: 12 }}>
     <h3 style={{ marginBottom: 8 }}>Versions</h3>
     {extra}
     {error ? <Alert type="error" showIcon style={{ marginBottom: 8 }} message={error} /> : null}

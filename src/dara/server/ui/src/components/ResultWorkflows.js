@@ -68,12 +68,12 @@ export async function downloadReport(taskId, selection) {
   } catch (e) { hide(); message.error(e.message || 'Report download failed.'); }
 }
 
-export function ReviewPanel({ data, review, versions = [] }) {
+export function ReviewPanel({ data, review, versions = [], style = null }) {
   // Quick checks are approximate fits: they are never offered for adoption.
   const groups = selectOptionGroups(data.all_results, versions, { adoptable: true, current: review.selection });
   const saved = review.saved.selection;
   const savedLabel = saved == null ? 'Not adopted yet' : selectionLabel(saved, { all_results: data.all_results, versions }) || String(saved);
-  return <section aria-label="Result review" className="dara-panel" style={{ marginBottom: 20, padding: 16, border: '1px solid #d9d9d9', borderRadius: 6 }}>
+  return <section aria-label="Result review" className="dara-panel" style={{ marginBottom: 20, padding: 16, border: '1px solid #d9d9d9', borderRadius: 6, ...style }}>
     <h3>Adopted fit &amp; notes</h3>
     {review.error ? <Alert type="error" showIcon message={review.error} /> : null}
     <Space wrap style={{ marginBottom: 12 }}>
@@ -87,7 +87,7 @@ export function ReviewPanel({ data, review, versions = [] }) {
     <Input.TextArea aria-label="Lab notes" value={review.notes} maxLength={10000} showCount rows={3}
       disabled={review.loading || !!review.error || review.saving} onChange={event => review.setNotes(event.target.value)}
       placeholder="Sample treatment, interpretation, reasons for choosing a fit, remaining unexplained peaks…" />
-    <Space wrap style={{ marginTop: 18 }}>
+    <Space wrap style={{ marginTop: 12 }}>
       <Tooltip title="The report and downloads use the saved choice">
         <Button type="primary" icon={<SaveOutlined />} loading={review.saving} disabled={review.loading || !!review.error || !review.dirty} onClick={() => review.save()}>Save review</Button>
       </Tooltip>

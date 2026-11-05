@@ -44,3 +44,10 @@ code {
 .dara-panel {
   max-width: min(100%, 1100px);
 }
+
+/* Confidence banner and review panel side by side: each fills the width of its column. */
+.dara-summary-row > .ant-col > .ant-alert,
+.dara-summary-row > .ant-col > .dara-panel {
+  width: 100%;
+  max-width: none;
+}

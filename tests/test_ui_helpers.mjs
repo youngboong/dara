@@ -95,4 +95,13 @@ assert.equal(await responseDetailText(fakeResponse(409, { detail: { message: 'Al
 assert.equal(await responseDetailText(fakeResponse(413, { detail: 'File too large' })), 'File too large');
 assert.equal(await responseDetailText(fakeResponse(500)), 'Request failed (HTTP 500)');
 
+// The banner already states unexplained peaks and the mass balance; Cautions keeps the rest.
+const bannerCautions = [
+  { code: 'mass_balance', severity: 'info', message: 'Mass balance' },
+  { code: 'minor_unexplained_peaks', severity: 'info', message: 'Minor peaks' },
+  { code: 'poor_fit', severity: 'warning', message: 'Poor fit' },
+];
+assert.deepEqual(cautionsBesideBanner(bannerCautions).map(item => item.code), ['poor_fit']);
+assert.equal(cautionsBesideBanner(bannerCautions, false).length, 3);
+
 console.log('UI helper tests passed');
