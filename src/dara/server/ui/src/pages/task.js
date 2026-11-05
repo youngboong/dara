@@ -840,7 +840,7 @@ function TaskDetail({ data, task_id }) {
   const refineAll = n => runQuick(refineAllRequest(n), { afterDone: 'compare', base: refineAllBase(store.versions, n) });
   const quickCheck = versionData?.refine_mode === 'fast';
   const addHint = (hint, target) => runQuick({
-    phases: [target], origin: 'add_hint', label: `Added ${hint.formula || hint.phase} (hint)`,
+    phases: [target], origin: 'add_hint', label: `Added ${hint.formula || hint.phase}`,
   });
   // The API nests the alternatives under `verdict.evidence`; an alternative is a stored candidate.
   const alternativeOf = phase => alternativeOfVerdict(displayedResult?.confidence?.phases?.[phase]);
@@ -870,7 +870,7 @@ function TaskDetail({ data, task_id }) {
     setPreview(null);
     runQuick({
       phases: [{ ref: candidate.ref, source: candidate.source }], origin: 'add_peak_search',
-      label: `Added ${candidate.formula || formulaOfPhase(candidate.ref)} (peak search)`,
+      label: `Added ${candidate.formula || formulaOfPhase(candidate.ref)}`,
     });
   };
   // A quick check is changed only through "Refine all phases"; the drawer stays closed on it.

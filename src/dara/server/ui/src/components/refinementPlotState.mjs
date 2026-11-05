@@ -96,10 +96,11 @@ export function buildRefinementView(plot, {
   // A user intensity range (box zoom with Auto-Y off) is the data window: the marker band and
   // the Bragg rows are added below it, so they always stay inside the main panel.
   const userY = finiteRange(yRange);
-  // Scale the intensity axis to the visible 2θ window when zoomed, so weak
-  // peaks fill the panel; fall back to the whole pattern.
-  let fitted = Boolean(fitY && xWindow);
-  let stats = fitted ? intensityStats(plot, shown, xWindow) : intensityStats(plot, () => true, null);
+  // Auto-Y scales the intensity axis to the shown traces in the visible 2θ window (the whole
+  // pattern when not zoomed), so a high background does not leave the lower panel empty.
+  // With Auto-Y off the axis starts at zero.
+  let fitted = Boolean(fitY);
+  let stats = fitted ? intensityStats(plot, shown, xWindow || null) : intensityStats(plot, () => true, null);
   if (!Number.isFinite(stats.maximum)) {
     fitted = false;
     stats = intensityStats(plot, () => true, null);

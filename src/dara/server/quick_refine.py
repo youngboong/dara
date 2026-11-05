@@ -644,9 +644,9 @@ def default_label(request: QuickRefineRequest) -> str:
     removed = ", ".join(_short_name(value) for value in request.remove)
     kind = request.origin
     if kind == "add_hint" and added:
-        return f"Added {added} (hint)"
+        return f"Added {added}"
     if kind == "add_peak_search" and added:
-        return f"Added {added} (peak search)"
+        return f"Added {added}"
     if kind == "swap" and added and removed:
         return f"Swapped {removed} for {added}"
     if kind == "remove" and removed:

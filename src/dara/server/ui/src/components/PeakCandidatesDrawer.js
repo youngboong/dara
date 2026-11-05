@@ -165,7 +165,9 @@ export default function PeakCandidatesDrawer({
   return <Drawer title="Add phase" placement="right" width={DRAWER_WIDTH}
     open={open} onClose={onClose} keyboard={false} mask={false} destroyOnClose={false} className="dara-peak-drawer">
     <Typography.Title level={5} style={{ marginTop: 0 }}>Suggestions</Typography.Title>
-    {!hints.length && !autoPeaks.length ? <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>No suggestions for this fit.</Text> : null}
+    {!hints.length && !autoPeaks.length ? <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+      {diagnostics?.hints_pending ? <><Spin size="small" style={{ marginRight: 8 }} />Looking for suggestions…</> : 'No suggestions for this fit.'}
+    </Text> : null}
     {hints.length ? <div aria-label="Trace phase hints" style={{ marginBottom: 12 }}>
       {hints.map(hint => {
         const target = refSourceForHint(hint);

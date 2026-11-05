@@ -47,9 +47,9 @@ console.log('Legend selection, compact rows, nonnegative ticks, toolbar persiste
   const fullMarkers = full.data.find(trace => trace.name === 'Missing peaks');
   const [flo, fhi] = full.layout.yaxis.range;
   assert.ok(fullMarkers.y.every(y => y >= flo && y <= fhi));
-  // A whole triangle fits: the markers keep clear of both the axis edge and the pattern.
+  // Auto-Y starts the axis under the lowest shown intensity (1500), not at zero; a whole triangle fits.
   const height = fhi - flo;
-  assert.ok(fullMarkers.y[0] - flo > 0.03 * height && 0 - fullMarkers.y[0] > 0.03 * height);
+  assert.ok(fullMarkers.y[0] - flo > 0.03 * height && 1500 - fullMarkers.y[0] > 0.03 * height);
   assert.equal(fullMarkers.cliponaxis, false);
   const withTicks = buildRefinementView({ ...plot, data: [...plot.data,
     { name: 'A', meta: 'reflection', legendgroup: 'A', x: [31], y: [0], marker: { color: '#000' } }] }, { selection: { A: true } });
