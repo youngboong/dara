@@ -109,10 +109,10 @@ export function ReferenceLibraryField({ library }) {
   const [managing, setManaging] = React.useState(false);
   if (!library.available) return null;
   return <>
-    <Form.Item label="Reference library CIFs" extra="Reference structures stored on this server; they are used together with the databases above.">
-      <Space align="start" wrap style={{ width: '100%' }}>
+    <Form.Item label="Reference library CIFs" tooltip="Reference structures stored on this server; they are used together with the databases above.">
+      <div style={{ display: 'flex', gap: 8, width: '100%' }}>
         <Form.Item name="library_cif_ids" noStyle>
-          <Select mode="multiple" allowClear style={{ minWidth: 340 }} placeholder="Select library CIFs"
+          <Select mode="multiple" allowClear style={{ flex: '1 1 0', minWidth: 0 }} placeholder="Select library CIFs"
             onDropdownVisibleChange={visible => { if (visible) library.reload(); }}
             filterOption={(input, option) => String(option?.text || '').toLowerCase().includes(input.toLowerCase())}
             options={library.items.map(item => ({
@@ -122,7 +122,7 @@ export function ReferenceLibraryField({ library }) {
             }))} />
         </Form.Item>
         <Button onClick={() => setManaging(true)}>Manage library</Button>
-      </Space>
+      </div>
     </Form.Item>
     <LibraryManager library={library} open={managing} onClose={() => setManaging(false)} />
   </>;
@@ -143,7 +143,7 @@ export function MpKeyStatus() {
   React.useEffect(() => { load(false); }, [load]);
   const tag = mpKeyTag(status);
   if (!tag) return null;
-  return <span style={{ marginLeft: 12 }}>
+  return <span style={{ whiteSpace: 'nowrap' }}>
     <Tooltip title={tag.tooltip}><Tag color={tag.color} style={{ marginRight: 4 }}>{tag.text}</Tag></Tooltip>
     <Button type="link" size="small" loading={checking} onClick={() => load(true)}>Re-check</Button>
   </span>;

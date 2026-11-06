@@ -5,19 +5,23 @@ import { InfoCircleOutlined } from '@ant-design/icons';
 import { API } from './QuickRefineProgress';
 export const DEFAULT_CONTROLS = { lattice: 'inherit', lattice_percent: 2, orientation: 'inherit', peak_width: 'inherit' };
 
-export function RefinementControlsEditor({ value = DEFAULT_CONTROLS, onChange }) {
+export function RefinementControlsEditor({ value = DEFAULT_CONTROLS, onChange, bare = false }) {
   const update = patch => onChange({ ...value, ...patch });
-  return <section aria-label="Final refinement controls" style={{ padding: 12, border: '1px solid #ddd', borderRadius: 6, marginBottom: 16 }}>
-    <h4>Final refinement controls</h4>
-    <Space wrap align="start">
-      <label>Lattice parameters<br /><Select aria-label="Lattice refinement" value={value.lattice} style={{ width: 200 }} onChange={lattice => update({ lattice })}
+  // ``bare``: no frame, selects fill a responsive grid (used inside a card of the submit form).
+  const width = fallback => (bare ? '100%' : fallback);
+  const Fields = bare ? 'div' : Space;
+  const fieldsProps = bare ? { className: 'dara-field-row' } : { wrap: true, align: 'start' };
+  return <section aria-label="Final refinement controls" style={bare ? undefined : { padding: 12, border: '1px solid #ddd', borderRadius: 6, marginBottom: 16 }}>
+    {bare ? <div className="dara-subhead">Final refinement controls</div> : <h4>Final refinement controls</h4>}
+    <Fields {...fieldsProps}>
+      <label>Lattice parameters<br /><Select aria-label="Lattice refinement" value={value.lattice} style={{ width: width(200) }} onChange={lattice => update({ lattice })}
         options={[{value:'inherit',label:'Keep saved/default'}, {value:'fixed',label:'Fixed to reference CIF'}, {value:'refine',label:'Refine within bounds'}]} /></label>
-      {value.lattice === 'refine' ? <label>Allowed lattice change (±%)<br /><InputNumber aria-label="Lattice bound percent" min={0.01} max={10} step={0.5} value={value.lattice_percent} onChange={lattice_percent => update({ lattice_percent })} /></label> : null}
-      <label>Preferred orientation <Tooltip title="More flexible models can lower Rwp without proving the phase assignment."><InfoCircleOutlined /></Tooltip><br /><Select aria-label="Preferred orientation" value={value.orientation} style={{ width: 220 }} onChange={orientation => update({ orientation })}
+      {value.lattice === 'refine' ? <label>Allowed lattice change (±%)<br /><InputNumber aria-label="Lattice bound percent" min={0.01} max={10} step={0.5} value={value.lattice_percent} onChange={lattice_percent => update({ lattice_percent })} style={bare ? { width: '100%' } : undefined} /></label> : null}
+      <label>Preferred orientation <Tooltip title="More flexible models can lower Rwp without proving the phase assignment."><InfoCircleOutlined /></Tooltip><br /><Select aria-label="Preferred orientation" value={value.orientation} style={{ width: width(220) }} onChange={orientation => update({ orientation })}
         options={[{value:'inherit',label:'Keep saved/default'}, {value:'isotropic',label:'None (random powder)'}, {value:'SPHAR2',label:'Spherical harmonics: order 2'}, {value:'SPHAR4',label:'Spherical harmonics: order 4'}]} /></label>
-      <label>Sample peak broadening <Tooltip title="Instrument-only broadening is appropriate only when sample broadening is negligible."><InfoCircleOutlined /></Tooltip><br /><Select aria-label="Peak broadening" value={value.peak_width} style={{ width: 220 }} onChange={peak_width => update({ peak_width })}
+      <label>Sample peak broadening <Tooltip title="Instrument-only broadening is appropriate only when sample broadening is negligible."><InfoCircleOutlined /></Tooltip><br /><Select aria-label="Peak broadening" value={value.peak_width} style={{ width: width(220) }} onChange={peak_width => update({ peak_width })}
         options={[{value:'inherit',label:'Keep saved/default'}, {value:'refine',label:'Refine K1, K2 and B1'}, {value:'instrument_only',label:'Fixed K1 = K2 = B1 = 0'}]} /></label>
-    </Space>
+    </Fields>
   </section>;
 }
 
@@ -74,7 +78,7 @@ export function TaskProgress({ taskId, onStatusChange }) {
   </section>;
 }
 
-export function InstrumentManager({ onRegistered }) {
+export function InstrumentManager({ onRegistered, buttonLabel = 'Register instrument profile', buttonSize = 'small' }) {
   const [open, setOpen] = React.useState(false);
   const [form] = Form.useForm();
   const [files, setFiles] = React.useState({});
@@ -98,7 +102,7 @@ export function InstrumentManager({ onRegistered }) {
     } catch (e) { if (e.message) message.error(e.message); }
     finally { setBusy(false); }
   };
-  return <><Button size="small" onClick={() => setOpen(true)}>Register instrument profile</Button>
+  return <><Button size={buttonSize} onClick={() => setOpen(true)}>{buttonLabel}</Button>
     <Modal title="Register a calibrated instrument profile" open={open} onCancel={() => !busy && setOpen(false)} onOk={submit} confirmLoading={busy} destroyOnClose>
       <Alert showIcon type="warning" message="Importing a file is not automatic calibration."
         description="Use a BGMN GEQ profile generated for the actual optics and detector. Supply its matching GER when available. An XRDML instrument name alone cannot verify the optics." style={{marginBottom:16}} />

@@ -60,3 +60,34 @@ export function writeRemembered(storage, values, controls = null) {
 export function forgetRemembered(storage) {
   try { storage?.removeItem(SUBMIT_DEFAULTS_KEY); } catch (_) { /* storage unavailable */ }
 }
+
+// --- advanced submit options ----------------------------------------------------------------
+/** Defaults of the options shown in the collapsible "Advanced" card of the submit form. */
+export const ADVANCED_DEFAULTS = {
+  use_cod: true, use_mp: true, mp_e_hull_cutoff: 0.05, max_mp_structures: 100,
+  candidate_prefilter: true, screening_timeout_s: 300, max_analysis_minutes: null,
+};
+
+const ADVANCED_LABELS = {
+  use_cod: 'COD', use_mp: 'MP', mp_e_hull_cutoff: 'E-hull cutoff', max_mp_structures: 'MP limit',
+  candidate_prefilter: 'pre-filter', screening_timeout_s: 'screening limit', max_analysis_minutes: 'time limit',
+};
+
+const sameControls = (a, b) => Object.keys({ ...a, ...b }).every(key => a?.[key] === b?.[key]);
+
+/** Labels of the advanced options that differ from their defaults. Fields not yet in the form
+ * (``undefined``) count as default; a blank screening limit (``null``) is a change. */
+export function advancedChanges(values, controls = null, defaultControls = null) {
+  const v = values || {};
+  const changed = [];
+  for (const [key, fallback] of Object.entries(ADVANCED_DEFAULTS)) {
+    const value = v[key];
+    if (value === undefined) continue;
+    if ((value ?? null) !== fallback) changed.push(ADVANCED_LABELS[key]);
+  }
+  if (controls && defaultControls && !sameControls(controls, defaultControls)) changed.push('refinement controls');
+  if (Array.isArray(v.library_cif_ids) && v.library_cif_ids.length) changed.push('library CIFs');
+  if (Array.isArray(v.additional_phases) && v.additional_phases.length) changed.push('additional CIFs');
+  if (v.reuse_additional_cifs === false) changed.push('saved CIFs not reused');
+  return changed;
+}

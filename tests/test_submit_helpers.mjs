@@ -50,3 +50,20 @@ console.log('submit helpers ok');
   assert.equal(writeRemembered({ setItem: () => { throw new Error('quota'); } }, values), false);
   console.log('remembered submit settings ok');
 }
+
+// advanced options: only real differences from the defaults are reported
+{
+  const { advancedChanges, ADVANCED_DEFAULTS } = await import('../src/dara/server/ui/src/components/submitHelpers.mjs');
+  const controls = { lattice: 'inherit', lattice_percent: 2, orientation: 'inherit', peak_width: 'inherit' };
+  assert.deepEqual(advancedChanges({}, controls, controls), []);
+  assert.deepEqual(advancedChanges(null), []);
+  assert.deepEqual(advancedChanges({ ...ADVANCED_DEFAULTS, library_cif_ids: [], additional_phases: [], reuse_additional_cifs: true }, { ...controls }, controls), []);
+  assert.deepEqual(advancedChanges({ max_analysis_minutes: undefined, screening_timeout_s: undefined }), []);
+  assert.deepEqual(advancedChanges({ screening_timeout_s: null }), ['screening limit']);
+  assert.deepEqual(advancedChanges({ use_mp: false, max_analysis_minutes: 30 }), ['MP', 'time limit']);
+  assert.deepEqual(advancedChanges({ mp_e_hull_cutoff: 0.1, candidate_prefilter: false }), ['E-hull cutoff', 'pre-filter']);
+  assert.deepEqual(advancedChanges({}, { ...controls, orientation: 'SPHAR4' }, controls), ['refinement controls']);
+  assert.deepEqual(advancedChanges({ library_cif_ids: ['a'], additional_phases: [{}], reuse_additional_cifs: false }),
+    ['library CIFs', 'additional CIFs', 'saved CIFs not reused']);
+  console.log('advanced changes ok');
+}
