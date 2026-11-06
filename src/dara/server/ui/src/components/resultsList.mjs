@@ -1,5 +1,15 @@
 import { adoptedTag } from './versions.mjs';
 
+const STATE_TEXT = {
+  READY: 'Queued', RUNNING: 'Running', COMPLETED: 'Completed', FIZZLED: 'Failed',
+  CANCELLING: 'Stopping', CANCELLED: 'Cancelled',
+};
+
+/** Practitioner wording of a job state ("READY" is a queued job that has not started). */
+export function stateLabel(state) {
+  return STATE_TEXT[state] || state || '—';
+}
+
 /** Two-decimal number or an em dash. */
 export function formatFixed(value, digits = 2) {
   const number = Number(value);

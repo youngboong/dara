@@ -640,6 +640,10 @@ export function runText(start, runtime) {
 /** Version label in the progressive form while the job runs ("Added X" → "Adding X"). */
 export function progressLabel(label) {
   const text = String(label || '');
+  // "Added X · all phases refined" is the full fit of a quick check: nothing is being added.
+  const refined = text.match(/^(.*?)\s*·\s*all phases refined$/i);
+  if (refined) return refined[1] ? `Refining all phases (${refined[1]})` : 'Refining all phases';
+  if (/^all phases refined$/i.test(text)) return 'Refining all phases';
   for (const [done, doing] of [['Added ', 'Adding '], ['Removed ', 'Removing '], ['Swapped ', 'Swapping ']]) {
     if (text.startsWith(done)) return doing + text.slice(done.length);
   }

@@ -7,7 +7,7 @@ import { parseComparisonTaskIds } from '../components/patternComparison.mjs';
 import { runAfterSuccess } from '../components/submitHelpers.mjs';
 import { retryTask } from '../components/ResultWorkflows';
 import { API as URL } from '../components/QuickRefineProgress';
-import { adoptedLabel, formatFixed, phasesLabel, phasesTooltip, tasksQuery } from '../components/resultsList.mjs';
+import { adoptedLabel, formatFixed, phasesLabel, phasesTooltip, stateLabel, tasksQuery } from '../components/resultsList.mjs';
 import { overallColor, overallLabel } from '../components/confidence.mjs';
 
 /** Status tag of a completed task followed by its overall confidence (same labels as the task page). */
@@ -111,7 +111,7 @@ function ResultsPage({ location }) {
       dataIndex: 'state',
       key: 'state',
       render: (text, entry) => {
-        const tag = <Tag color={STATE_COLOR[text] ? STATE_COLOR[text] : 'grey'} key={text}>{text}</Tag>
+        const tag = <Tag color={STATE_COLOR[text] ? STATE_COLOR[text] : 'grey'} key={text}>{stateLabel(text)}</Tag>
         const shown = text === 'FIZZLED' && entry.error_summary?.title
           ? <Tooltip title={entry.error_summary.title}>{tag}</Tooltip>
           : tag

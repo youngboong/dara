@@ -27,7 +27,7 @@ import { MOUSE_HELP, SHORTCUT_HELP } from '../components/keyboardShortcuts.mjs';
 import {
   collectHints, hintsPending, observedPeak, peakFromPlotClick, peakShapes, phaseGroupNames, previewTrace, significantPeaks, updatePeakSelection,
 } from '../components/peakSelection.mjs';
-import { searchOptionsText } from '../components/resultsList.mjs';
+import { searchOptionsText, stateLabel } from '../components/resultsList.mjs';
 import {
   BASELINE_LABEL, QUICK_CHECK_HINT, REFINE_ALL_FIRST, addedLabel, alternativeLink, alternativeOfVerdict, availableComparisonBase, baselineRequest, comparisonBase,
   deltaBaseText, deltaStrip, deltaText, displayedCandidateOf, fitFromSearch, phaseSymbolLookup, searchWithFit,
@@ -785,9 +785,14 @@ function TaskDetail({ data, task_id }) {
   const effectiveBase = versionData ? availableComparisonBase(versionData.origin?.base ?? 'best', store.versions, versionNumber) : null;
   const baseParsed = effectiveBase !== null ? parseSelection(effectiveBase) : null;
   const baseVersionNumber = baseParsed && typeof baseParsed === 'object' ? baseParsed.version : null;
+  // The task summary shows the adopted fit once one is saved (a version or a candidate).
+  const adoptedSel = savedReview.saved?.selection ?? null;
+  const adoptedParsed = adoptedSel === null ? null : parseSelection(adoptedSel);
+  const adoptedVersionNumber = adoptedParsed && typeof adoptedParsed === 'object' && !versionGone(store.versions, adoptedSel)
+    ? adoptedParsed.version : null;
   React.useEffect(() => {
     if (versionPending) return undefined;
-    const wanted = [versionNumber, baseVersionNumber].filter(n => n && !versionDetails[n]);
+    const wanted = [versionNumber, baseVersionNumber, adoptedVersionNumber].filter(n => n && !versionDetails[n]);
     if (!wanted.length) return undefined;
     let active = true;
     setVersionError('');
@@ -800,7 +805,7 @@ function TaskDetail({ data, task_id }) {
         });
     });
     return () => { active = false; };
-  }, [task_id, versionNumber, baseVersionNumber, versionDetails, versionPending]);
+  }, [task_id, versionNumber, baseVersionNumber, versionDetails, versionPending, adoptedVersionNumber]);
   // "Find phases for the unexplained peaks" opens the fit and the drawer together.
   const openDrawerWithFit = React.useRef(false);
   React.useEffect(() => {
@@ -828,6 +833,11 @@ function TaskDetail({ data, task_id }) {
     return versionDetails[parsed.version]?.final_result;
   };
   const baseSummary = versionData ? findSummary(effectiveBase) : null;
+  const adoptedSummary = adoptedSel === null || adoptedParsed === 'best' ? null : findSummary(adoptedSel);
+  const summary = adoptedSummary || data.final_result;
+  const summaryHeading = adoptedSummary
+    ? `Phases (adopted: ${selectionLabel(adoptedSel, { versions: store.versions, all_results: data.all_results }).split(' — ')[0]})`
+    : 'Phases (best fit)';
   const deltaRows = versionData?.final_result && baseSummary ? deltaStrip(baseSummary, versionData.final_result, symbolOf) : [];
   const displayedPhases = displayedResult ? (displayedResult.highlighted_phases || displayedResult.phases || []) : [];
   // Explicit background polynomial degree of the displayed fit (null: BGMN chooses it).
@@ -950,7 +960,7 @@ function TaskDetail({ data, task_id }) {
     .catch(error => message.error(error.message || 'Could not download the result.'));
   const searchSummary = data.search_summary || {};
   const excludedRanges = data.additional_search_options?.refinement_params?.excluded_ranges || [];
-  const hasBanner = Boolean(data.final_result?.confidence?.overall?.level);
+  const hasBanner = Boolean(summary?.confidence?.overall?.level);
   const addPhaseTip = quickCheck ? REFINE_ALL_FIRST
     : suggestionCount ? `${suggestionCount} possible or strong match${suggestionCount === 1 ? '' : 'es'} for the significant unexplained peaks` : null;
 
@@ -973,9 +983,9 @@ function TaskDetail({ data, task_id }) {
       {/* Confidence banner and review side by side on wide screens, stacked below 1200 px. */}
       <Row gutter={[16, 12]} className="dara-summary-row" style={{ marginBottom: 12 }}>
         {hasBanner ? <Col xs={24} xl={12}>
-          <ConfidenceBanner confidence={data.final_result?.confidence} style={{ marginBottom: 0 }}
-            action={significantPeaks(data.final_result?.peak_diagnostics).length
-              ? <Button size="small" icon={<SearchOutlined />} onClick={() => { openDrawerWithFit.current = true; setPlotId(null); }}>
+          <ConfidenceBanner confidence={summary?.confidence} style={{ marginBottom: 0 }}
+            action={significantPeaks(summary?.peak_diagnostics).length
+              ? <Button size="small" icon={<SearchOutlined />} onClick={() => { openDrawerWithFit.current = true; setPlotId(adoptedSummary ? adoptedSel : null); }}>
                 Find phases for the unexplained peaks
               </Button> : null} />
         </Col> : null}
@@ -992,15 +1002,15 @@ function TaskDetail({ data, task_id }) {
         </Descriptions.Item>
         <Descriptions.Item label="Fit quality">
           <Space size="small" wrap>
-            <FitQualitySummary quality={data.final_result.fit_quality} />
-            <DisplacementTag confidence={data.final_result.confidence} />
+            <FitQualitySummary quality={summary.fit_quality} />
+            <DisplacementTag confidence={summary.confidence} />
           </Space>
         </Descriptions.Item>
         <Descriptions.Item label="Peak diagnostics">
-          <PeakDiagnosticTags diagnostics={data.final_result.peak_diagnostics} />
+          <PeakDiagnosticTags diagnostics={summary.peak_diagnostics} />
         </Descriptions.Item>
       </Descriptions>
-      <FitCautions cautions={data.final_result.cautions} besideBanner={hasBanner} />
+      <FitCautions cautions={summary.cautions} besideBanner={hasBanner} />
       <details style={{ marginTop: 8 }}>
         <summary>Analysis settings</summary>
         <Descriptions bordered column={columns} size='small' style={{ marginTop: 8 }}>
@@ -1027,8 +1037,8 @@ function TaskDetail({ data, task_id }) {
           <Descriptions.Item label="Hypothesis search" span={columns}><SearchSummary summary={searchSummary} /></Descriptions.Item>
         </Descriptions>
       </details>
-      <h3 style={{ marginTop: 16 }}>Phases (best fit)</h3>
-      <PhaseRefinementTable phases={data.final_result.phases} metadata={data.final_result.phase_metadata} details={data.final_result.phase_details} confidence={data.final_result.confidence} />
+      <h3 style={{ marginTop: 16 }}>{summaryHeading}</h3>
+      <PhaseRefinementTable phases={summary.highlighted_phases || summary.phases} metadata={summary.phase_metadata} details={summary.phase_details} confidence={summary.confidence} />
       <VersionsPanel taskId={task_id} store={store} review={review}
         onView={setPlotId} onCompare={(a, b) => setCompare({ a, b })} symbolOf={symbolOf} onRefineAll={quickShown ? refineAll : null} refineBusy={quick.busy}
         extra={quickShown ? <QuickRefineProgress job={quick.job} onCancel={quick.cancel} onDismiss={quick.dismiss} /> : null} />
@@ -1205,7 +1215,7 @@ function TaskDetailedUnfinished({ data, taskId }) {
     {status === 'FIZZLED' ? <RetryActions taskId={taskId} errorSummary={error_summary} /> : null}
     <Descriptions bordered column={1} size='small'>
     <Descriptions.Item label="Name" span={1}>{data.task_label}</Descriptions.Item>
-    <Descriptions.Item label="Status" span={1}><Tag color={STATE_COLOR[status]}>{status}</Tag></Descriptions.Item>
+    <Descriptions.Item label="Status" span={1}><Tag color={STATE_COLOR[status]}>{stateLabel(status)}</Tag></Descriptions.Item>
     <Descriptions.Item label="Submitted on" span={1}>{submitted_on}</Descriptions.Item>
     {start_time ? <Descriptions.Item label="Start time" span={1}>{start_time}</Descriptions.Item> : <></>}
     {end_time ? <Descriptions.Item label="End time" span={1}>{end_time}</Descriptions.Item> : <></>}

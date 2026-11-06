@@ -158,6 +158,8 @@ assert.equal(etaText({ status: 'queued', ahead: 1, ahead_label: 'Baseline (curre
   'Waiting for Baseline (current code) (running 1 min 35 s)');
 assert.equal(etaText({ status: 'queued', ahead: 2, ahead_label: 'Removed X', ahead_elapsed_s: 0 }), 'Waiting for Removed X + 1 more');
 assert.equal(progressLabel('Added Bi4O7 (peak search)'), 'Adding Bi4O7 (peak search)');
+assert.equal(progressLabel('Added Fe2O3 · all phases refined'), 'Refining all phases (Added Fe2O3)');
+assert.equal(progressLabel('All phases refined'), 'Refining all phases');
 assert.equal(progressLabel('Swapped A for B'), 'Swapping A for B');
 assert.equal(progressLabel('Baseline (current code)'), 'Baseline (current code)');
 assert.equal(etaText({ status: 'done' }), '');

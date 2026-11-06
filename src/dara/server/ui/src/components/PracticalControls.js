@@ -1,5 +1,6 @@
 import React from 'react';
 import { runAfterSuccess } from './submitHelpers.mjs';
+import { stateLabel } from './resultsList.mjs';
 import { Alert, Button, Checkbox, Form, Input, InputNumber, message, Modal, Progress, Select, Space, Tag, Tooltip } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import { API } from './QuickRefineProgress';
@@ -68,12 +69,12 @@ export function TaskProgress({ taskId, onStatusChange }) {
   if (error) return <Alert type="warning" message={error} />;
   if (!data || data.status === 'COMPLETED') return null;
   return <section aria-label="Analysis progress" className="dara-panel" style={{ padding: 16, border: '1px solid #ddd', borderRadius: 6, marginBottom: 16 }}>
-    <Space wrap><Tag>{data.status}</Tag><strong>{data.stage}</strong>
+    <Space wrap><Tag>{stateLabel(data.status)}</Tag><strong>{data.status === 'READY' ? 'Waiting for the analyses ahead to finish' : data.stage}</strong>
       {['READY','RUNNING','CANCELLING'].includes(data.status) ? <Button danger loading={busy} disabled={data.status === 'CANCELLING'} onClick={cancel}>{data.status === 'CANCELLING' ? 'Stopping…' : 'Stop analysis'}</Button> : null}
       {data.completed_candidates > 0 ? <Button href={`${API}/task/${taskId}/checkpoints`}>Download completed candidates ({data.completed_candidates})</Button> : null}
     </Space>
     {Number.isFinite(data.elapsed_s) ? <p style={{ marginTop: 8, marginBottom: 0 }}>Elapsed {clock(data.elapsed_s)}{Number.isFinite(data.budget_s) ? ` / limit ${clock(data.budget_s)}` : ''}</p> : null}
-    {data.total > 0 ? <><Progress percent={Math.round(100 * data.completed / data.total)} status={data.status === 'RUNNING' ? 'active' : 'normal'} /><p>{data.stage === 'Screening reference phases' ? `${data.completed} / ${data.total} references screened` : `${data.completed} / ${data.total} candidate attempts finished (not overall progress)`}{Number.isFinite(data.eta_s) ? etaText(data.eta_s) : ''}.</p></> : <p style={{ marginTop: 8 }}>This stage has no reliable percentage estimate.</p>}
+    {data.total > 0 ? <><Progress percent={Math.round(100 * data.completed / data.total)} status={data.status === 'RUNNING' ? 'active' : 'normal'} /><p>{data.stage === 'Screening reference phases' ? `${data.completed} / ${data.total} references screened` : `${data.completed} / ${data.total} candidate attempts finished (not overall progress)`}{Number.isFinite(data.eta_s) ? etaText(data.eta_s) : ''}.</p></> : null}
     {data.completed_candidates > 0 ? <p>Checkpoints contain completed refinements only, numbered by execution order; final ranking may change.</p> : null}
   </section>;
 }

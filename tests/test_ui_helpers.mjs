@@ -3,7 +3,7 @@ import {
   cautionSortValue, cautionTagColor, cautionTooltip, cautionsBesideBanner, countCautions, sortCautions,
 } from '../src/dara/server/ui/src/components/fitCautions.mjs';
 import {
-  adoptedLabel, formatFixed, phasesLabel, phasesTooltip, tasksQuery,
+  adoptedLabel, formatFixed, phasesLabel, phasesTooltip, stateLabel, tasksQuery,
 } from '../src/dara/server/ui/src/components/resultsList.mjs';
 import {
   detailMessage, qualityAlertItems, qualityStatText, wavelengthMismatch,
@@ -103,5 +103,9 @@ const bannerCautions = [
 ];
 assert.deepEqual(cautionsBesideBanner(bannerCautions).map(item => item.code), ['poor_fit']);
 assert.equal(cautionsBesideBanner(bannerCautions, false).length, 3);
+
+assert.equal(stateLabel('READY'), 'Queued');
+assert.equal(stateLabel('FIZZLED'), 'Failed');
+assert.equal(stateLabel('SOMETHING'), 'SOMETHING');
 
 console.log('UI helper tests passed');
